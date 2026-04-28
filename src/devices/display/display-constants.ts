@@ -1,0 +1,9 @@
+/**
+ * SSD1306 128×64 monochrome display geometry (logical pixels).
+ */
+
+export const DISPLAY_WIDTH_PIXELS = 128;
+export const DISPLAY_HEIGHT_PIXELS = 64;
+export const DISPLAY_PAGE_HEIGHT_PIXELS = 8;
+export const DISPLAY_PAGE_COUNT = DISPLAY_HEIGHT_PIXELS / DISPLAY_PAGE_HEIGHT_PIXELS;
+export const TOTAL_PIXEL_COUNT = DISPLAY_WIDTH_PIXELS * DISPLAY_HEIGHT_PIXELS;
