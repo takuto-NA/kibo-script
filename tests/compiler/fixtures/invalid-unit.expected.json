@@ -1,0 +1,31 @@
+{
+  "ok": false,
+  "diagnostics": [
+    {
+      "id": "unit.type_mismatch",
+      "phase": "type_check",
+      "message": "Task \"every\" interval must use the \"ms\" time unit.",
+      "location": {
+        "file": "invalid-unit.sc",
+        "start": {
+          "line": 3,
+          "column": 18,
+          "offset": 34
+        },
+        "end": {
+          "line": 3,
+          "column": 25,
+          "offset": 41
+        }
+      },
+      "expected": {
+        "kind": "unit",
+        "unit": "ms"
+      },
+      "actual": {
+        "kind": "unit",
+        "unit": "deg"
+      }
+    }
+  ]
+}

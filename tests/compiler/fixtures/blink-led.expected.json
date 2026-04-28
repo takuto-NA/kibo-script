@@ -1,0 +1,22 @@
+{
+  "ok": true,
+  "program": {
+    "everyTasks": [
+      {
+        "taskName": "blink",
+        "intervalMilliseconds": 1000,
+        "statements": [
+          {
+            "kind": "do_method_call",
+            "deviceAddress": {
+              "kind": "led",
+              "id": 0
+            },
+            "methodName": "toggle",
+            "arguments": []
+          }
+        ]
+      }
+    ]
+  }
+}

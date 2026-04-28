@@ -1,15 +1,16 @@
 import { DeviceBus } from "./device-bus";
 import type { DeviceEffect } from "./device-bus";
+import { mapExecutableStatementToDeviceEffects } from "./executable-statement-to-device-effects";
 import type { DefaultDevices } from "../devices/create-default-devices";
 import { createDefaultDevices, registerDefaultDevices } from "../devices/create-default-devices";
-import type { TaskRegistry } from "./task-registry";
+import type { TaskRecord, TaskRegistry } from "./task-registry";
 
 export type SimulationTickResult = {
   appliedEffectCount: number;
 };
 
 /**
- * Applies queued effects on tick boundaries; advances cooperative every-tasks.
+ * cooperative every-task の時間を進め、コンパイル済みタスク本体から DeviceEffect を生成してキューへ積む。
  */
 export class SimulationRuntime {
   private readonly deviceBus: DeviceBus;
@@ -47,8 +48,8 @@ export class SimulationRuntime {
   }
 
   public tick(elapsedMilliseconds: number): SimulationTickResult {
-    const appliedEffectCount = this.flushPendingEffects();
     this.advanceEveryTasks(elapsedMilliseconds);
+    const appliedEffectCount = this.flushPendingEffects();
     return { appliedEffectCount };
   }
 
@@ -73,7 +74,19 @@ export class SimulationRuntime {
       task.accumulatedMilliseconds += elapsedMilliseconds;
       while (task.accumulatedMilliseconds >= interval) {
         task.accumulatedMilliseconds -= interval;
+        this.enqueueCompiledTaskEffects(task);
       }
+    }
+  }
+
+  private enqueueCompiledTaskEffects(task: TaskRecord): void {
+    const statements = task.compiledStatements;
+    if (statements === undefined) {
+      return;
+    }
+    for (const statement of statements) {
+      const deviceEffects = mapExecutableStatementToDeviceEffects(statement);
+      this.queueEffects(deviceEffects);
     }
   }
 }

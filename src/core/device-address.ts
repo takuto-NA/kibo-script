@@ -6,6 +6,7 @@ export type DeviceKindName =
   | "adc"
   | "serial"
   | "display"
+  | "led"
   | "pwm"
   | "button"
   | "imu"
@@ -18,7 +19,7 @@ export type DeviceAddress = {
 };
 
 const DEVICE_KIND_PATTERN =
-  /^(adc|serial|display|pwm|button|imu|motor|servo)#(\d+)$/;
+  /^(adc|serial|display|led|pwm|button|imu|motor|servo)#(\d+)$/;
 
 export type ParseDeviceAddressResult =
   | { ok: true; address: DeviceAddress }

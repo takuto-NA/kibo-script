@@ -37,6 +37,18 @@ export type DeviceEffect =
   | {
       kind: "display.present";
       address: DeviceAddress;
+    }
+  | {
+      kind: "led.on";
+      address: DeviceAddress;
+    }
+  | {
+      kind: "led.off";
+      address: DeviceAddress;
+    }
+  | {
+      kind: "led.toggle";
+      address: DeviceAddress;
     };
 
 export type DeviceReadRequest = {

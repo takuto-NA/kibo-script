@@ -1,6 +1,8 @@
 /**
- * Registered cooperative tasks (metadata + optional every-ms callback for MVP).
+ * Registered cooperative tasks（interactive の raw body と compiler の compiledStatements を保持）。
  */
+
+import type { ExecutableStatement } from "./executable-task";
 
 export type TaskRunMode = "every" | "on_event";
 
@@ -12,8 +14,10 @@ export type TaskRecord = {
   running: boolean;
   /** Accumulated time since last fire for every-tasks. */
   accumulatedMilliseconds: number;
-  /** Raw body text inside braces. */
+  /** Raw body text inside braces（interactive / shell 用）。 */
   body: string;
+  /** Compiler が生成したタスク本体（full compiler 経路）。未設定なら every tick で実行しない。 */
+  compiledStatements?: ExecutableStatement[];
 };
 
 export class TaskRegistry {

@@ -101,11 +101,158 @@ export function buildRuntimeOutOfRange(params: {
   };
 }
 
-export function buildTaskUnknown(name: string): StructuredDiagnostic {
+export function buildParseUnsupportedSyntax(params: {
+  file: string;
+  range?: SourceRange;
+  rangeText?: string;
+  message: string;
+}): StructuredDiagnostic {
+  return {
+    id: "parse.unsupported_syntax",
+    severity: "error",
+    phase: "parse",
+    message: params.message,
+    location: params.range,
+    rangeText: params.rangeText,
+    explanation: "This syntax is not implemented in the current compiler phase.",
+  };
+}
+
+export function buildNameUnknownReference(params: {
+  name: string;
+  range?: SourceRange;
+  rangeText?: string;
+}): StructuredDiagnostic {
+  return {
+    id: "name.unknown_reference",
+    severity: "error",
+    phase: "bind",
+    message: `Unknown reference "${params.name}".`,
+    location: params.range,
+    rangeText: params.rangeText,
+  };
+}
+
+export function buildNameDuplicateDeclaration(params: {
+  name: string;
+  range?: SourceRange;
+  secondaryRange?: SourceRange;
+}): StructuredDiagnostic {
+  return {
+    id: "name.duplicate_declaration",
+    severity: "error",
+    phase: "bind",
+    message: `Duplicate declaration of "${params.name}".`,
+    location: params.range,
+    related:
+      params.secondaryRange !== undefined
+        ? [
+            {
+              message: "First declared here.",
+              location: params.secondaryRange,
+            },
+          ]
+        : undefined,
+  };
+}
+
+export function buildSemanticDuplicateTaskName(params: {
+  name: string;
+  range?: SourceRange;
+  related?: RelatedLocation[];
+}): StructuredDiagnostic {
+  return {
+    id: "semantic.duplicate_task_name",
+    severity: "error",
+    phase: "semantic_check",
+    message: `Duplicate task name "${params.name}".`,
+    location: params.range,
+    related: params.related,
+  };
+}
+
+export function buildSemanticInvalidTaskInterval(params: {
+  range?: SourceRange;
+  message: string;
+}): StructuredDiagnostic {
+  return {
+    id: "semantic.invalid_task_interval",
+    severity: "error",
+    phase: "semantic_check",
+    message: params.message,
+    location: params.range,
+  };
+}
+
+export function buildCompilerEmptyScript(params: {
+  file: string;
+}): StructuredDiagnostic {
+  return {
+    id: "compiler.empty_script",
+    severity: "error",
+    phase: "parse",
+    message: "Script is empty or contains only whitespace.",
+    explanation: "Provide at least one declaration or task.",
+  };
+}
+
+export function buildTypeMethodNotFound(params: {
+  methodName: string;
+  deviceKindName: string;
+  range?: SourceRange;
+  rangeText?: string;
+}): StructuredDiagnostic {
+  return {
+    id: "type.method_not_found",
+    severity: "error",
+    phase: "type_check",
+    message: `Method "${params.methodName}" is not defined for device kind "${params.deviceKindName}".`,
+    location: params.range,
+    rangeText: params.rangeText,
+  };
+}
+
+export function buildTypeMethodArityMismatch(params: {
+  methodName: string;
+  range?: SourceRange;
+  expectedMinimumParameterCount: number;
+  expectedMaximumParameterCount: number;
+  actualParameterCount: number;
+}): StructuredDiagnostic {
+  return {
+    id: "type.method_arity_mismatch",
+    severity: "error",
+    phase: "type_check",
+    message: `Wrong number of arguments for "${params.methodName}" (expected ${params.expectedMinimumParameterCount}-${params.expectedMaximumParameterCount}, got ${params.actualParameterCount}).`,
+    location: params.range,
+  };
+}
+
+export function buildTypeArgumentTypeMismatch(params: {
+  message: string;
+  range?: SourceRange;
+  rangeText?: string;
+  expected?: StructuredValue;
+  actual?: StructuredValue;
+}): StructuredDiagnostic {
+  return {
+    id: "type.argument_type_mismatch",
+    severity: "error",
+    phase: "type_check",
+    message: params.message,
+    location: params.range,
+    rangeText: params.rangeText,
+    expected: params.expected,
+    actual: params.actual,
+  };
+}
+
+export function buildTaskUnknown(params: { taskName: string }): StructuredDiagnostic {
   return {
     id: "task.unknown",
     severity: "error",
-    phase: "semantic_check",
-    message: `Unknown task "${name}".`,
+    phase: "runtime",
+    message: `Unknown task "${params.taskName}".`,
   };
 }
+

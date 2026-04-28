@@ -235,7 +235,7 @@ export function evaluateInteractiveCommand(
     if (task === undefined) {
       return {
         ok: false,
-        report: createDiagnosticReport([buildTaskUnknown(command.name)]),
+        report: createDiagnosticReport([buildTaskUnknown({ taskName: command.name })]),
       };
     }
     lines.push(`name: ${task.name}`);
