@@ -32,7 +32,7 @@ npm audit --audit-level=moderate
 直近確認:
 
 - `npm run typecheck`: 成功
-- `npm test`: 成功（30 files / 87 tests）
+- `npm test`: 成功（30 files / 88 tests）
 - `npm run build`: 成功
 - `npm run test:e2e`: 成功（4 tests）
 - Script ergonomics: `const` / `temp`、算術・比較、`match` 式（数値・範囲）、`if` を追加済み。
@@ -43,6 +43,7 @@ npm audit --audit-level=moderate
 
 - Interactive terminal: 1 行 command、task 操作、diagnostics 表示。
 - StaticCore Script textarea: 複数行 script を compile して runtime に登録。
+- `serial#0.println(...)`: task / interactive command の出力を terminal に表示。
 - `display#0`: 128x64 の 1bit framebuffer を OLED 風 canvas に描画。
 - `led#0`: on/off をランプで表示。
 - `pwm#0`: 0–100% の level をバーと数値で表示（script の `pwm#0.level` と同期）。
@@ -88,7 +89,7 @@ drop task <name>
 制限:
 
 - interactive task body は現状 1 行 1 つの `do ...` のみ。
-- interactive task body で `state` / `set` / `wait` / `match` を使うには、今後 body parser を拡張する必要がある。
+- interactive task body で `state` / `set` / `wait` / `match` / `const` / `temp` / `if` を使うには、今後 body parser を拡張する必要がある。
 - これらの構文を使う場合は、現状では script textarea の full compiler 経路を使う。
 
 ## 仮想デバイス
@@ -96,7 +97,7 @@ drop task <name>
 実装済みデバイス:
 
 - `adc#0`: raw 値を読める。Embed から値を設定できる。
-- `serial#0`: `println` による出力を保持できる。
+- `serial#0`: `println` による出力を保持し、ブラウザ terminal に表示できる。
 - `display#0`: `clear` / `pixel` / `line` / `circle` / `present` に対応。
 - `led#0`: `on` / `off` / `toggle` に対応。
 - `pwm#0`: `level(percent)` に対応。0-100% に clamp する。
@@ -117,32 +118,44 @@ drop task <name>
 実装済みの主な構文:
 
 - `ref`
+- `const`
 - `state`
 - `task <name> every <N>ms`
 - `task <name> on <device#id>.<event>`
 - `task <name> on <ref>.<event>`
 - `do <device/ref>.<method>(...)`
+- `temp <name> = <expression>`
 - `set <state> = <expression>`
+- `if <comparison> { ... } else { ... }`
 - `wait <N>ms`
 - `read <device#id>` 式
 - `match <string-expression> { "literal" => { ... } else => { ... } }`
+- `match <numeric-expression> { pattern => expression, else => expression }` 式
 
 式 IR:
 
 - integer literal
+- percent literal（v1 では整数パーセントへ下げる）
 - string literal
 - state reference
-- binary `+`
+- const reference
+- temp reference
+- binary `+` / `-` / `*` / `/`
+- unary `-`
+- comparison `==` / `!=` / `<` / `<=` / `>` / `>=`
+- numeric / percent range `match` expression
 - device read
 
 `match` 最小形の制限:
 
-- statement としてのみ使う。
-- target は string 式のみ。
+- string `match` は statement として使う。
+- numeric / percent range `match` は expression として使う。
+- string statement match の target は string 式のみ。
 - pattern は string literal と `else` のみ。
-- `else` は必須。
-- branch 内は `do` / `set` のみ。
-- branch 内 `wait`、nested `match`、範囲 pattern、`temp` は未対応。
+- string statement match の `else` は必須。
+- string statement match の branch 内は `do` / `set` / `temp` / `if`。
+- branch 内 `wait` と nested statement `match` は未対応。
+- range pattern は expression match で対応済み（`a..b` / `..b` / `a..`、左閉右開）。
 
 ## Runtime
 
@@ -152,6 +165,9 @@ drop task <name>
 - `wait` は `resumeAtTotalMilliseconds` により再開時刻を持つ。
 - `task on` は `dispatchScriptEvent({ deviceAddress, eventName })` で同期的に起動する。
 - `match_string` は対象式を評価し、該当 branch だけを実行する。
+- `assign_temp` は task-local frame に保存し、task 実行開始時にクリアする。
+- `if_comparison` は comparison expression の整数結果（0=false, 非0=true）で branch を実行する。
+- `match_numeric_expression` は literal / range pattern を順に評価し、該当 arm の式を返す。
 - `match` branch 内の `wait` は型検査で拒否するため、runtime の statement list は実行中に書き換えない。
 
 ## Embed API
@@ -188,7 +204,9 @@ response は成功時 `ok: true`、失敗時 `ok: false` と structured diagnost
 
 - `compiler.empty_script`
 - `parse.unsupported_command`
+- `parse.unsupported_syntax`
 - `parse.unexpected_token`
+- `bind.cannot_assign_to_const`
 - `name.unknown_reference`
 - `name.duplicate_declaration`
 - `unit.type_mismatch`
@@ -230,6 +248,8 @@ response は成功時 `ok: true`、失敗時 `ok: false` と structured diagnost
 - full compiler（lexer / parser / binder / type checker / semantic checker / golden fixtures）
 - compiled program 登録
 - `state` / `set` / `read` / `wait` / `task on` / `match`
+- `const` / `temp` / arithmetic / comparison / numeric range `match` / `if`
+- `serial#0.println` の task 出力を terminal に逐次表示
 - UI の compile 経路
 - embed message
 
@@ -261,8 +281,11 @@ Playwright E2E で次を確認している。
 できること:
 
 - `ref` / `state` / `set` / `read` / `wait`
+- `const` / `temp`
 - `task every` / `task on`
-- 文字列 `match` の最小形
+- 文字列 `match` の最小形、数値 / percent の `match` 式と range pattern
+- 最小 `if` 文（comparison 条件）
+- 算術 `+` / `-` / `*` / `/` と単項 `-`
 - `led#0` の on / off / toggle
 - `pwm#0.level(number)` による PWM 出力値の変更
 - **animator**: **`animator ... = ramp from A% to B% over Nms ease linear|ease_in_out`** と **`step <name> with dt`**（固定端点の one-shot ramp）、および **`animator ... = ramp over Nms ease linear|ease_in_out`** と **`step <name> with <target_expr> dt`**（目標値ドリブン。`task on` は目標 `state` の更新のみ、`task every` が `step`）（いずれも `task on` や state 初期化では `dt` / `step` 不可）
@@ -271,11 +294,10 @@ Playwright E2E で次を確認している。
 
 まだできないこと:
 
-- `const` / `temp` / `range`
 - `%` を独立した型としての完全実装（角度や別単位との混合など）
 - `filter` / `estimator` / `controller`
 - **animator の pause / reverse、`do animator.start()` 等のメソッド**
-- `match` の範囲 pattern、式としての `match`、nested `match`
+- nested `match`
 - `loop`、`wait until`、`else return`
 - `IMU` / `motor` / `servo`
 - serial の `line_ready` event や `read host.line`
@@ -335,7 +357,7 @@ task fade_out on button.pressed {
 未対応なのは、`draft.md` が想定する **`animator` の高度なライフサイクル API**、負の `%`、および **`ease` の追加種類** など。
 
 ### その他の重要な未対応:
-- `match` の拡張（範囲 pattern、nested `match`、branch 内 `wait`）。
+- `match` の拡張（nested `match`、branch 内 `wait`）。
 - single-writer / ownership checker の本実装。
 - `draft.md` 全文との完全整合。
 - `display#0` の text API。
@@ -350,11 +372,11 @@ task fade_out on button.pressed {
    - リスク: 高
    - 理由: 端末経路と script textarea 経路の差が、ユーザーにとって分かりにくい。
 
-2. `match` を draft に近づける。
+2. `match` をさらに draft に近づける。
    - 重要度: 高
    - 難易度: 高
    - リスク: 高
-   - 理由: branch 内 `wait` を許すには execution frame stack が必要。
+   - 理由: range expression match は入ったが、nested match や branch 内 `wait` を許すには execution frame stack が必要。
 
 3. single-writer / ownership checker を実装する。
    - 重要度: 中
