@@ -59,7 +59,26 @@ export type TaskOnDeclarationAst = {
   bodyStatements: StatementAst[];
 };
 
-export type StatementAst = DoStatementAst | SetStatementAst | WaitStatementAst;
+export type StatementAst =
+  | DoStatementAst
+  | SetStatementAst
+  | WaitStatementAst
+  | MatchStatementAst;
+
+export type MatchStatementAst = {
+  kind: "match_statement";
+  range: AstRange;
+  matchTargetExpression: MethodArgumentExpressionAst;
+  /** `"pattern" => { ... }` の列（0 件可）。 */
+  stringCases: MatchStringCaseAst[];
+  /** 必須の `else => { ... }`。 */
+  elseBodyStatements: StatementAst[];
+};
+
+export type MatchStringCaseAst = {
+  patternStringLiteral: string;
+  bodyStatements: StatementAst[];
+};
 
 export type DoStatementAst = {
   kind: "do_statement";

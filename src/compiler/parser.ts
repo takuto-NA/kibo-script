@@ -3,6 +3,7 @@
   CallExpressionAst,
   CallReceiverAst,
   DoStatementAst,
+  MatchStatementAst,
   MethodArgumentExpressionAst,
   ProgramAst,
   RefDeclarationAst,
@@ -17,6 +18,7 @@
 import type { DiagnosticReport } from "../diagnostics/diagnostic";
 import { createDiagnosticReport } from "../diagnostics/diagnostic";
 import {
+  buildMatchMissingElseBranch,
   buildParseUnexpectedToken,
   buildParseUnsupportedSyntax,
 } from "../diagnostics/diagnostic-builder";
@@ -669,6 +671,239 @@ function parseRefDeclaration(
   };
 }
 
+function parseMatchStatement(
+  cursor: ParserCursor,
+): { ok: true; statement: MatchStatementAst } | { ok: false; report: DiagnosticReport } {
+  const fileName = cursor.getSourceFileName();
+  const matchKeyword = cursor.current();
+  cursor.advance();
+
+  const targetResult = parseAdditiveExpression(cursor);
+  if (targetResult.ok === false) {
+    return targetResult;
+  }
+
+  const openBrace = cursor.current();
+  if (openBrace.kind !== "left_brace") {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildParseUnexpectedToken({
+          file: fileName,
+          range: tokenToDiagnosticRange(fileName, openBrace),
+          rangeText: openBrace.lexeme,
+          message: "Expected '{' before match arms.",
+        }),
+      ]),
+    };
+  }
+  cursor.advance();
+
+  const stringCases: MatchStatementAst["stringCases"] = [];
+
+  while (true) {
+    const nextToken = cursor.current();
+    if (cursor.isAtEndOfFile()) {
+      return {
+        ok: false,
+        report: createDiagnosticReport([
+          buildParseUnexpectedToken({
+            file: fileName,
+            range: tokenToDiagnosticRange(fileName, nextToken),
+            rangeText: nextToken.lexeme,
+            message: "Unexpected end of file inside match body.",
+          }),
+        ]),
+      };
+    }
+
+    if (nextToken.kind === "identifier" && nextToken.lexeme === "else") {
+      break;
+    }
+
+    if (nextToken.kind !== "string_literal") {
+      return {
+        ok: false,
+        report: createDiagnosticReport([
+          buildParseUnexpectedToken({
+            file: fileName,
+            range: tokenToDiagnosticRange(fileName, nextToken),
+            rangeText: nextToken.lexeme,
+            message: "Expected a string pattern or 'else' in match body.",
+          }),
+        ]),
+      };
+    }
+
+    const patternStringLiteral = nextToken.lexeme;
+    cursor.advance();
+
+    const arrowToken = cursor.current();
+    if (arrowToken.kind !== "fat_arrow") {
+      return {
+        ok: false,
+        report: createDiagnosticReport([
+          buildParseUnexpectedToken({
+            file: fileName,
+            range: tokenToDiagnosticRange(fileName, arrowToken),
+            rangeText: arrowToken.lexeme,
+            message: "Expected '=>' after match pattern.",
+          }),
+        ]),
+      };
+    }
+    cursor.advance();
+
+    const branchOpen = cursor.current();
+    if (branchOpen.kind !== "left_brace") {
+      return {
+        ok: false,
+        report: createDiagnosticReport([
+          buildParseUnexpectedToken({
+            file: fileName,
+            range: tokenToDiagnosticRange(fileName, branchOpen),
+            rangeText: branchOpen.lexeme,
+            message: "Expected '{' before match arm body.",
+          }),
+        ]),
+      };
+    }
+    cursor.advance();
+
+    const bodyStatements: StatementAst[] = [];
+    while (cursor.current().kind !== "right_brace" && !cursor.isAtEndOfFile()) {
+      const statementResult = parseStatement(cursor);
+      if (statementResult.ok === false) {
+        return statementResult;
+      }
+      bodyStatements.push(statementResult.statement);
+    }
+
+    const branchClose = cursor.current();
+    if (branchClose.kind !== "right_brace") {
+      return {
+        ok: false,
+        report: createDiagnosticReport([
+          buildParseUnexpectedToken({
+            file: fileName,
+            range: tokenToDiagnosticRange(fileName, branchClose),
+            rangeText: branchClose.lexeme,
+            message: "Expected '}' after match arm body.",
+          }),
+        ]),
+      };
+    }
+    cursor.advance();
+
+    stringCases.push({
+      patternStringLiteral,
+      bodyStatements,
+    });
+  }
+
+  const elseKeyword = cursor.current();
+  if (elseKeyword.kind !== "identifier" || elseKeyword.lexeme !== "else") {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildMatchMissingElseBranch({
+          range: tokenToDiagnosticRange(fileName, elseKeyword),
+        }),
+      ]),
+    };
+  }
+  cursor.advance();
+
+  const elseArrow = cursor.current();
+  if (elseArrow.kind !== "fat_arrow") {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildParseUnexpectedToken({
+          file: fileName,
+          range: tokenToDiagnosticRange(fileName, elseArrow),
+          rangeText: elseArrow.lexeme,
+          message: "Expected '=>' after 'else' in match.",
+        }),
+      ]),
+    };
+  }
+  cursor.advance();
+
+  const elseOpen = cursor.current();
+  if (elseOpen.kind !== "left_brace") {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildParseUnexpectedToken({
+          file: fileName,
+          range: tokenToDiagnosticRange(fileName, elseOpen),
+          rangeText: elseOpen.lexeme,
+          message: "Expected '{' before else body.",
+        }),
+      ]),
+    };
+  }
+  cursor.advance();
+
+  const elseBodyStatements: StatementAst[] = [];
+  while (cursor.current().kind !== "right_brace" && !cursor.isAtEndOfFile()) {
+    const statementResult = parseStatement(cursor);
+    if (statementResult.ok === false) {
+      return statementResult;
+    }
+    elseBodyStatements.push(statementResult.statement);
+  }
+
+  const elseClose = cursor.current();
+  if (elseClose.kind !== "right_brace") {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildParseUnexpectedToken({
+          file: fileName,
+          range: tokenToDiagnosticRange(fileName, elseClose),
+          rangeText: elseClose.lexeme,
+          message: "Expected '}' after else body.",
+        }),
+      ]),
+    };
+  }
+  cursor.advance();
+
+  const matchClose = cursor.current();
+  if (matchClose.kind !== "right_brace") {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildParseUnexpectedToken({
+          file: fileName,
+          range: tokenToDiagnosticRange(fileName, matchClose),
+          rangeText: matchClose.lexeme,
+          message: "Expected '}' after match statement.",
+        }),
+      ]),
+    };
+  }
+  cursor.advance();
+
+  const statementRange: AstRange = {
+    fileName,
+    start: matchKeyword.start,
+    end: matchClose.end,
+  };
+
+  const matchStatement: MatchStatementAst = {
+    kind: "match_statement",
+    range: statementRange,
+    matchTargetExpression: targetResult.expression,
+    stringCases,
+    elseBodyStatements,
+  };
+
+  return { ok: true, statement: matchStatement };
+}
+
 function parseStatement(
   cursor: ParserCursor,
 ):
@@ -708,6 +943,10 @@ function parseStatement(
     return parseWaitStatement(cursor);
   }
 
+  if (leading.kind === "identifier" && leading.lexeme === "match") {
+    return parseMatchStatement(cursor);
+  }
+
   return {
     ok: false,
     report: createDiagnosticReport([
@@ -715,7 +954,7 @@ function parseStatement(
         file: fileName,
         range: tokenToDiagnosticRange(fileName, leading),
         rangeText: leading.lexeme,
-        message: "Unsupported statement: expected do, set, or wait.",
+        message: "Unsupported statement: expected do, set, wait, or match.",
       }),
     ]),
   };

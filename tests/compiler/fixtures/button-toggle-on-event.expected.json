@@ -1,0 +1,28 @@
+{
+  "ok": true,
+  "program": {
+    "stateInitializers": [],
+    "everyTasks": [],
+    "onEventTasks": [
+      {
+        "taskName": "toggle_led",
+        "deviceAddress": {
+          "kind": "button",
+          "id": 0
+        },
+        "eventName": "pressed",
+        "statements": [
+          {
+            "kind": "do_method_call",
+            "deviceAddress": {
+              "kind": "led",
+              "id": 0
+            },
+            "methodName": "toggle",
+            "arguments": []
+          }
+        ]
+      }
+    ]
+  }
+}

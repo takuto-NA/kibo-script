@@ -20,6 +20,7 @@ import {
 import type {
   BoundDoStatement,
   BoundExpression,
+  BoundMatchStatement,
   BoundOnEventTask,
   BoundProgram,
   BoundRefSymbol,
@@ -357,6 +358,64 @@ function bindStatement(params: {
       range: params.statement.range,
     };
     return { ok: true, boundStatement: boundSet };
+  }
+
+  if (params.statement.kind === "match_statement") {
+    const bindTargetResult = bindMethodArgumentExpression({
+      expression: params.statement.matchTargetExpression,
+      refSymbolTable: params.refSymbolTable,
+      stateSymbols: params.stateSymbols,
+    });
+    if (bindTargetResult.ok === false) {
+      return bindTargetResult;
+    }
+
+    const stringCases: {
+      patternString: string;
+      statements: BoundStatement[];
+    }[] = [];
+
+    for (const caseAst of params.statement.stringCases) {
+      const caseStatements: BoundStatement[] = [];
+      for (const branchStatement of caseAst.bodyStatements) {
+        const branchBindResult = bindStatement({
+          statement: branchStatement,
+          refSymbolTable: params.refSymbolTable,
+          stateSymbols: params.stateSymbols,
+        });
+        if (branchBindResult.ok === false) {
+          return branchBindResult;
+        }
+        caseStatements.push(branchBindResult.boundStatement);
+      }
+      stringCases.push({
+        patternString: caseAst.patternStringLiteral,
+        statements: caseStatements,
+      });
+    }
+
+    const elseStatements: BoundStatement[] = [];
+    for (const branchStatement of params.statement.elseBodyStatements) {
+      const branchBindResult = bindStatement({
+        statement: branchStatement,
+        refSymbolTable: params.refSymbolTable,
+        stateSymbols: params.stateSymbols,
+      });
+      if (branchBindResult.ok === false) {
+        return branchBindResult;
+      }
+      elseStatements.push(branchBindResult.boundStatement);
+    }
+
+    const boundMatch: BoundMatchStatement = {
+      kind: "match_statement",
+      range: params.statement.range,
+      matchExpression: bindTargetResult.expression,
+      stringCases,
+      elseStatements,
+    };
+
+    return { ok: true, boundStatement: boundMatch };
   }
 
   const boundWait: BoundWaitStatement = {

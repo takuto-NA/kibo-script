@@ -235,9 +235,63 @@ export class SimulationRuntime {
         task.executionProgress.programCounter = programCounter + 1;
         continue;
       }
+
+      if (statement.kind === "match_string") {
+        this.executeMatchStringStatement(statement);
+        task.executionProgress.programCounter = programCounter + 1;
+        continue;
+      }
     }
 
     task.executionProgress = undefined;
+  }
+
+  private executeMatchStringStatement(
+    statement: ExecutableStatement & { kind: "match_string" },
+  ): void {
+    const evaluationContext = this.createEvaluationContext();
+    const scriptValue = evaluateExecutableExpression(statement.targetExpression, evaluationContext);
+    let chosenBranchStatements: ExecutableStatement[] | undefined;
+    if (scriptValue !== undefined && scriptValue.tag === "string") {
+      const matchedText = scriptValue.value;
+      for (const stringCase of statement.stringCases) {
+        if (stringCase.patternString === matchedText) {
+          chosenBranchStatements = stringCase.branchStatements;
+          break;
+        }
+      }
+    }
+    const statementsToExecute =
+      chosenBranchStatements !== undefined ? chosenBranchStatements : statement.elseBranchStatements;
+    this.executeExecutableStatementsWithoutWaiting(statementsToExecute);
+  }
+
+  /**
+   * match 分岐内など、wait で中断しないブロック向け。型検査で分岐内 wait は拒否する。
+   */
+  private executeExecutableStatementsWithoutWaiting(statements: ExecutableStatement[]): void {
+    for (const innerStatement of statements) {
+      if (innerStatement.kind === "do_method_call") {
+        const effects = this.effectsForDoMethodCall(innerStatement);
+        this.queueEffects(effects);
+        continue;
+      }
+
+      if (innerStatement.kind === "assign_state") {
+        this.executeAssignStateStatement(innerStatement);
+        continue;
+      }
+
+      if (innerStatement.kind === "match_string") {
+        this.executeMatchStringStatement(innerStatement);
+        continue;
+      }
+
+      // ガード: match 分岐に wait が混入した場合はここへ来る。型検査で禁止済みのため noop でよい。
+      if (innerStatement.kind === "wait_milliseconds") {
+        return;
+      }
+    }
   }
 
   private executeAssignStateStatement(

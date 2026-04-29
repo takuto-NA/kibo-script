@@ -5,6 +5,7 @@
 import type {
   BoundDoStatement,
   BoundExpression,
+  BoundMatchStatement,
   BoundProgram,
   BoundSetStatement,
   BoundStatement,
@@ -15,6 +16,8 @@ import { DEVICE_METHOD_SIGNATURES } from "./static-type";
 import type { DiagnosticReport } from "../diagnostics/diagnostic";
 import { createDiagnosticReport } from "../diagnostics/diagnostic";
 import {
+  buildMatchBranchUnsupportedStatement,
+  buildMatchTargetRequiresString,
   buildTypeArgumentTypeMismatch,
   buildTypeMethodArityMismatch,
   buildTypeMethodNotFound,
@@ -119,6 +122,80 @@ function inferReadPropertyValueKind(expression: BoundExpression & { kind: "read_
   return "integer";
 }
 
+function collectMatchStatementTypeDiagnostics(params: {
+  statement: BoundMatchStatement;
+  diagnostics: DiagnosticReport["diagnostics"];
+  stateValueKinds: Map<string, ExpressionValueKind>;
+}): void {
+  const matchTargetKind = inferBoundExpressionValueKind(params.statement.matchExpression, params.stateValueKinds);
+  if (matchTargetKind !== "string") {
+    params.diagnostics.push(
+      buildMatchTargetRequiresString({
+        range: convertAstRangeToSourceRange(params.statement.range),
+      }),
+    );
+  }
+
+  for (const stringCase of params.statement.stringCases) {
+    for (const branchStatement of stringCase.statements) {
+      collectMatchBranchStatementTypeDiagnostics({
+        statement: branchStatement,
+        diagnostics: params.diagnostics,
+        stateValueKinds: params.stateValueKinds,
+      });
+    }
+  }
+
+  for (const branchStatement of params.statement.elseStatements) {
+    collectMatchBranchStatementTypeDiagnostics({
+      statement: branchStatement,
+      diagnostics: params.diagnostics,
+      stateValueKinds: params.stateValueKinds,
+    });
+  }
+}
+
+function collectMatchBranchStatementTypeDiagnostics(params: {
+  statement: BoundStatement;
+  diagnostics: DiagnosticReport["diagnostics"];
+  stateValueKinds: Map<string, ExpressionValueKind>;
+}): void {
+  if (params.statement.kind === "wait_statement") {
+    params.diagnostics.push(
+      buildMatchBranchUnsupportedStatement({
+        message: "match branch cannot contain 'wait' in this language version.",
+        range: convertAstRangeToSourceRange(params.statement.range),
+      }),
+    );
+    return;
+  }
+
+  if (params.statement.kind === "match_statement") {
+    params.diagnostics.push(
+      buildMatchBranchUnsupportedStatement({
+        message: "match branch cannot contain nested 'match' in this language version.",
+        range: convertAstRangeToSourceRange(params.statement.range),
+      }),
+    );
+    return;
+  }
+
+  if (params.statement.kind === "do_statement") {
+    collectMethodCallTypeDiagnostics({
+      statement: params.statement,
+      diagnostics: params.diagnostics,
+      stateValueKinds: params.stateValueKinds,
+    });
+    return;
+  }
+
+  collectSetStatementTypeDiagnostics({
+    statement: params.statement,
+    diagnostics: params.diagnostics,
+    stateValueKinds: params.stateValueKinds,
+  });
+}
+
 function collectStatementTypeDiagnostics(params: {
   statement: BoundStatement;
   diagnostics: DiagnosticReport["diagnostics"];
@@ -141,6 +218,20 @@ function collectStatementTypeDiagnostics(params: {
       diagnostics: params.diagnostics,
       stateValueKinds: params.stateValueKinds,
     });
+    return;
+  }
+
+  if (statement.kind === "match_statement") {
+    collectMatchStatementTypeDiagnostics({
+      statement,
+      diagnostics: params.diagnostics,
+      stateValueKinds: params.stateValueKinds,
+    });
+    return;
+  }
+
+  if (statement.kind === "wait_statement") {
+    return;
   }
 }
 

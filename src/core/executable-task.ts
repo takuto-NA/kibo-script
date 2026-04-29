@@ -29,6 +29,12 @@ export type ExecutableStatement =
   | {
       kind: "wait_milliseconds";
       waitMilliseconds: number;
+    }
+  | {
+      kind: "match_string";
+      targetExpression: ExecutableExpression;
+      stringCases: { patternString: string; branchStatements: ExecutableStatement[] }[];
+      elseBranchStatements: ExecutableStatement[];
     };
 
 export type CompiledEveryTask = {

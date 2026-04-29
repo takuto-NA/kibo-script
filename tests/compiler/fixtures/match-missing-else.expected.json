@@ -1,0 +1,23 @@
+{
+  "ok": false,
+  "diagnostics": [
+    {
+      "id": "parse.unexpected_token",
+      "phase": "parse",
+      "message": "Expected a string pattern or 'else' in match body.",
+      "location": {
+        "file": "match-missing-else.sc",
+        "start": {
+          "line": 6,
+          "column": 3,
+          "offset": 99
+        },
+        "end": {
+          "line": 6,
+          "column": 4,
+          "offset": 100
+        }
+      }
+    }
+  ]
+}

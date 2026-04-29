@@ -70,6 +70,37 @@ body {
     inset 0 0 6px rgba(255, 255, 255, 0.15);
 }
 
+.simulator-button0 {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.simulator-button0-label {
+  font-size: 12px;
+  color: #8b949e;
+}
+
+.simulator-button0-press {
+  font: inherit;
+  cursor: pointer;
+  padding: 6px 12px;
+  border-radius: 4px;
+  border: 1px solid #30363d;
+  background: #21262d;
+  color: var(--terminal-fg);
+}
+
+.simulator-button0-press:hover {
+  background: #30363d;
+}
+
+.simulator-button0-press:active {
+  background: #161b22;
+}
+
 .simulator-oled-canvas {
   image-rendering: pixelated;
   image-rendering: crisp-edges;

@@ -41,7 +41,35 @@ task blink every 1000ms {
 - `blink` task が登録される
 - `led#0` ランプが 1 秒ごとに ON / OFF する
 
-## Interactive Command
+## `button#0` を画面から押す（`task on`）
+
+右側パネルに **button#0** と **Press** ボタンがある。次の script を textarea に入れて `Compile & run on simulator` のあと、**Press** を押すと LED が切り替わる。
+
+```text
+ref led = led#0
+
+task react on button#0.pressed {
+  do led.toggle()
+}
+```
+
+## `match`（文字列の最小形）
+
+`task` 本体で、`match <文字列式> { "ケース" => { ... } ... else => { ... } }` が使える。分岐の本体は `do` / `set` のみ（分岐内の `wait` は compile エラー）。
+
+```text
+state mode = "on"
+
+ref led = led#0
+
+task apply on button#0.pressed {
+  match mode {
+    "on" => { do led#0.on() }
+    "off" => { do led#0.off() }
+    else => { do serial#0.println("ERR") }
+  }
+}
+```
 
 端末欄では 1 行ずつ実行できる。
 
@@ -154,7 +182,7 @@ task blink every 1000deg {
 
 ## 今できないこと / 制限
 
-- `match` 文
+- `match` の範囲パターン、`match` のネスト、分岐内の `wait`
 - single-writer / ownership checker の本実装
 - `draft.md` 全文の compile
 

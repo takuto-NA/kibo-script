@@ -256,3 +256,46 @@ export function buildTaskUnknown(params: { taskName: string }): StructuredDiagno
   };
 }
 
+export function buildMatchMissingElseBranch(params: {
+  range?: SourceRange;
+  message?: string;
+}): StructuredDiagnostic {
+  return {
+    id: "match.missing_else_branch",
+    severity: "error",
+    phase: "parse",
+    message:
+      params.message ??
+      "match statement requires an 'else => { ... }' branch as the last arm.",
+    location: params.range,
+    explanation: "The minimal match syntax requires a final else branch.",
+  };
+}
+
+export function buildMatchTargetRequiresString(params: {
+  range?: SourceRange;
+}): StructuredDiagnostic {
+  return {
+    id: "match.target_requires_string",
+    severity: "error",
+    phase: "type_check",
+    message: "match target expression must have string type.",
+    location: params.range,
+    explanation: "This minimal match supports discriminating string values only.",
+  };
+}
+
+export function buildMatchBranchUnsupportedStatement(params: {
+  message: string;
+  range?: SourceRange;
+}): StructuredDiagnostic {
+  return {
+    id: "match.branch_unsupported_statement",
+    severity: "error",
+    phase: "type_check",
+    message: params.message,
+    location: params.range,
+    explanation: "match branch bodies may only use 'do' and 'set' in this language version.",
+  };
+}
+

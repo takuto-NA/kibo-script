@@ -25,6 +25,7 @@
 
 - 端末の上に **StaticCore Script** 用のテキストエリアから `compileScript` して task を登録できる。
 - `led#0` の on/off をランプ表示できる。
+- **`button#0`**: 右パネルに `Press` ボタンがあり、クリックで `button#0.pressed` 向け `task on` を起動できる（`data-testid="simulator-button0-press"`）。
 
 ### Interactive Command
 
@@ -88,7 +89,7 @@ task blink every 1000ms {
 - 成功時 IR は `src/core/executable-task.ts` の `CompiledProgram`。
 - `tests/compiler/fixtures/` に golden（`.sc` + `.expected.json`）がある（例: `serial-print-task.sc`）。
 
-Phase 0 の縦断ルートを土台に、Phase 1 で `state` / `set`、`read` 式、`wait`、`task on` まで拡張済み。未対応は `match`、所有規則の本実装、`draft.md` 全文。
+Phase 0 の縦断ルートを土台に、Phase 1 で `state` / `set`、`read` 式、`wait`、`task on`、**`match`（文字列の最小形）** まで拡張済み。未対応は `match` の拡張（範囲・ネスト・分岐内 `wait`）、所有規則の本実装、`draft.md` 全文。
 
 ### Compiler Phase 1（進捗）
 
@@ -99,12 +100,13 @@ fixture / integration で検証済みの項目:
 - **`read adc#0`** を `serial.println` の引数に（例: `serial-read-adc.sc`）
 - **`wait`** と task 内遅延（`tests/integration/wait-task-runtime.test.ts`）
 - **`task on`** と `dispatchScriptEvent`（`tests/integration/task-on-button-runtime.test.ts`）
+- **`match`（文字列 target・文字列リテラル case・必須 else・IR `match_string`）**（golden: `match-string-command.sc` 等、`tests/integration/match-string-runtime.test.ts`）
 - **`pwm#0`** / **`button#0`** デバイスモデルと Embed snapshot 拡張
 - **Ownership**: Phase 0 と同様に検査骨格のみ（本実装は未）
 
 未完了の主領域:
 
-- `match`、interactive task body の `state`/`set`/`wait`、ownership の本実装、`draft.md` 全文。
+- **`match` の拡張**（範囲パターン、ネストした `match`、分岐内 `wait`）、interactive task body の `state`/`set`/`wait`、ownership の本実装、`draft.md` 全文。
 
 ### Compiler Phase 1 マイルストーン（旧メモ・参照用）
 
@@ -114,10 +116,10 @@ fixture / integration で検証済みの項目:
 - 6.2 `state` / `set` と永続束縛 → **`circle-animation.sc`**
 - 6.3 `wait`（task 内の遅延文）→ **integration**
 - 6.4 `task on` とイベント源（例: `button#0`）→ **integration**
-- 6.5 `match`（構文・型の最小検査）
+- 6.5 `match`（構文・型の最小検査）→ **golden `match-string-command.sc` 等**
 - 6.6 single-writer / ownership の本実装
 
-回帰用に golden を増やす（例: `serial-print-task.sc`、`blink-led.sc`、`circle-animation.sc`、`serial-read-adc.sc`）。
+回帰用に golden を増やす（例: `serial-print-task.sc`、`blink-led.sc`、`circle-animation.sc`、`serial-read-adc.sc`、`button-toggle-on-event.sc`、`match-string-command.sc`）。
 
 ### Structured Diagnostics
 
@@ -185,8 +187,10 @@ fixture / integration で検証済みの項目:
 | `read` + `serial.println` | 実装済み | `tests/compiler/fixtures/serial-read-adc.sc`、integration 可 |
 | `wait` 文 | 実装済み | `tests/integration/wait-task-runtime.test.ts` |
 | `task on` + イベント | 実装済み | `tests/integration/task-on-button-runtime.test.ts`、`dispatchScriptEvent` |
+| UI **`button#0` Press**（ブラウザ） | 実装済み | `src/ui/button-view.ts`、`tests/e2e/script-runner-button.spec.ts` |
+| **`match`（最小・文字列）** | 実装済み | `tests/compiler/fixtures/match-string-command.sc`、`tests/integration/match-string-runtime.test.ts` |
 | `pwm#0` / `button#0` | 実装済み | `src/devices/pwm-device.ts` / `button-device.ts`、snapshot に `pwm0` / `button0` |
-| ブラウザ E2E（script runner + LED） | 実装済み | `npm run test:e2e`、`tests/e2e/script-runner-led.spec.ts` |
+| ブラウザ E2E（script runner + LED / **button**） | 実装済み | `npm run test:e2e`、`tests/e2e/script-runner-led.spec.ts`、`tests/e2e/script-runner-button.spec.ts` |
 | interactive `task every` body（`do` のみ 1 行） | 実装済み | `compileDoStatementSourceLine` と同一 IR |
 | interactive body に `set` / `wait` 等 | 未対応 | 将来: body 用パーサ拡張 |
 | single-writer の本実装 | 未実装 | 検査骨格のみ |
@@ -245,11 +249,11 @@ body は **1 行 1 つの `do ...` のみ**（full compiler の `compileDoStatem
 
 ### Full Parser / Compiler でまだ弱い部分
 
-- **`match` 文**
+- **`match` の拡張**（範囲パターン、ネスト、分岐内 `wait`）
 - **single-writer / ownership** の本実装（検査骨格のみ）
 - **`draft.md` 全文**との完全一致
 
-実装済み: `state` / `set`、式、`read`、`wait`、`task on`、`pwm` / `button`、ブラウザ E2E（最小）。
+実装済み: `state` / `set`、式、`read`、`wait`、`task on`、`pwm` / `button`、**UI button + `match` 最小**、ブラウザ E2E（LED + button）。
 
 ### SSD1306 物理互換
 
@@ -264,7 +268,7 @@ body は **1 行 1 つの `do ...` のみ**（full compiler の `compileDoStatem
 
 ### ブラウザ E2E テスト
 
-Playwright による最小 smoke（`tests/e2e/script-runner-led.spec.ts`）。`npm run test:e2e`。
+Playwright による最小 smoke（`tests/e2e/script-runner-led.spec.ts`、`tests/e2e/script-runner-button.spec.ts`）。`npm run test:e2e`。
 
 ```text
 npm run test:e2e
@@ -274,7 +278,7 @@ npm run test:e2e
 
 ## 次にやるべきこと
 
-### 1. `match` 文と Phase 1 残りの構文
+### 1. `match` 文の拡張（範囲・ネスト・分岐内 `wait`）と Phase 1 残りの構文
 
 優先度: 高  
 難易度: 高  
@@ -318,9 +322,9 @@ npm run test:e2e
 - structured diagnostics は出せる。
 - task registry はある。
 - embed API の土台はある。
-- full compiler Phase 1 の主要構文（`state`、`read`、`wait`、`task on`、デバイス拡張）がある。
-- Playwright による最小ブラウザ E2E がある。
+- full compiler Phase 1 の主要構文（`state`、`read`、`wait`、`task on`、**`match` 最小**、デバイス拡張）がある。
+- Playwright によるブラウザ E2E（LED + **button**）がある。
 - 端末・ブラウザテキストエリア・embed の各経路から script / task を載せられる。
 - LED の状態が UI と snapshot で確認できる。
 
-未完了の主な領域は、`match` と ownership の本実装、interactive task body の複合構文対応、`draft.md` との完全整合である。
+未完了の主な領域は、`match` の拡張と ownership の本実装、interactive task body の複合構文対応、`draft.md` との完全整合である。

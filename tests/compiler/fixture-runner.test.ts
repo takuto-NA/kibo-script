@@ -62,4 +62,59 @@ describe("compiler fixture golden tests", () => {
     const actual = serializeCompileScriptResultForGoldenTest(result);
     expect(actual).toEqual(expected);
   });
+
+  it("compiles button-toggle-on-event.sc without diagnostics", () => {
+    const fixturePath = join(testsCompilerDirectory, "fixtures", "button-toggle-on-event.sc");
+    const sourceText = readFileSync(fixturePath, "utf-8").replace(/\r\n/g, "\n");
+    const result = compileScript(sourceText, "button-toggle-on-event.sc");
+    const expectedPath = join(testsCompilerDirectory, "fixtures", "button-toggle-on-event.expected.json");
+    const expectedText = readFileSync(expectedPath, "utf-8");
+    const expected = JSON.parse(expectedText) as unknown;
+    const actual = serializeCompileScriptResultForGoldenTest(result);
+    expect(actual).toEqual(expected);
+  });
+
+  it("compiles match-string-command.sc without diagnostics", () => {
+    const fixturePath = join(testsCompilerDirectory, "fixtures", "match-string-command.sc");
+    const sourceText = readFileSync(fixturePath, "utf-8").replace(/\r\n/g, "\n");
+    const result = compileScript(sourceText, "match-string-command.sc");
+    const expectedPath = join(testsCompilerDirectory, "fixtures", "match-string-command.expected.json");
+    const expectedText = readFileSync(expectedPath, "utf-8");
+    const expected = JSON.parse(expectedText) as unknown;
+    const actual = serializeCompileScriptResultForGoldenTest(result);
+    expect(actual).toEqual(expected);
+  });
+
+  it("rejects match-non-string-target.sc with match.target_requires_string", () => {
+    const fixturePath = join(testsCompilerDirectory, "fixtures", "match-non-string-target.sc");
+    const sourceText = readFileSync(fixturePath, "utf-8").replace(/\r\n/g, "\n");
+    const result = compileScript(sourceText, "match-non-string-target.sc");
+    const expectedPath = join(testsCompilerDirectory, "fixtures", "match-non-string-target.expected.json");
+    const expectedText = readFileSync(expectedPath, "utf-8");
+    const expected = JSON.parse(expectedText) as unknown;
+    const actual = serializeCompileScriptResultForGoldenTest(result);
+    expect(actual).toEqual(expected);
+  });
+
+  it("rejects match-missing-else.sc with parse diagnostics", () => {
+    const fixturePath = join(testsCompilerDirectory, "fixtures", "match-missing-else.sc");
+    const sourceText = readFileSync(fixturePath, "utf-8").replace(/\r\n/g, "\n");
+    const result = compileScript(sourceText, "match-missing-else.sc");
+    const expectedPath = join(testsCompilerDirectory, "fixtures", "match-missing-else.expected.json");
+    const expectedText = readFileSync(expectedPath, "utf-8");
+    const expected = JSON.parse(expectedText) as unknown;
+    const actual = serializeCompileScriptResultForGoldenTest(result);
+    expect(actual).toEqual(expected);
+  });
+
+  it("rejects match-wait-branch.sc with match.branch_unsupported_statement", () => {
+    const fixturePath = join(testsCompilerDirectory, "fixtures", "match-wait-branch.sc");
+    const sourceText = readFileSync(fixturePath, "utf-8").replace(/\r\n/g, "\n");
+    const result = compileScript(sourceText, "match-wait-branch.sc");
+    const expectedPath = join(testsCompilerDirectory, "fixtures", "match-wait-branch.expected.json");
+    const expectedText = readFileSync(expectedPath, "utf-8");
+    const expected = JSON.parse(expectedText) as unknown;
+    const actual = serializeCompileScriptResultForGoldenTest(result);
+    expect(actual).toEqual(expected);
+  });
 });

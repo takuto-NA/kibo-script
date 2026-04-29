@@ -41,7 +41,19 @@ export type BoundOnEventTask = {
   range: AstRange;
 };
 
-export type BoundStatement = BoundDoStatement | BoundSetStatement | BoundWaitStatement;
+export type BoundStatement =
+  | BoundDoStatement
+  | BoundSetStatement
+  | BoundWaitStatement
+  | BoundMatchStatement;
+
+export type BoundMatchStatement = {
+  kind: "match_statement";
+  range: AstRange;
+  matchExpression: BoundExpression;
+  stringCases: { patternString: string; statements: BoundStatement[] }[];
+  elseStatements: BoundStatement[];
+};
 
 export type BoundDoStatement = {
   kind: "do_statement";

@@ -59,6 +59,18 @@ export function lowerBoundStatementToExecutableStatement(statement: BoundStateme
     };
   }
 
+  if (statement.kind === "match_statement") {
+    return {
+      kind: "match_string",
+      targetExpression: lowerBoundExpression(statement.matchExpression),
+      stringCases: statement.stringCases.map((stringCase) => ({
+        patternString: stringCase.patternString,
+        branchStatements: stringCase.statements.map(lowerBoundStatementToExecutableStatement),
+      })),
+      elseBranchStatements: statement.elseStatements.map(lowerBoundStatementToExecutableStatement),
+    };
+  }
+
   return {
     kind: "wait_milliseconds",
     waitMilliseconds: statement.waitMilliseconds,

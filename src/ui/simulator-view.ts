@@ -3,6 +3,7 @@ import { SimulationRuntime } from "../core/simulation-runtime";
 import { EmbedController } from "../embed/embed-controller";
 import { TerminalSession } from "../interactive/terminal-session";
 import { renderDisplayFrameToCanvas } from "./canvas-display-renderer";
+import { createButton0PressView } from "./button-view";
 import { createLedIndicatorView } from "./led-view";
 import { createScriptRunnerPanel } from "./script-runner-view";
 import { createTerminalView } from "./terminal-view";
@@ -53,6 +54,14 @@ export function createSimulatorView(params: CreateSimulatorViewParams): void {
 
   const ledIndicatorView = createLedIndicatorView({ labelText: "led#0" });
   displayHost.appendChild(ledIndicatorView.rootElement);
+
+  const button0PressView = createButton0PressView({
+    simulationRuntime: runtime,
+    onAfterButtonPress: () => {
+      refreshSimulatorOutputs();
+    },
+  });
+  displayHost.appendChild(button0PressView.rootElement);
 
   layout.appendChild(terminalHost);
   layout.appendChild(displayHost);

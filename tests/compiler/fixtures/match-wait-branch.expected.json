@@ -1,0 +1,23 @@
+{
+  "ok": false,
+  "diagnostics": [
+    {
+      "id": "match.branch_unsupported_statement",
+      "phase": "type_check",
+      "message": "match branch cannot contain 'wait' in this language version.",
+      "location": {
+        "file": "match-wait-branch.sc",
+        "start": {
+          "line": 5,
+          "column": 15,
+          "offset": 83
+        },
+        "end": {
+          "line": 5,
+          "column": 24,
+          "offset": 92
+        }
+      }
+    }
+  ]
+}

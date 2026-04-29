@@ -1,0 +1,80 @@
+{
+  "ok": true,
+  "program": {
+    "stateInitializers": [
+      {
+        "stateName": "command",
+        "expression": {
+          "kind": "string_literal",
+          "value": "on"
+        }
+      }
+    ],
+    "everyTasks": [],
+    "onEventTasks": [
+      {
+        "taskName": "apply_command",
+        "deviceAddress": {
+          "kind": "button",
+          "id": 0
+        },
+        "eventName": "pressed",
+        "statements": [
+          {
+            "kind": "match_string",
+            "targetExpression": {
+              "kind": "state_reference",
+              "stateName": "command"
+            },
+            "stringCases": [
+              {
+                "patternString": "on",
+                "branchStatements": [
+                  {
+                    "kind": "do_method_call",
+                    "deviceAddress": {
+                      "kind": "led",
+                      "id": 0
+                    },
+                    "methodName": "on",
+                    "arguments": []
+                  }
+                ]
+              },
+              {
+                "patternString": "off",
+                "branchStatements": [
+                  {
+                    "kind": "do_method_call",
+                    "deviceAddress": {
+                      "kind": "led",
+                      "id": 0
+                    },
+                    "methodName": "off",
+                    "arguments": []
+                  }
+                ]
+              }
+            ],
+            "elseBranchStatements": [
+              {
+                "kind": "do_method_call",
+                "deviceAddress": {
+                  "kind": "serial",
+                  "id": 0
+                },
+                "methodName": "println",
+                "arguments": [
+                  {
+                    "kind": "string_literal",
+                    "value": "ERR"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
