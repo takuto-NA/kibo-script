@@ -5,6 +5,7 @@ import { TerminalSession } from "../../src/interactive/terminal-session";
 
 /**
  * End-to-end smoke script for the browser simulator command surface.
+ * Covers ADC read/info (multiline), display draw, LED toggle, diagnostics, and task registration.
  */
 describe("smoke script", () => {
   it("reads adc, draws to display, reports diagnostics, and registers a task", () => {
@@ -13,6 +14,11 @@ describe("smoke script", () => {
 
     const readEntry = session.submitLine("read adc#0");
     expect(readEntry.outputs).toEqual(["adc#0 = 512"]);
+
+    const adcInfoEntry = session.submitLine("adc#0.info");
+    expect(adcInfoEntry.outputs[0]).toContain("kind: adc");
+    expect(adcInfoEntry.outputs[0]).toContain("\n");
+    expect(adcInfoEntry.outputs[0]).not.toContain("\\n");
 
     const displayInfoEntry = session.submitLine("display#0.info");
     expect(displayInfoEntry.outputs[0]).toContain("size: 128x64");

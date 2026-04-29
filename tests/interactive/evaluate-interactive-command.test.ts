@@ -17,6 +17,22 @@ describe("evaluateInteractiveCommand", () => {
     }
   });
 
+  it("formats info strings as multiline text", () => {
+    const tasks = new TaskRegistry();
+    const runtime = new SimulationRuntime({ tasks });
+    const result = evaluateInteractiveCommand(runtime, {
+      kind: "property_read",
+      target: "adc#0",
+      property: "info",
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.lines[0]).toContain("kind: adc\nid: 0");
+      expect(result.lines[0]).not.toContain("\\n");
+      expect(result.lines[0]).not.toContain('"kind: adc');
+    }
+  });
+
   it("toggles led#0 via do_led_effect", () => {
     const tasks = new TaskRegistry();
     const runtime = new SimulationRuntime({ tasks });

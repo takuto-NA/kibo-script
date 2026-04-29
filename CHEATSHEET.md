@@ -14,6 +14,15 @@ npm run dev -- --host 127.0.0.1
 
 ブラウザで表示された `Local:` の URL を開く。
 
+回帰確認（ローカル）:
+
+```text
+npm run typecheck
+npm test
+npm run build
+npm audit --audit-level=moderate
+```
+
 ## 複数行 script を動かす
 
 ブラウザ上部の script textarea に次を入れて、`Compile & run on simulator` を押す。
@@ -43,6 +52,8 @@ display#0.info
 led#0.info
 ```
 
+`adc#0.info` は複数行テキストになる（改行がそのまま表示される）。
+
 ```text
 do serial#0.println("hello")
 do led#0.on()
@@ -57,6 +68,45 @@ do display#0.line(0, 0, 127, 63)
 do display#0.circle(64, 32, 8)
 do display#0.present()
 ```
+
+## Circle を動かす（Phase 1: `state` / `set` 対応）
+
+ブラウザの **script textarea** に次を入れて `Compile & run` すると、座標が毎 tick 更新される。
+
+```text
+state circle_x = 20
+
+task move_circle every 100ms {
+  do display#0.clear()
+  do display#0.circle(circle_x, 32, 8)
+  do display#0.present()
+  set circle_x = circle_x + 4
+}
+```
+
+端末の `do display#0.circle(20, 32, 8)` のように 1 フレームずつ手で変える方法も引き続き有効。
+
+## 旧: 手動 1 フレームずつ
+
+```text
+do display#0.clear()
+do display#0.circle(20, 32, 8)
+do display#0.present()
+```
+
+```text
+do display#0.clear()
+do display#0.circle(40, 32, 8)
+do display#0.present()
+```
+
+```text
+do display#0.clear()
+do display#0.circle(60, 32, 8)
+do display#0.present()
+```
+
+変数で Circle を動かすアニメーションは **上記の `state` / `set` 付き script** を利用（full compiler 経路）。
 
 ## Interactive Task
 
@@ -102,14 +152,14 @@ task blink every 1000deg {
 }
 ```
 
-## 今できないこと
+## 今できないこと / 制限
 
-次はまだ Phase 1 以降。
-
-- `state` / `set`
-- `wait`
-- `task on`
-- `match`
+- `match` 文
 - single-writer / ownership checker の本実装
-- `draft.md` 全体の compile
+- `draft.md` 全文の compile
+
+次の拡張候補:
+
+- interactive `task every` body に `set` / `state` / `wait` / `read` 式（現状 body は 1 行 1 `do` のみ、full compiler 経路で上記を利用する）
+- `display#0` の text 等、追加 API
 

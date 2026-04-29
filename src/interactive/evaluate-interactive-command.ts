@@ -304,6 +304,8 @@ export function evaluateInteractiveCommand(
       body: command.body.trim(),
       eventExpression: undefined,
       compiledStatements: bodyCompileResult.executableStatements,
+      executionProgress: undefined,
+      onEventFilter: undefined,
     });
     lines.push(`registered task ${command.name}`);
     return { ok: true, lines };

@@ -40,4 +40,26 @@ describe("compiler fixture golden tests", () => {
     const actual = serializeCompileScriptResultForGoldenTest(result);
     expect(actual).toEqual(expected);
   });
+
+  it("compiles circle-animation.sc without diagnostics", () => {
+    const fixturePath = join(testsCompilerDirectory, "fixtures", "circle-animation.sc");
+    const sourceText = readFileSync(fixturePath, "utf-8").replace(/\r\n/g, "\n");
+    const result = compileScript(sourceText, "circle-animation.sc");
+    const expectedPath = join(testsCompilerDirectory, "fixtures", "circle-animation.expected.json");
+    const expectedText = readFileSync(expectedPath, "utf-8");
+    const expected = JSON.parse(expectedText) as unknown;
+    const actual = serializeCompileScriptResultForGoldenTest(result);
+    expect(actual).toEqual(expected);
+  });
+
+  it("compiles serial-read-adc.sc without diagnostics", () => {
+    const fixturePath = join(testsCompilerDirectory, "fixtures", "serial-read-adc.sc");
+    const sourceText = readFileSync(fixturePath, "utf-8").replace(/\r\n/g, "\n");
+    const result = compileScript(sourceText, "serial-read-adc.sc");
+    const expectedPath = join(testsCompilerDirectory, "fixtures", "serial-read-adc.expected.json");
+    const expectedText = readFileSync(expectedPath, "utf-8");
+    const expected = JSON.parse(expectedText) as unknown;
+    const actual = serializeCompileScriptResultForGoldenTest(result);
+    expect(actual).toEqual(expected);
+  });
 });

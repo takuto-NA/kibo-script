@@ -19,6 +19,7 @@ export function createLedIndicatorView(params: {
 
   const lamp = document.createElement("div");
   lamp.className = "simulator-led-lamp";
+  lamp.setAttribute("data-testid", "simulator-led-lamp");
   lamp.setAttribute("role", "img");
   lamp.setAttribute("aria-label", "LED off");
 

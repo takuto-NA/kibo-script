@@ -5,8 +5,6 @@
 import { compileScript } from "../compiler/compile-script";
 import type { DiagnosticReport } from "../diagnostics/diagnostic";
 import type { SimulationRuntime } from "./simulation-runtime";
-import { registerCompiledProgramOnTaskRegistry } from "./register-compiled-program";
-
 export type CompileAndRegisterSimulationTasksResult =
   | { ok: true; registeredTaskNames: string[] }
   | { ok: false; report: DiagnosticReport };
@@ -21,11 +19,10 @@ export function compileSourceAndRegisterSimulationTasks(params: {
     return { ok: false, report: compileResult.report };
   }
 
-  registerCompiledProgramOnTaskRegistry({
-    taskRegistry: params.simulationRuntime.tasks,
-    compiledProgram: compileResult.program,
-  });
+  params.simulationRuntime.replaceCompiledProgram(compileResult.program);
 
-  const registeredTaskNames = compileResult.program.everyTasks.map((everyTask) => everyTask.taskName);
+  const everyNames = compileResult.program.everyTasks.map((everyTask) => everyTask.taskName);
+  const onEventNames = compileResult.program.onEventTasks.map((task) => task.taskName);
+  const registeredTaskNames = [...everyNames, ...onEventNames];
   return { ok: true, registeredTaskNames };
 }

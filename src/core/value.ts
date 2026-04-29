@@ -38,7 +38,7 @@ export function formatScriptValueForInteractiveEcho(value: ScriptValue): string 
     case "boolean":
       return String(value.value);
     case "string":
-      return JSON.stringify(value.value);
+      return value.value;
     case "percent":
       return `${value.value}%`;
     case "deg":

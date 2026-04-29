@@ -29,7 +29,9 @@ export const DEVICE_METHOD_SIGNATURES: Record<
     toggle: { minimumParameterCount: 0, maximumParameterCount: 0 },
   },
   motor: {},
-  pwm: {},
+  pwm: {
+    level: { minimumParameterCount: 1, maximumParameterCount: 1 },
+  },
   serial: {
     println: { minimumParameterCount: 1, maximumParameterCount: 1 },
   },

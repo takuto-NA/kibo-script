@@ -1,0 +1,54 @@
+{
+  "ok": true,
+  "program": {
+    "stateInitializers": [
+      {
+        "stateName": "circle_x",
+        "expression": {
+          "kind": "integer_literal",
+          "value": 20
+        }
+      }
+    ],
+    "everyTasks": [
+      {
+        "taskName": "move_circle",
+        "intervalMilliseconds": 100,
+        "statements": [
+          {
+            "kind": "do_method_call",
+            "deviceAddress": { "kind": "display", "id": 0 },
+            "methodName": "clear",
+            "arguments": []
+          },
+          {
+            "kind": "do_method_call",
+            "deviceAddress": { "kind": "display", "id": 0 },
+            "methodName": "circle",
+            "arguments": [
+              { "kind": "state_reference", "stateName": "circle_x" },
+              { "kind": "integer_literal", "value": 32 },
+              { "kind": "integer_literal", "value": 8 }
+            ]
+          },
+          {
+            "kind": "do_method_call",
+            "deviceAddress": { "kind": "display", "id": 0 },
+            "methodName": "present",
+            "arguments": []
+          },
+          {
+            "kind": "assign_state",
+            "stateName": "circle_x",
+            "valueExpression": {
+              "kind": "binary_add",
+              "left": { "kind": "state_reference", "stateName": "circle_x" },
+              "right": { "kind": "integer_literal", "value": 4 }
+            }
+          }
+        ]
+      }
+    ],
+    "onEventTasks": []
+  }
+}

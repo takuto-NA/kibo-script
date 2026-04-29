@@ -1,6 +1,7 @@
 {
   "ok": true,
   "program": {
+    "stateInitializers": [],
     "everyTasks": [
       {
         "taskName": "blink",
@@ -17,6 +18,7 @@
           }
         ]
       }
-    ]
+    ],
+    "onEventTasks": []
   }
 }

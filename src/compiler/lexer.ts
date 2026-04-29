@@ -126,6 +126,16 @@ export function lexSourceText(sourceText: string, fileName: string): LexResult {
       });
       continue;
     }
+    if (character === "+") {
+      offset += 1;
+      tokens.push({
+        kind: "plus",
+        lexeme: "+",
+        start: tokenStartPosition,
+        end: positionAt(offset),
+      });
+      continue;
+    }
     if (character === "=") {
       offset += 1;
       tokens.push({

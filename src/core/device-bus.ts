@@ -49,6 +49,11 @@ export type DeviceEffect =
   | {
       kind: "led.toggle";
       address: DeviceAddress;
+    }
+  | {
+      kind: "pwm.level";
+      address: DeviceAddress;
+      levelPercent: number;
     };
 
 export type DeviceReadRequest = {

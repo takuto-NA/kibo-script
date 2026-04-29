@@ -24,10 +24,17 @@ export function serializeCompileScriptResultForGoldenTest(
   return {
     ok: true,
     program: {
+      stateInitializers: compileScriptResult.program.stateInitializers,
       everyTasks: compileScriptResult.program.everyTasks.map((everyTask) => ({
         taskName: everyTask.taskName,
         intervalMilliseconds: everyTask.intervalMilliseconds,
         statements: everyTask.statements,
+      })),
+      onEventTasks: compileScriptResult.program.onEventTasks.map((onTask) => ({
+        taskName: onTask.taskName,
+        deviceAddress: onTask.deviceAddress,
+        eventName: onTask.eventName,
+        statements: onTask.statements,
       })),
     },
   };

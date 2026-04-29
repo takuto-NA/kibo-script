@@ -2,9 +2,15 @@
  * Registered cooperative tasks（interactive の raw body と compiler の compiledStatements を保持）。
  */
 
+import type { DeviceAddress } from "./device-address";
 import type { ExecutableStatement } from "./executable-task";
 
 export type TaskRunMode = "every" | "on_event";
+
+export type TaskExecutionProgress = {
+  programCounter: number;
+  resumeAtTotalMilliseconds: number | undefined;
+};
 
 export type TaskRecord = {
   name: string;
@@ -18,6 +24,13 @@ export type TaskRecord = {
   body: string;
   /** Compiler が生成したタスク本体（full compiler 経路）。未設定なら every tick で実行しない。 */
   compiledStatements?: ExecutableStatement[];
+  /** every task の wait 再開用。 */
+  executionProgress?: TaskExecutionProgress;
+  /** runMode === on_event のときのフィルタ。 */
+  onEventFilter?: {
+    deviceAddress: DeviceAddress;
+    eventName: string;
+  };
 };
 
 export class TaskRegistry {
@@ -37,6 +50,10 @@ export class TaskRegistry {
 
   public removeTask(name: string): boolean {
     return this.tasks.delete(name);
+  }
+
+  public clearAllTasks(): void {
+    this.tasks.clear();
   }
 
   public startTask(name: string): boolean {

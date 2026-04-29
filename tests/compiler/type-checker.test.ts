@@ -33,7 +33,7 @@ task blink every 1000deg {
     expect(typeReport.diagnostics[0]?.actual).toEqual({ kind: "unit", unit: "deg" });
   });
 
-  it("rejects serial.println with integer argument", () => {
+  it("accepts serial.println with integer literal argument", () => {
     const sourceText = `ref port = serial#0
 
 task print every 1000ms {
@@ -56,7 +56,7 @@ task print every 1000ms {
       return;
     }
     const typeReport = typeCheckBoundProgram(bindResult.boundProgram);
-    expect(typeReport.diagnostics[0]?.id).toBe("type.argument_type_mismatch");
+    expect(typeReport.diagnostics).toHaveLength(0);
   });
 
   it("rejects led.toggle with extra arguments", () => {

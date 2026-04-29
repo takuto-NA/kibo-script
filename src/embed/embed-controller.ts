@@ -62,12 +62,19 @@ export class EmbedController {
     if (message.type === "simulator.getSnapshot") {
       const adc = this.runtime.getDefaultDevices().adc0.getSimulatedRawValue();
       const ledOn = this.runtime.getDefaultDevices().led0.isOn();
+      const pwmLevel = this.runtime.getDefaultDevices().pwm0.getLevelPercent();
+      const buttonPressed = this.runtime.getDefaultDevices().button0.isPressedState();
       return {
         source: "kibo-simulator-parent",
         type: "simulator.response",
         requestId: message.requestId,
         ok: true,
-        outputs: [`adc0.raw=${adc}`, `led0.on=${ledOn}`],
+        outputs: [
+          `adc0.raw=${adc}`,
+          `led0.on=${ledOn}`,
+          `pwm0.level=${pwmLevel}`,
+          `button0.pressed=${buttonPressed}`,
+        ],
       };
     }
     if (message.type === "simulator.loadScript") {

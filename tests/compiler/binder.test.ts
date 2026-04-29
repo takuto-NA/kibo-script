@@ -27,7 +27,11 @@ task blink every 1000ms {
       return;
     }
     const firstStatement = bindResult.boundProgram.tasks[0]?.statements[0];
-    expect(firstStatement?.deviceAddress).toEqual({ kind: "led", id: 0 });
-    expect(firstStatement?.methodName).toBe("toggle");
+    expect(firstStatement?.kind).toBe("do_statement");
+    if (firstStatement?.kind !== "do_statement") {
+      return;
+    }
+    expect(firstStatement.deviceAddress).toEqual({ kind: "led", id: 0 });
+    expect(firstStatement.methodName).toBe("toggle");
   });
 });

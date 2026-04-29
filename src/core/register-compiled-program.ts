@@ -1,8 +1,9 @@
 /**
- * CompiledProgram を TaskRegistry に登録し、SimulationRuntime の every tick で実行可能にする。
+ * CompiledProgram を TaskRegistry に登録し、SimulationRuntime の tick で実行可能にする。
  */
 
 import type { CompiledProgram } from "./executable-task";
+import { formatDeviceAddress } from "./device-address";
 import type { TaskRegistry } from "./task-registry";
 
 export function registerCompiledProgramOnTaskRegistry(params: {
@@ -19,6 +20,27 @@ export function registerCompiledProgramOnTaskRegistry(params: {
       accumulatedMilliseconds: 0,
       body: "",
       compiledStatements: everyTask.statements,
+      executionProgress: undefined,
+      onEventFilter: undefined,
+    });
+  }
+
+  for (const onTask of params.compiledProgram.onEventTasks) {
+    const addressKey = formatDeviceAddress(onTask.deviceAddress);
+    params.taskRegistry.registerTask({
+      name: onTask.taskName,
+      runMode: "on_event",
+      intervalMilliseconds: undefined,
+      eventExpression: `${addressKey}.${onTask.eventName}`,
+      running: true,
+      accumulatedMilliseconds: 0,
+      body: "",
+      compiledStatements: onTask.statements,
+      executionProgress: undefined,
+      onEventFilter: {
+        deviceAddress: onTask.deviceAddress,
+        eventName: onTask.eventName,
+      },
     });
   }
 }

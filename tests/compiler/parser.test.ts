@@ -34,7 +34,12 @@ task blink every 1000ms {
     if (firstStatement?.kind !== "do_statement") {
       return;
     }
-    expect(firstStatement.callExpression.receiver.name).toBe("led");
+    const receiver = firstStatement.callExpression.receiver;
+    expect(receiver.kind).toBe("ref_receiver");
+    if (receiver.kind !== "ref_receiver") {
+      return;
+    }
+    expect(receiver.name).toBe("led");
     expect(firstStatement.callExpression.methodName).toBe("toggle");
     expect(firstStatement.callExpression.arguments).toHaveLength(0);
   });

@@ -33,6 +33,8 @@ describe("EmbedController", () => {
     if (result?.ok) {
       expect(result.outputs[0]).toMatch(/adc0.raw=/);
       expect(result.outputs[1]).toMatch(/led0.on=/);
+      expect(result.outputs[2]).toMatch(/pwm0.level=/);
+      expect(result.outputs[3]).toMatch(/button0.pressed=/);
     }
   });
 

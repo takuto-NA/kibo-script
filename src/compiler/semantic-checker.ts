@@ -42,6 +42,26 @@ export function semanticCheckBoundProgram(boundProgram: BoundProgram): Diagnosti
     }
   }
 
+  for (const task of boundProgram.onEventTasks) {
+    const firstDeclarationRange = taskNameToFirstDeclarationRange.get(task.taskName);
+    if (firstDeclarationRange !== undefined) {
+      diagnostics.push(
+        buildSemanticDuplicateTaskName({
+          name: task.taskName,
+          range: convertAstRangeToSourceRange(task.range),
+          related: [
+            {
+              message: "Earlier task declared here.",
+              location: convertAstRangeToSourceRange(firstDeclarationRange),
+            },
+          ],
+        }),
+      );
+      continue;
+    }
+    taskNameToFirstDeclarationRange.set(task.taskName, task.range);
+  }
+
   return createDiagnosticReport(diagnostics);
 }
 

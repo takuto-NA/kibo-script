@@ -9,9 +9,11 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@types/jsdom": "^21.1.7",
     "@types/node": "^22.10.2",
     "jsdom": "^25.0.1",

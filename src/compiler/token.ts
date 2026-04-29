@@ -12,6 +12,7 @@ export type TokenKind =
   | "dot"
   | "comma"
   | "equals"
+  | "plus"
   | "hash"
   | "percent_keyword"
   | "deg_keyword"

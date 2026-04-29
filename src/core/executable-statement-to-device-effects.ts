@@ -1,18 +1,22 @@
 /**
  * ExecutableStatement を DeviceBus が適用できる DeviceEffect 列へ変換する。
+ * do_method_call の引数は呼び出し側で evaluate 済みの concrete 値として渡す。
  */
 
-import type { ExecutableStatement } from "./executable-task";
+import type { DeviceAddress } from "./device-address";
 import type { DeviceEffect } from "./device-bus";
+import type { ExecutableStatement } from "./executable-task";
 
-export function mapExecutableStatementToDeviceEffects(statement: ExecutableStatement): DeviceEffect[] {
-  if (statement.kind !== "do_method_call") {
-    return [];
-  }
+export type ConcreteMethodArgument = { kind: "integer"; value: number } | { kind: "string"; value: string };
 
-  const address = statement.deviceAddress;
-  const methodName = statement.methodName;
-  const argumentsList = statement.arguments;
+export function mapDoMethodCallToDeviceEffects(params: {
+  deviceAddress: DeviceAddress;
+  methodName: string;
+  concreteArguments: ConcreteMethodArgument[];
+}): DeviceEffect[] {
+  const address = params.deviceAddress;
+  const methodName = params.methodName;
+  const argumentsList = params.concreteArguments;
 
   if (address.kind === "led") {
     if (methodName === "toggle" && argumentsList.length === 0) {
@@ -29,7 +33,7 @@ export function mapExecutableStatementToDeviceEffects(statement: ExecutableState
 
   if (address.kind === "serial" && methodName === "println" && argumentsList.length === 1) {
     const firstArgument = argumentsList[0];
-    if (firstArgument.kind === "string") {
+    if (firstArgument !== undefined && firstArgument.kind === "string") {
       return [{ kind: "serial.println", address, text: firstArgument.value }];
     }
     return [];
@@ -91,5 +95,41 @@ export function mapExecutableStatementToDeviceEffects(statement: ExecutableState
     }
   }
 
+  if (address.kind === "pwm" && methodName === "level" && argumentsList.length === 1) {
+    const first = argumentsList[0];
+    if (first !== undefined && first.kind === "integer") {
+      return [{ kind: "pwm.level", address, levelPercent: first.value }];
+    }
+    return [];
+  }
+
   return [];
+}
+
+/**
+ * @deprecated ランタイムでは concrete 引数を解決して mapDoMethodCallToDeviceEffects を使う。
+ */
+export function mapExecutableStatementToDeviceEffects(statement: ExecutableStatement): DeviceEffect[] {
+  if (statement.kind !== "do_method_call") {
+    return [];
+  }
+
+  const concreteArguments: ConcreteMethodArgument[] = [];
+  for (const argument of statement.arguments) {
+    if (argument.kind === "integer_literal") {
+      concreteArguments.push({ kind: "integer", value: argument.value });
+      continue;
+    }
+    if (argument.kind === "string_literal") {
+      concreteArguments.push({ kind: "string", value: argument.value });
+      continue;
+    }
+    return [];
+  }
+
+  return mapDoMethodCallToDeviceEffects({
+    deviceAddress: statement.deviceAddress,
+    methodName: statement.methodName,
+    concreteArguments,
+  });
 }

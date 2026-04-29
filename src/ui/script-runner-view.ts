@@ -24,6 +24,7 @@ export function createScriptRunnerPanel(params: {
 
   const sourceTextArea = document.createElement("textarea");
   sourceTextArea.className = "script-runner-textarea";
+  sourceTextArea.setAttribute("data-testid", "script-runner-textarea");
   sourceTextArea.rows = 8;
   sourceTextArea.setAttribute("aria-label", "Multiline script source");
   sourceTextArea.spellcheck = false;
@@ -37,6 +38,7 @@ task blink every 1000ms {
   const runButton = document.createElement("button");
   runButton.type = "button";
   runButton.className = "script-runner-button";
+  runButton.setAttribute("data-testid", "script-runner-submit-button");
   runButton.textContent = "Compile & run on simulator";
 
   const resultPre = document.createElement("pre");
