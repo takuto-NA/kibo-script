@@ -28,4 +28,32 @@ describe("task on button event", () => {
 
     expect(led.isOn()).toBe(true);
   });
+
+  it("resolves ref receiver in task on event filter", () => {
+    const sourceText = `ref led = led#0
+ref button = button#0
+
+task react on button.pressed {
+  do led.toggle()
+}
+`;
+    const compileResult = compileScript(sourceText, "on-ref.sc");
+    expect(compileResult.ok).toBe(true);
+    if (compileResult.ok === false) {
+      return;
+    }
+
+    const runtime = new SimulationRuntime({ tasks: new TaskRegistry() });
+    runtime.replaceCompiledProgram(compileResult.program);
+    const led = runtime.getDefaultDevices().led0;
+
+    expect(led.isOn()).toBe(false);
+
+    runtime.dispatchScriptEvent({
+      deviceAddress: { kind: "button", id: 0 },
+      eventName: "pressed",
+    });
+
+    expect(led.isOn()).toBe(true);
+  });
 });

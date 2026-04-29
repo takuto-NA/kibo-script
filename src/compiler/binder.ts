@@ -6,6 +6,7 @@ import type {
   MethodArgumentExpressionAst,
   ProgramAst,
   ReadTargetAst,
+  TaskOnEventTargetAst,
   TaskOnDeclarationAst,
   TaskDeclarationAst,
 } from "../ast/script-ast";
@@ -249,19 +250,12 @@ function bindTaskOnDeclaration(params: {
   refSymbolTable: RefSymbolTable;
   stateSymbols: Map<string, BoundStateSymbol>;
 }): { ok: true; boundTask: BoundOnEventTask } | { ok: false; report: DiagnosticReport } {
-  const deviceReferenceText = `${params.taskOnDeclaration.deviceKind}#${params.taskOnDeclaration.deviceId}`;
-  const parseAddressResult = parseDeviceAddress(deviceReferenceText);
-  if (parseAddressResult.ok === false) {
-    return {
-      ok: false,
-      report: createDiagnosticReport([
-        buildNameUnknownReference({
-          name: deviceReferenceText,
-          range: astRangeToSourceRange(params.taskOnDeclaration.range),
-          rangeText: deviceReferenceText,
-        }),
-      ]),
-    };
+  const resolveEventTargetResult = resolveTaskOnEventTargetToDeviceAddress({
+    eventTarget: params.taskOnDeclaration.eventTarget,
+    refSymbolTable: params.refSymbolTable,
+  });
+  if (resolveEventTargetResult.ok === false) {
+    return resolveEventTargetResult;
   }
 
   const boundStatements: BoundStatement[] = [];
@@ -280,13 +274,52 @@ function bindTaskOnDeclaration(params: {
 
   const boundTask: BoundOnEventTask = {
     taskName: params.taskOnDeclaration.taskName,
-    deviceAddress: parseAddressResult.address,
+    deviceAddress: resolveEventTargetResult.deviceAddress,
     eventName: params.taskOnDeclaration.eventName,
     statements: boundStatements,
     range: params.taskOnDeclaration.range,
   };
 
   return { ok: true, boundTask };
+}
+
+function resolveTaskOnEventTargetToDeviceAddress(params: {
+  eventTarget: TaskOnEventTargetAst;
+  refSymbolTable: RefSymbolTable;
+}): { ok: true; deviceAddress: DeviceAddress } | { ok: false; report: DiagnosticReport } {
+  if (params.eventTarget.kind === "ref_event_target") {
+    const symbolEntry = params.refSymbolTable.lookup(params.eventTarget.name);
+    if (symbolEntry === undefined) {
+      return {
+        ok: false,
+        report: createDiagnosticReport([
+          buildNameUnknownReference({
+            name: params.eventTarget.name,
+            range: astRangeToSourceRange(params.eventTarget.range),
+            rangeText: params.eventTarget.name,
+          }),
+        ]),
+      };
+    }
+    return { ok: true, deviceAddress: symbolEntry.deviceAddress };
+  }
+
+  const deviceReferenceText = `${params.eventTarget.deviceKind}#${params.eventTarget.deviceId}`;
+  const parseAddressResult = parseDeviceAddress(deviceReferenceText);
+  if (parseAddressResult.ok === false) {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildNameUnknownReference({
+          name: deviceReferenceText,
+          range: astRangeToSourceRange(params.eventTarget.range),
+          rangeText: deviceReferenceText,
+        }),
+      ]),
+    };
+  }
+
+  return { ok: true, deviceAddress: parseAddressResult.address };
 }
 
 function bindStatement(params: {

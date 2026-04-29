@@ -425,53 +425,65 @@ function parseTaskOnAfterTaskName(
   const onKeyword = cursor.current();
   cursor.advance();
 
-  const deviceKindToken = cursor.current();
-  if (deviceKindToken.kind !== "identifier") {
+  const eventTargetNameToken = cursor.current();
+  if (eventTargetNameToken.kind !== "identifier") {
     return {
       ok: false,
       report: createDiagnosticReport([
         buildParseUnexpectedToken({
           file: fileName,
-          range: tokenToDiagnosticRange(fileName, deviceKindToken),
-          rangeText: deviceKindToken.lexeme,
-          message: "Expected device kind for task on event.",
+          range: tokenToDiagnosticRange(fileName, eventTargetNameToken),
+          rangeText: eventTargetNameToken.lexeme,
+          message: "Expected device kind or ref name for task on event.",
         }),
       ]),
     };
   }
   cursor.advance();
 
-  const hashToken = cursor.current();
-  if (hashToken.kind !== "hash") {
-    return {
-      ok: false,
-      report: createDiagnosticReport([
-        buildParseUnexpectedToken({
-          file: fileName,
-          range: tokenToDiagnosticRange(fileName, hashToken),
-          rangeText: hashToken.lexeme,
-          message: "Expected '#' in task on event.",
-        }),
-      ]),
-    };
-  }
-  cursor.advance();
+  const eventTargetSeparatorToken = cursor.current();
+  let eventTarget: TaskOnDeclarationAst["eventTarget"];
 
-  const idToken = cursor.current();
-  if (idToken.kind !== "number_literal") {
-    return {
-      ok: false,
-      report: createDiagnosticReport([
-        buildParseUnexpectedToken({
-          file: fileName,
-          range: tokenToDiagnosticRange(fileName, idToken),
-          rangeText: idToken.lexeme,
-          message: "Expected numeric device id in task on event.",
-        }),
-      ]),
+  if (eventTargetSeparatorToken.kind === "hash") {
+    cursor.advance();
+
+    const idToken = cursor.current();
+    if (idToken.kind !== "number_literal") {
+      return {
+        ok: false,
+        report: createDiagnosticReport([
+          buildParseUnexpectedToken({
+            file: fileName,
+            range: tokenToDiagnosticRange(fileName, idToken),
+            rangeText: idToken.lexeme,
+            message: "Expected numeric device id in task on event.",
+          }),
+        ]),
+      };
+    }
+    cursor.advance();
+
+    eventTarget = {
+      kind: "device_event_target",
+      range: {
+        fileName,
+        start: eventTargetNameToken.start,
+        end: idToken.end,
+      },
+      deviceKind: eventTargetNameToken.lexeme,
+      deviceId: Number.parseInt(idToken.lexeme, 10),
+    };
+  } else {
+    eventTarget = {
+      kind: "ref_event_target",
+      range: {
+        fileName,
+        start: eventTargetNameToken.start,
+        end: eventTargetNameToken.end,
+      },
+      name: eventTargetNameToken.lexeme,
     };
   }
-  cursor.advance();
 
   const dotToken = cursor.current();
   if (dotToken.kind !== "dot") {
@@ -558,8 +570,7 @@ function parseTaskOnAfterTaskName(
       kind: "task_on_declaration",
       range: declarationRange,
       taskName: taskNameToken.lexeme,
-      deviceKind: deviceKindToken.lexeme,
-      deviceId: Number.parseInt(idToken.lexeme, 10),
+      eventTarget,
       eventName: eventNameToken.lexeme,
       bodyStatements,
     },

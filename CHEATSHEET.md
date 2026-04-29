@@ -20,6 +20,7 @@ npm run dev -- --host 127.0.0.1
 npm run typecheck
 npm test
 npm run build
+npm run test:e2e
 npm audit --audit-level=moderate
 ```
 
@@ -47,11 +48,14 @@ task blink every 1000ms {
 
 ```text
 ref led = led#0
+ref button = button#0
 
-task react on button#0.pressed {
+task react on button.pressed {
   do led.toggle()
 }
 ```
+
+`task on` のイベント元は `button#0.pressed` の直書きでも、上のように `ref button = button#0` 経由でも書ける。
 
 ## `match`（文字列の最小形）
 
@@ -71,6 +75,49 @@ task apply on button#0.pressed {
 }
 ```
 
+制限:
+
+- target は string 式のみ
+- pattern は string literal と `else` のみ
+- `else` は必須
+- branch 内は `do` / `set` のみ（`wait` と nested `match` は未対応）
+
+## `wait` で task を一時停止する
+
+full compiler 経路（script textarea / embed loadScript）では `wait <N>ms` が使える。次の例は LED を ON にして 100ms 後に OFF にする。
+
+```text
+task pulse every 1000ms {
+  do led#0.on()
+  wait 100ms
+  do led#0.off()
+}
+```
+
+## `read` 式を使う
+
+`read adc#0` は整数式として `serial.println` などに渡せる。
+
+```text
+ref port = serial#0
+
+task report every 1000ms {
+  do port.println(read adc#0)
+}
+```
+
+## `pwm#0` を使う
+
+`pwm#0.level(<percent>)` で 0-100% の出力値を設定できる。
+
+```text
+task dim every 1000ms {
+  do pwm#0.level(50)
+}
+```
+
+## Interactive Command
+
 端末欄では 1 行ずつ実行できる。
 
 ```text
@@ -78,6 +125,8 @@ read adc#0
 adc#0.info
 display#0.info
 led#0.info
+button#0.info
+pwm#0.info
 ```
 
 `adc#0.info` は複数行テキストになる（改行がそのまま表示される）。
@@ -143,6 +192,8 @@ do display#0.present()
 ```text
 task blink every 1000ms { do led#0.toggle() }
 ```
+
+Interactive task body は現状 1 行 1 つの `do ...` のみ。`state` / `set` / `wait` / `match` を使う場合は script textarea の full compiler 経路を使う。
 
 task 操作:
 

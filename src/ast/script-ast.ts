@@ -52,12 +52,15 @@ export type TaskOnDeclarationAst = {
   kind: "task_on_declaration";
   range: AstRange;
   taskName: string;
-  /** 例: button#0.pressed のデバイス側とイベント名。 */
-  deviceKind: string;
-  deviceId: number;
+  /** 例: button#0.pressed または button.pressed のイベント元。 */
+  eventTarget: TaskOnEventTargetAst;
   eventName: string;
   bodyStatements: StatementAst[];
 };
+
+export type TaskOnEventTargetAst =
+  | { kind: "device_event_target"; range: AstRange; deviceKind: string; deviceId: number }
+  | { kind: "ref_event_target"; range: AstRange; name: string };
 
 export type StatementAst =
   | DoStatementAst
