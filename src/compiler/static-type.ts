@@ -28,12 +28,16 @@ export const DEVICE_METHOD_SIGNATURES: Record<
     on: { minimumParameterCount: 0, maximumParameterCount: 0 },
     toggle: { minimumParameterCount: 0, maximumParameterCount: 0 },
   },
-  motor: {},
+  motor: {
+    power: { minimumParameterCount: 1, maximumParameterCount: 1 },
+  },
   pwm: {
     level: { minimumParameterCount: 1, maximumParameterCount: 1 },
   },
   serial: {
     println: { minimumParameterCount: 1, maximumParameterCount: 1 },
   },
-  servo: {},
+  servo: {
+    angle: { minimumParameterCount: 1, maximumParameterCount: 1 },
+  },
 };

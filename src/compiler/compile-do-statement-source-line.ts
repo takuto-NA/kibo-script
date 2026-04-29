@@ -51,7 +51,7 @@ export function compileDoStatementSourceLineToExecutableStatement(params: {
     return { ok: false, report: semanticReport };
   }
 
-  const firstTask = bindResult.boundProgram.tasks[0];
+  const firstTask = bindResult.boundProgram.everyTasks[0];
   const firstStatement = firstTask?.statements[0];
   if (firstStatement === undefined || firstStatement.kind !== "do_statement") {
     return {
@@ -76,9 +76,12 @@ function wrapSingleDoStatementInMinimalProgram(doStatement: DoStatementAst, _fil
     kind: "task_declaration",
     range: doStatement.range,
     taskName: "__interactive_do_line",
-    intervalValue: 1,
-    intervalUnit: "ms",
-    intervalRange: doStatement.range,
+    schedule: {
+      kind: "every",
+      intervalValue: 1,
+      intervalUnit: "ms",
+      intervalRange: doStatement.range,
+    },
     bodyStatements: [doStatement],
   };
 

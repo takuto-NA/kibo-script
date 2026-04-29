@@ -64,6 +64,19 @@ export class EmbedController {
       const ledOn = this.runtime.getDefaultDevices().led0.isOn();
       const pwmLevel = this.runtime.getDefaultDevices().pwm0.getLevelPercent();
       const buttonPressed = this.runtime.getDefaultDevices().button0.isPressedState();
+      const bus = this.runtime.getDeviceBus();
+      const motor0Power = bus.read({ address: { kind: "motor", id: 0 }, property: "power" });
+      const motor1Power = bus.read({ address: { kind: "motor", id: 1 }, property: "power" });
+      const servo0Angle = bus.read({ address: { kind: "servo", id: 0 }, property: "angle" });
+      const imuRoll = bus.read({ address: { kind: "imu", id: 0 }, property: "roll" });
+      const imuPitch = bus.read({ address: { kind: "imu", id: 0 }, property: "pitch" });
+      const imuYaw = bus.read({ address: { kind: "imu", id: 0 }, property: "yaw" });
+      const motor0PowerText = motor0Power?.tag === "integer" ? String(motor0Power.value) : "?";
+      const motor1PowerText = motor1Power?.tag === "integer" ? String(motor1Power.value) : "?";
+      const servo0AngleText = servo0Angle?.tag === "integer" ? String(servo0Angle.value) : "?";
+      const imuRollText = imuRoll?.tag === "integer" ? String(imuRoll.value) : "?";
+      const imuPitchText = imuPitch?.tag === "integer" ? String(imuPitch.value) : "?";
+      const imuYawText = imuYaw?.tag === "integer" ? String(imuYaw.value) : "?";
       return {
         source: "kibo-simulator-parent",
         type: "simulator.response",
@@ -74,6 +87,12 @@ export class EmbedController {
           `led0.on=${ledOn}`,
           `pwm0.level=${pwmLevel}`,
           `button0.pressed=${buttonPressed}`,
+          `motor0.power=${motor0PowerText}`,
+          `motor1.power=${motor1PowerText}`,
+          `servo0.angle=${servo0AngleText}`,
+          `imu0.roll_mdeg=${imuRollText}`,
+          `imu0.pitch_mdeg=${imuPitchText}`,
+          `imu0.yaw_mdeg=${imuYawText}`,
         ],
       };
     }

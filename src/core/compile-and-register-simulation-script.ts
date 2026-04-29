@@ -22,7 +22,8 @@ export function compileSourceAndRegisterSimulationTasks(params: {
   params.simulationRuntime.replaceCompiledProgram(compileResult.program);
 
   const everyNames = compileResult.program.everyTasks.map((everyTask) => everyTask.taskName);
+  const loopNames = compileResult.program.loopTasks.map((loopTask) => loopTask.taskName);
   const onEventNames = compileResult.program.onEventTasks.map((task) => task.taskName);
-  const registeredTaskNames = [...everyNames, ...onEventNames];
+  const registeredTaskNames = [...everyNames, ...loopNames, ...onEventNames];
   return { ok: true, registeredTaskNames };
 }

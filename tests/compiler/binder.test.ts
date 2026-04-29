@@ -26,7 +26,7 @@ task blink every 1000ms {
     if (bindResult.ok === false) {
       return;
     }
-    const firstStatement = bindResult.boundProgram.tasks[0]?.statements[0];
+    const firstStatement = bindResult.boundProgram.everyTasks[0]?.statements[0];
     expect(firstStatement?.kind).toBe("do_statement");
     if (firstStatement?.kind !== "do_statement") {
       return;

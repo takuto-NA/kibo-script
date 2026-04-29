@@ -4,6 +4,6 @@
 
 import { createSimulatorView } from "./ui/simulator-view";
 
-createSimulatorView({
+void createSimulatorView({
   rootElementId: "app",
 });

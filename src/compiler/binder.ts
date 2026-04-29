@@ -25,7 +25,9 @@ import type {
   BoundDoStatement,
   BoundAnimatorSymbol,
   BoundExpression,
+  BoundEveryTask,
   BoundIfStatement,
+  BoundLoopTask,
   BoundMatchPattern,
   BoundMatchStatement,
   BoundOnEventTask,
@@ -34,7 +36,6 @@ import type {
   BoundSetStatement,
   BoundStatement,
   BoundStateSymbol,
-  BoundTask,
   BoundTempStatement,
   BoundValueSymbolInSourceOrderRow,
   BoundWaitStatement,
@@ -271,7 +272,8 @@ export function bindProgram(ast: ProgramAst, sourceFileName: string): BindProgra
     return { ok: false, report: createDiagnosticReport(diagnostics) };
   }
 
-  const boundTasks: BoundTask[] = [];
+  const boundEveryTasks: BoundEveryTask[] = [];
+  const boundLoopTasks: BoundLoopTask[] = [];
   const boundOnEventTasks: BoundOnEventTask[] = [];
 
   for (const declaration of ast.declarations) {
@@ -286,7 +288,11 @@ export function bindProgram(ast: ProgramAst, sourceFileName: string): BindProgra
       if (bindTaskResult.ok === false) {
         return bindTaskResult;
       }
-      boundTasks.push(bindTaskResult.boundTask);
+      if (bindTaskResult.boundTask.runKind === "every") {
+        boundEveryTasks.push(bindTaskResult.boundTask);
+        continue;
+      }
+      boundLoopTasks.push(bindTaskResult.boundTask);
       continue;
     }
 
@@ -323,7 +329,8 @@ export function bindProgram(ast: ProgramAst, sourceFileName: string): BindProgra
     stateSymbolsInSourceOrder: buildStateSymbolsInSourceOrder(ast, stateSymbols),
     animatorSymbols,
     animatorSymbolsInSourceOrder,
-    tasks: boundTasks,
+    everyTasks: boundEveryTasks,
+    loopTasks: boundLoopTasks,
     onEventTasks: boundOnEventTasks,
     valueSymbolsInSourceOrder,
   };
@@ -354,7 +361,7 @@ function bindTaskDeclaration(params: {
   stateSymbols: Map<string, BoundStateSymbol>;
   constSymbols: Map<string, BoundConstSymbol>;
   animatorSymbols: ReadonlyMap<string, BoundAnimatorSymbol>;
-}): { ok: true; boundTask: BoundTask } | { ok: false; report: DiagnosticReport } {
+}): { ok: true; boundTask: BoundEveryTask | BoundLoopTask } | { ok: false; report: DiagnosticReport } {
   const linearTempScope = new Set<string>();
   const boundStatements: BoundStatement[] = [];
 
@@ -376,16 +383,28 @@ function bindTaskDeclaration(params: {
     }
   }
 
-  const boundTask: BoundTask = {
+  if (params.taskDeclaration.schedule.kind === "every") {
+    const schedule = params.taskDeclaration.schedule;
+    const boundTask: BoundEveryTask = {
+      runKind: "every",
+      taskName: params.taskDeclaration.taskName,
+      intervalValue: schedule.intervalValue,
+      intervalUnit: schedule.intervalUnit,
+      intervalRange: schedule.intervalRange,
+      statements: boundStatements,
+      range: params.taskDeclaration.range,
+    };
+    return { ok: true, boundTask };
+  }
+
+  const boundLoopTask: BoundLoopTask = {
+    runKind: "loop",
     taskName: params.taskDeclaration.taskName,
-    intervalValue: params.taskDeclaration.intervalValue,
-    intervalUnit: params.taskDeclaration.intervalUnit,
-    intervalRange: params.taskDeclaration.intervalRange,
     statements: boundStatements,
     range: params.taskDeclaration.range,
   };
 
-  return { ok: true, boundTask };
+  return { ok: true, boundTask: boundLoopTask };
 }
 
 function bindTaskOnDeclaration(params: {
@@ -599,9 +618,21 @@ function bindStatement(params: {
   }
 
   if (params.statement.kind === "wait_statement") {
+    const bindDurationResult = bindMethodArgumentExpression({
+      expression: params.statement.durationMillisecondsExpression,
+      refSymbolTable: params.refSymbolTable,
+      stateSymbols: params.stateSymbols,
+      constSymbols: params.constSymbols,
+      animatorSymbols: params.animatorSymbols,
+      tempNamesInScope: params.tempNamesInScope,
+    });
+    if (bindDurationResult.ok === false) {
+      return bindDurationResult;
+    }
+
     const boundWait: BoundWaitStatement = {
       kind: "wait_statement",
-      waitMilliseconds: params.statement.waitMilliseconds,
+      durationMillisecondsExpression: bindDurationResult.expression,
       waitRange: params.statement.waitRange,
       range: params.statement.range,
     };
@@ -780,6 +811,33 @@ function resolveCallReceiverToDeviceAddress(params: {
   return { ok: true, deviceAddress: parseAddressResult.address };
 }
 
+function resolveDefaultReadPropertyName(params: {
+  deviceAddress: DeviceAddress;
+  explicitPropertyName: string | undefined;
+}): string {
+  const hasExplicitProperty =
+    params.explicitPropertyName !== undefined && params.explicitPropertyName !== "";
+  if (hasExplicitProperty) {
+    return params.explicitPropertyName ?? "";
+  }
+  if (params.deviceAddress.kind === "adc") {
+    return "raw";
+  }
+  if (params.deviceAddress.kind === "motor") {
+    return "power";
+  }
+  if (params.deviceAddress.kind === "servo") {
+    return "angle";
+  }
+  if (params.deviceAddress.kind === "pwm") {
+    return "level";
+  }
+  if (params.deviceAddress.kind === "imu") {
+    return "roll";
+  }
+  return "";
+}
+
 function bindReadTarget(params: {
   readTarget: ReadTargetAst;
 }): { ok: true; expression: BoundExpression } | { ok: false; report: DiagnosticReport } {
@@ -810,10 +868,10 @@ function bindReadTarget(params: {
     };
   }
 
-  const propertyName =
-    params.readTarget.propertyName !== undefined && params.readTarget.propertyName !== ""
-      ? params.readTarget.propertyName
-      : "raw";
+  const propertyName = resolveDefaultReadPropertyName({
+    deviceAddress: parseAddressResult.address,
+    explicitPropertyName: params.readTarget.propertyName,
+  });
 
   const readExpression: BoundExpression = {
     kind: "read_property",

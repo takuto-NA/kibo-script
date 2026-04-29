@@ -10,6 +10,7 @@ import type {
 } from "./bound-program";
 import type {
   CompiledEveryTask,
+  CompiledLoopTask,
   CompiledOnEventTask,
   CompiledProgram,
   ExecutableExpression,
@@ -42,9 +43,14 @@ export function lowerBoundProgramToCompiledProgram(boundProgram: BoundProgram): 
     };
   });
 
-  const everyTasks: CompiledEveryTask[] = boundProgram.tasks.map((task) => ({
+  const everyTasks: CompiledEveryTask[] = boundProgram.everyTasks.map((task) => ({
     taskName: task.taskName,
     intervalMilliseconds: task.intervalValue,
+    statements: task.statements.map(lowerBoundStatementToExecutableStatement),
+  }));
+
+  const loopTasks: CompiledLoopTask[] = boundProgram.loopTasks.map((task) => ({
+    taskName: task.taskName,
     statements: task.statements.map(lowerBoundStatementToExecutableStatement),
   }));
 
@@ -65,6 +71,7 @@ export function lowerBoundProgramToCompiledProgram(boundProgram: BoundProgram): 
     constInitializers,
     animatorDefinitions,
     everyTasks,
+    loopTasks,
     onEventTasks,
   };
 }
@@ -98,7 +105,7 @@ export function lowerBoundStatementToExecutableStatement(statement: BoundStateme
   if (statement.kind === "wait_statement") {
     return {
       kind: "wait_milliseconds",
-      waitMilliseconds: statement.waitMilliseconds,
+      durationMillisecondsExpression: lowerBoundExpression(statement.durationMillisecondsExpression),
     };
   }
 

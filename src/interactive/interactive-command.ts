@@ -47,6 +47,16 @@ export type InteractiveCommand =
       levelPercent: number;
     }
   | {
+      kind: "do_motor_power";
+      motorId: number;
+      powerPercent: number;
+    }
+  | {
+      kind: "do_servo_angle";
+      servoId: number;
+      angleDegrees: number;
+    }
+  | {
       kind: "list_tasks";
     }
   | {

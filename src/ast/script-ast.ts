@@ -46,15 +46,30 @@ export type RefDeclarationAst = {
   deviceId: number;
 };
 
+/**
+ * `task <name> every ...` か `task <name> loop` のスケジュール。
+ * loop は周期を持たず、本体末尾で先頭へ戻る。
+ */
+export type TaskScheduleAst =
+  | {
+      kind: "every";
+      /** Raw integer before unit token. */
+      intervalValue: number;
+      /** `ms` for time schedule, or invalid unit for diagnostic tests. */
+      intervalUnit: "ms" | "deg";
+      intervalRange: AstRange;
+    }
+  | {
+      kind: "loop";
+      /** `loop` キーワードの範囲（診断用）。 */
+      loopKeywordRange: AstRange;
+    };
+
 export type TaskDeclarationAst = {
   kind: "task_declaration";
   range: AstRange;
   taskName: string;
-  /** Raw integer before unit token. */
-  intervalValue: number;
-  /** `ms` for time schedule, or invalid unit for diagnostic tests. */
-  intervalUnit: "ms" | "deg";
-  intervalRange: AstRange;
+  schedule: TaskScheduleAst;
   bodyStatements: StatementAst[];
 };
 
@@ -148,8 +163,11 @@ export type SetStatementAst = {
 export type WaitStatementAst = {
   kind: "wait_statement";
   range: AstRange;
-  /** Milliseconds before the `ms` unit token. */
-  waitMilliseconds: number;
+  /**
+   * `ms` までの待機時間（整数式）。リテラル `wait 100ms` も式として表現する。
+   */
+  durationMillisecondsExpression: MethodArgumentExpressionAst;
+  /** 式の開始から `ms` トークン終端まで（診断用）。 */
   waitRange: AstRange;
 };
 

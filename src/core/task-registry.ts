@@ -5,7 +5,7 @@
 import type { DeviceAddress } from "./device-address";
 import type { ExecutableStatement } from "./executable-task";
 
-export type TaskRunMode = "every" | "on_event";
+export type TaskRunMode = "every" | "on_event" | "loop";
 
 export type TaskExecutionProgress = {
   programCounter: number;

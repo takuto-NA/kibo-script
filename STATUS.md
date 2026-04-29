@@ -10,9 +10,9 @@
 
 MVP として、ブラウザ UI・仮想デバイス・task runtime・full compiler の縦断ルートは動作している。
 
-- ブラウザで端末、script runner、OLED 風 canvas、LED ランプ、**pwm#0 レベル（バー + テキスト）**、`button#0` の Press UI を表示できる。
+- ブラウザで端末、script runner、OLED 風 canvas、**three.js による簡易 3D 物理ビュー**、LED ランプ、**pwm#0 レベル（バー + テキスト）**、`button#0` の Press UI を表示できる。
 - `compileScript()` で複数行 script を parse / bind / type check / semantic check し、runtime IR に下げられる。
-- `state` / `set`、式（`+` `-` `*` `/` 単項 `-`、比較）、`read`、`wait`、`const` / `temp`、`match` 文（文字列）/ `match` 式（数値・範囲）、最小 `if`、`task on` まで実装済み。
+- `state` / `set`、式（`+` `-` `*` `/` 単項 `-`、比較）、`read`、`wait`（整数式）、`const` / `temp`、`match` 文（文字列）/ `match` 式（数値・範囲）、最小 `if`、`task every` / `task on` / **`task loop`** まで実装済み。
 - `task on` は `button#0.pressed` 直書きと `ref button = button#0` 経由の `button.pressed` の両方に対応している。
 - Embed API から command / tick / snapshot / display frame / ADC 設定 / script load を呼べる。
 - structured diagnostics を JSON 互換形式で返せる。
@@ -32,10 +32,10 @@ npm audit --audit-level=moderate
 直近確認:
 
 - `npm run typecheck`: 成功
-- `npm test`: 成功（30 files / 88 tests）
+- `npm test`: 成功（35 files / 98 tests）
 - `npm run build`: 成功
-- `npm run test:e2e`: 成功（4 tests）
-- Script ergonomics: `const` / `temp`、算術・比較、`match` 式（数値・範囲）、`if` を追加済み。
+- `npm run test:e2e`: 成功（5 tests）
+- Script ergonomics: `const` / `temp`、算術・比較、`match` 式（数値・範囲）、`if`、`task loop`、`wait`（整数式）を追加済み。
 
 ## ブラウザ UI
 
@@ -44,14 +44,16 @@ npm audit --audit-level=moderate
 - Interactive terminal: 1 行 command、task 操作、diagnostics 表示。
 - StaticCore Script textarea: 複数行 script を compile して runtime に登録。
 - `serial#0.println(...)`: task / interactive command の出力を terminal に表示。
-- `display#0`: 128x64 の 1bit framebuffer を OLED 風 canvas に描画。
+- `display#0`: 128x64 の 1bit framebuffer を OLED 風 canvas に描画。右パネルに **three.js** の簡易 3D ビュー（車体 + 床 + 筐体上 LED、`led#0` と同期）を表示。
 - `led#0`: on/off をランプで表示。
 - `pwm#0`: 0–100% の level をバーと数値で表示（script の `pwm#0.level` と同期）。
 - `button#0`: Press ボタンで `button#0.pressed` event を dispatch。
+- **物理シミュレータ MVP**: `@dimforge/rapier3d-compat` で固定筐体をシミュレート（初期化失敗時は Noop）。`motor#0` / `motor#1` の `power(-100..100)`、`servo#0` の `angle(-180..180)`、`imu#0` の `roll` / `pitch` / `yaw`（ミリ度）および `accel_*`（ミリ g）を `read` できる。Script runtime は `PhysicsWorld` インターフェースのみに依存し、three/Rapier なしでも動作する。
 
 関連ファイル:
 
 - `src/ui/simulator-view.ts`
+- `src/ui/physics-scene-view.ts`
 - `src/ui/script-runner-view.ts`
 - `src/ui/led-view.ts`
 - `src/ui/pwm-view.ts`
@@ -78,6 +80,14 @@ do display#0.present()
 do led#0.on()
 do led#0.off()
 do led#0.toggle()
+do pwm#0.level(percent)
+pwm#0.info
+do motor#0.power(percent)
+do motor#1.power(percent)
+do servo#0.angle(degrees)
+read imu#0.roll
+read motor#0.power
+motor#0.info
 task <name> every <N>ms { do ... }
 list tasks
 show task <name>
@@ -102,8 +112,9 @@ drop task <name>
 - `led#0`: `on` / `off` / `toggle` に対応。
 - `pwm#0`: `level(percent)` に対応。0-100% に clamp する。
 - `button#0`: UI / embed / test から押下状態を注入できる。
-
-未対応:
+- `motor#0` / `motor#1`: `power(percent)`（-100..100）。`read motor#N` は省略時 `power`。
+- `servo#0`: `angle(degrees)`（-180..180）。`read servo#N` は省略時 `angle`。
+- `imu#0`: `read imu#0.roll` 等（姿勢は **ミリ度**、加速度は **ミリ g**）。`read imu#0` 省略時は `roll`。
 
 - `display#0` の text 描画 API。
 - `serial#0` の高度な line input / stream 処理。
@@ -113,7 +124,7 @@ drop task <name>
 
 入口は `src/compiler/compile-script.ts` の `compileScript(sourceText, fileName)`。
 
-成功時は `src/core/executable-task.ts` の `CompiledProgram` を返し、`SimulationRuntime.replaceCompiledProgram()` が state 初期化と task 登録を行う。失敗時は `DiagnosticReport` を返す。
+成功時は `src/core/executable-task.ts` の `CompiledProgram`（`everyTasks` / `loopTasks` / `onEventTasks` など）を返し、`SimulationRuntime.replaceCompiledProgram()` が state 初期化と task 登録を行う。失敗時は `DiagnosticReport` を返す。
 
 実装済みの主な構文:
 
@@ -121,13 +132,14 @@ drop task <name>
 - `const`
 - `state`
 - `task <name> every <N>ms`
+- `task <name> loop`
 - `task <name> on <device#id>.<event>`
 - `task <name> on <ref>.<event>`
 - `do <device/ref>.<method>(...)`
 - `temp <name> = <expression>`
 - `set <state> = <expression>`
 - `if <comparison> { ... } else { ... }`
-- `wait <N>ms`
+- `wait <integer-expression>ms`（実行時 1 回評価。未評価・非整数・0 以下はその task を停止）
 - `read <device#id>` 式
 - `match <string-expression> { "literal" => { ... } else => { ... } }`
 - `match <numeric-expression> { pattern => expression, else => expression }` 式
@@ -154,7 +166,7 @@ drop task <name>
 - pattern は string literal と `else` のみ。
 - string statement match の `else` は必須。
 - string statement match の branch 内は `do` / `set` / `temp` / `if`。
-- branch 内 `wait` と nested statement `match` は未対応。
+- `match` 分岐内の `wait` / nested statement `match`、および `if` 分岐内の `wait` は未対応。
 - range pattern は expression match で対応済み（`a..b` / `..b` / `a..`、左閉右開）。
 
 ## Runtime
@@ -162,7 +174,9 @@ drop task <name>
 `SimulationRuntime` は compiled task を cooperative に進める。
 
 - `every` task は `tick(elapsedMilliseconds)` で時間を進める。
+- `loop` task は周期タイマを持たず、`wait` で協調的に時間を渡す（tick ごとに継続実行される）。
 - `wait` は `resumeAtTotalMilliseconds` により再開時刻を持つ。
+- `loop` / `every` は **同一 tick 内の statement 実行上限**を持ち、超過時はその task を停止する（分岐で `wait` を迂回するケースの保険）。
 - `task on` は `dispatchScriptEvent({ deviceAddress, eventName })` で同期的に起動する。
 - `match_string` は対象式を評価し、該当 branch だけを実行する。
 - `assign_temp` は task-local frame に保存し、task 実行開始時にクリアする。
@@ -192,6 +206,12 @@ adc0.raw=...
 led0.on=...
 pwm0.level=...
 button0.pressed=...
+motor0.power=...
+motor1.power=...
+servo0.angle=...
+imu0.roll_mdeg=...
+imu0.pitch_mdeg=...
+imu0.yaw_mdeg=...
 ```
 
 response は成功時 `ok: true`、失敗時 `ok: false` と structured diagnostics を返す。
@@ -217,6 +237,7 @@ response は成功時 `ok: true`、失敗時 `ok: false` と structured diagnost
 - `match.branch_unsupported_statement`
 - `semantic.duplicate_task_name`
 - `semantic.invalid_task_interval`
+- `semantic.loop_task_requires_wait`
 - `runtime.out_of_range`
 - `task.unknown`
 
@@ -247,7 +268,7 @@ response は成功時 `ok: true`、失敗時 `ok: false` と structured diagnost
 - structured diagnostics
 - full compiler（lexer / parser / binder / type checker / semantic checker / golden fixtures）
 - compiled program 登録
-- `state` / `set` / `read` / `wait` / `task on` / `match`
+- `state` / `set` / `read` / `wait` / `task on` / `task loop` / `match`
 - `const` / `temp` / arithmetic / comparison / numeric range `match` / `if`
 - `serial#0.println` の task 出力を terminal に逐次表示
 - UI の compile 経路
@@ -267,12 +288,15 @@ Playwright E2E で次を確認している。
 - `tests/compiler/fixtures/match-string-command.sc`
 - `tests/integration/compiler-runtime.test.ts`
 - `tests/integration/wait-task-runtime.test.ts`
+- `tests/integration/task-loop-wait-runtime.test.ts`
+- `tests/compiler/wait-and-loop-typecheck.test.ts`
 - `tests/integration/task-on-button-runtime.test.ts`
 - `tests/integration/match-string-runtime.test.ts`
 - `tests/e2e/script-runner-led.spec.ts`
 - `tests/e2e/script-runner-button.spec.ts`
 - `tests/e2e/script-runner-pwm.spec.ts`
 - `tests/e2e/script-runner-fade-toggle.spec.ts`
+- `tests/e2e/script-runner-physics.spec.ts`
 
 ## `draft.md` との差分と現在の制限
 
@@ -280,15 +304,15 @@ Playwright E2E で次を確認している。
 
 できること:
 
-- `ref` / `state` / `set` / `read` / `wait`
+- `ref` / `state` / `set` / `read` / `wait`（整数式）
 - `const` / `temp`
-- `task every` / `task on`
+- `task every` / `task on` / `task loop`
 - 文字列 `match` の最小形、数値 / percent の `match` 式と range pattern
 - 最小 `if` 文（comparison 条件）
 - 算術 `+` / `-` / `*` / `/` と単項 `-`
 - `led#0` の on / off / toggle
 - `pwm#0.level(number)` による PWM 出力値の変更
-- **animator**: **`animator ... = ramp from A% to B% over Nms ease linear|ease_in_out`** と **`step <name> with dt`**（固定端点の one-shot ramp）、および **`animator ... = ramp over Nms ease linear|ease_in_out`** と **`step <name> with <target_expr> dt`**（目標値ドリブン。`task on` は目標 `state` の更新のみ、`task every` が `step`）（いずれも `task on` や state 初期化では `dt` / `step` 不可）
+- **animator**: **`animator ... = ramp from A% to B% over Nms ease linear|ease_in_out`** と **`step <name> with dt`**（固定端点の one-shot ramp）、および **`animator ... = ramp over Nms ease linear|ease_in_out`** と **`step <name> with <target_expr> dt`**（目標値ドリブン。`task on` は目標 `state` の更新のみ、`task every` が `step`）（いずれも `task on` / `task loop` / state 初期化では `dt` / `step` 不可）
 - **パーセントリテラル** `0%`…`100%`（v1 では整数パーセントに下ろす）
 - `display#0` の基本図形描画（clear / pixel / line / circle / present）
 
@@ -298,10 +322,10 @@ Playwright E2E で次を確認している。
 - `filter` / `estimator` / `controller`
 - **animator の pause / reverse、`do animator.start()` 等のメソッド**
 - nested `match`
-- `loop`、`wait until`、`else return`
-- `IMU` / `motor` / `servo`
+- `wait until`、`else return`
+- `draft.md` 相当の **IMU ベクトル型**（`read imu#0.gyro.y` 等）、**`motor.drive`**、サーボ **`wait until` 完了** などの高水準API
 - serial の `line_ready` event や `read host.line`
-- ownership / single-writer checker 本実装
+- ownership / single-writer checker 本実装（Phase 2: まず `state` の `set` 競合など最小診断から）
 - OLED の text API や SSD1306 物理互換
 
 ### フェードイン・フェードアウト（animator）
@@ -321,7 +345,7 @@ task fade every 16ms {
 }
 ```
 
-**目標値ドリブン**（`ramp over …` のみ）では **`step <name> with <target> dt`**。`target` は整数パーセント式（`state` や `+` など）。目標が変わると **現在値から新目標へ** ramp が再始動する。目標が変わらない tick では完了後は値が揺れない。実行時に **0–100 外の整数** は `pwm.level` と同様に clamp。`task on` や state 初期値では引き続き `dt` / `step` は使えない（イベント側は `set led_target = …` のみ、周期 task が `step`）。
+**目標値ドリブン**（`ramp over …` のみ）では **`step <name> with <target> dt`**。`target` は整数パーセント式（`state` や `+` など）。目標が変わると **現在値から新目標へ** ramp が再始動する。目標が変わらない tick では完了後は値が揺れない。実行時に **0–100 外の整数** は `pwm.level` と同様に clamp。`task on` / `task loop` / state 初期値では引き続き `dt` / `step` は使えない（イベント側は `set led_target = …` のみ、周期 task が `step`）。
 
 ```text
 ref led = pwm#0

@@ -18,7 +18,7 @@ export type EvaluateExecutableExpressionContext = {
   readonly tempValues?: Map<string, number | string>;
   /** `every` タスク実行中のみ nominal dt が入る。 */
   readonly taskExecution?: {
-    readonly runMode: "every" | "on_event";
+    readonly runMode: "every" | "on_event" | "loop";
     readonly nominalIntervalMilliseconds?: number;
   };
   readonly animatorDefinitionsByName?: ReadonlyMap<string, CompiledAnimatorDefinition>;

@@ -51,6 +51,7 @@
         ]
       }
     ],
-    "onEventTasks": []
+    "onEventTasks": [],
+    "loopTasks": []
   }
 }

@@ -47,6 +47,14 @@ function pwmAddress(pwmId: number) {
   return { kind: "pwm" as const, id: pwmId };
 }
 
+function motorAddress(motorId: number) {
+  return { kind: "motor" as const, id: motorId };
+}
+
+function servoAddress(servoId: number) {
+  return { kind: "servo" as const, id: servoId };
+}
+
 /**
  * Evaluates one interactive command against the simulation runtime (queues effects, ticks).
  */
@@ -73,6 +81,12 @@ export function evaluateInteractiveCommand(
         "  led#0.info",
         "  do pwm#0.level(percent)",
         "  pwm#0.info",
+        "  do motor#0.power(percent)",
+        "  do motor#1.power(percent)",
+        "  do servo#0.angle(degrees)",
+        "  read imu#0.roll",
+        "  read motor#0.power",
+        "  motor#0.info",
         "  list tasks",
         "  show task <name>",
         "  start task <name> | stop task <name> | drop task <name>",
@@ -243,6 +257,26 @@ export function evaluateInteractiveCommand(
       kind: "pwm.level",
       address: pwmAddress(command.pwmId),
       levelPercent: command.levelPercent,
+    });
+    runtime.tick(0);
+    return { ok: true, lines: ["ok"] };
+  }
+
+  if (command.kind === "do_motor_power") {
+    runtime.queueEffect({
+      kind: "motor.power",
+      address: motorAddress(command.motorId),
+      powerPercent: command.powerPercent,
+    });
+    runtime.tick(0);
+    return { ok: true, lines: ["ok"] };
+  }
+
+  if (command.kind === "do_servo_angle") {
+    runtime.queueEffect({
+      kind: "servo.angle",
+      address: servoAddress(command.servoId),
+      angleDegrees: command.angleDegrees,
     });
     runtime.tick(0);
     return { ok: true, lines: ["ok"] };

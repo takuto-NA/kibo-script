@@ -198,6 +198,20 @@ export function buildSemanticInvalidTaskInterval(params: {
   };
 }
 
+export function buildSemanticLoopTaskRequiresWaitStatement(params: {
+  taskName: string;
+  range?: SourceRange;
+}): StructuredDiagnostic {
+  return {
+    id: "semantic.loop_task_requires_wait",
+    severity: "error",
+    phase: "semantic_check",
+    message: `Loop task "${params.taskName}" must contain at least one top-level wait (not inside match branches).`,
+    location: params.range,
+    rangeText: params.taskName,
+  };
+}
+
 export function buildCompilerEmptyScript(params: {
   file: string;
 }): StructuredDiagnostic {
@@ -350,9 +364,10 @@ export function buildAnimatorTimeExpressionInvalidContext(params: {
     severity: "error",
     phase: "type_check",
     message:
-      'Expressions "dt" and "step ... with dt" are only valid inside a task declared with "every" (not in state initializers or "task on").',
+      'Expressions "dt" and "step ... with dt" are only valid inside a task declared with "every" (not in state initializers, "task on", or "task loop").',
     location: params.range,
-    explanation: "Event tasks and state initializers have no stable nominal dt interval in this language version.",
+    explanation:
+      "Event tasks, loop tasks, and state initializers have no stable nominal dt interval in this language version.",
   };
 }
 

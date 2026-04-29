@@ -27,7 +27,11 @@ task blink every 1000ms {
       return;
     }
     expect(taskDeclaration.taskName).toBe("blink");
-    expect(taskDeclaration.intervalUnit).toBe("ms");
+    expect(taskDeclaration.schedule.kind).toBe("every");
+    if (taskDeclaration.schedule.kind !== "every") {
+      return;
+    }
+    expect(taskDeclaration.schedule.intervalUnit).toBe("ms");
     expect(taskDeclaration.bodyStatements).toHaveLength(1);
     const firstStatement = taskDeclaration.bodyStatements[0];
     expect(firstStatement?.kind).toBe("do_statement");

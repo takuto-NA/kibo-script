@@ -2,6 +2,7 @@ import { buildParseUnsupportedCommand } from "../diagnostics/diagnostic-builder"
 import { createDiagnosticReport } from "../diagnostics/diagnostic";
 import type { InteractiveCommand } from "./interactive-command";
 
+const READ_DEVICE_DOT_PROPERTY_PATTERN = /^read\s+([a-z]+#\d+)\.([a-z_][a-z0-9_]*)\s*$/;
 const READ_PATTERN = /^read\s+(\S+)$/;
 const INFO_PATTERN = /^([a-z]+#\d+)\.info$/;
 const DO_SERIAL_PRINTLN_PATTERN = /^do\s+serial#0\.println\((.*)\)\s*$/;
@@ -15,6 +16,8 @@ const DO_DISPLAY_CIRCLE_PATTERN =
 const DO_DISPLAY_PRESENT_PATTERN = /^do\s+display#0\.present\(\)\s*$/;
 const DO_LED_EFFECT_PATTERN = /^do\s+led#(\d+)\.(on|off|toggle)\(\)\s*$/;
 const DO_PWM_LEVEL_PATTERN = /^do\s+pwm#(\d+)\.level\(\s*(-?\d+)\s*\)\s*$/;
+const DO_MOTOR_POWER_PATTERN = /^do\s+motor#(\d+)\.power\(\s*(-?\d+)\s*\)\s*$/;
+const DO_SERVO_ANGLE_PATTERN = /^do\s+servo#(\d+)\.angle\(\s*(-?\d+)\s*\)\s*$/;
 const LIST_TASKS_PATTERN = /^list\s+tasks\s*$/;
 const SHOW_TASK_PATTERN = /^show\s+task\s+(\S+)\s*$/;
 const STOP_TASK_PATTERN = /^stop\s+task\s+(\S+)\s*$/;
@@ -43,6 +46,20 @@ export function parseInteractiveCommandLine(line: string): ParseInteractiveComma
 
   if (trimmed === "help") {
     return { ok: true, command: { kind: "help" } };
+  }
+
+  const readDeviceDotPropertyMatch = READ_DEVICE_DOT_PROPERTY_PATTERN.exec(trimmed);
+  if (readDeviceDotPropertyMatch !== null) {
+    const deviceText = readDeviceDotPropertyMatch[1] ?? "";
+    const propertyName = readDeviceDotPropertyMatch[2] ?? "";
+    return {
+      ok: true,
+      command: {
+        kind: "property_read",
+        target: deviceText,
+        property: propertyName,
+      },
+    };
   }
 
   const readMatch = READ_PATTERN.exec(trimmed);
@@ -149,6 +166,30 @@ export function parseInteractiveCommandLine(line: string): ParseInteractiveComma
         kind: "do_pwm_level",
         pwmId: Number.parseInt(pwmLevelMatch[1] ?? "0", 10),
         levelPercent: Number.parseInt(pwmLevelMatch[2] ?? "0", 10),
+      },
+    };
+  }
+
+  const motorPowerMatch = DO_MOTOR_POWER_PATTERN.exec(trimmed);
+  if (motorPowerMatch !== null) {
+    return {
+      ok: true,
+      command: {
+        kind: "do_motor_power",
+        motorId: Number.parseInt(motorPowerMatch[1] ?? "0", 10),
+        powerPercent: Number.parseInt(motorPowerMatch[2] ?? "0", 10),
+      },
+    };
+  }
+
+  const servoAngleMatch = DO_SERVO_ANGLE_PATTERN.exec(trimmed);
+  if (servoAngleMatch !== null) {
+    return {
+      ok: true,
+      command: {
+        kind: "do_servo_angle",
+        servoId: Number.parseInt(servoAngleMatch[1] ?? "0", 10),
+        angleDegrees: Number.parseInt(servoAngleMatch[2] ?? "0", 10),
       },
     };
   }

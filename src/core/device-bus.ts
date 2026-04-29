@@ -54,6 +54,16 @@ export type DeviceEffect =
       kind: "pwm.level";
       address: DeviceAddress;
       levelPercent: number;
+    }
+  | {
+      kind: "motor.power";
+      address: DeviceAddress;
+      powerPercent: number;
+    }
+  | {
+      kind: "servo.angle";
+      address: DeviceAddress;
+      angleDegrees: number;
     };
 
 export type DeviceReadRequest = {

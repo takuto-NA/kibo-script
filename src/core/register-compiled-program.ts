@@ -25,6 +25,21 @@ export function registerCompiledProgramOnTaskRegistry(params: {
     });
   }
 
+  for (const loopTask of params.compiledProgram.loopTasks) {
+    params.taskRegistry.registerTask({
+      name: loopTask.taskName,
+      runMode: "loop",
+      intervalMilliseconds: undefined,
+      eventExpression: undefined,
+      running: true,
+      accumulatedMilliseconds: 0,
+      body: "",
+      compiledStatements: loopTask.statements,
+      executionProgress: undefined,
+      onEventFilter: undefined,
+    });
+  }
+
   for (const onTask of params.compiledProgram.onEventTasks) {
     const addressKey = formatDeviceAddress(onTask.deviceAddress);
     params.taskRegistry.registerTask({

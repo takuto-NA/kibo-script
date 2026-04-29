@@ -654,6 +654,9 @@ function parseTaskBranchAfterKeyword(
   if (branchToken.kind === "identifier" && branchToken.lexeme === "on") {
     return parseTaskOnAfterTaskName(cursor, taskKeyword, taskNameToken);
   }
+  if (branchToken.kind === "identifier" && branchToken.lexeme === "loop") {
+    return parseTaskLoopAfterTaskName(cursor, taskKeyword, taskNameToken);
+  }
 
   return {
     ok: false,
@@ -662,7 +665,7 @@ function parseTaskBranchAfterKeyword(
         file: fileName,
         range: tokenToDiagnosticRange(fileName, branchToken),
         rangeText: branchToken.lexeme,
-        message: 'Expected "every" or "on" after task name.',
+        message: 'Expected "every", "loop", or "on" after task name.',
       }),
     ]),
   };
@@ -773,9 +776,89 @@ function parseTaskEveryAfterTaskName(
       kind: "task_declaration",
       range: declarationRange,
       taskName: taskNameToken.lexeme,
-      intervalValue: Number.parseInt(numberToken.lexeme, 10),
-      intervalUnit,
-      intervalRange,
+      schedule: {
+        kind: "every",
+        intervalValue: Number.parseInt(numberToken.lexeme, 10),
+        intervalUnit,
+        intervalRange,
+      },
+      bodyStatements,
+    },
+  };
+}
+
+function parseTaskLoopAfterTaskName(
+  cursor: ParserCursor,
+  taskKeyword: Token,
+  taskNameToken: Token,
+): { ok: true; declaration: TaskDeclarationAst } | { ok: false; report: DiagnosticReport } {
+  const fileName = cursor.getSourceFileName();
+  const loopKeywordToken = cursor.current();
+  cursor.advance();
+
+  const loopKeywordRange: AstRange = {
+    fileName,
+    start: loopKeywordToken.start,
+    end: loopKeywordToken.end,
+  };
+
+  const leftBrace = cursor.current();
+  if (leftBrace.kind !== "left_brace") {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildParseUnexpectedToken({
+          file: fileName,
+          range: tokenToDiagnosticRange(fileName, leftBrace),
+          rangeText: leftBrace.lexeme,
+          message: "Expected '{' before loop task body.",
+        }),
+      ]),
+    };
+  }
+  cursor.advance();
+
+  const bodyStatements: StatementAst[] = [];
+  while (cursor.current().kind !== "right_brace" && !cursor.isAtEndOfFile()) {
+    const statementResult = parseStatement(cursor);
+    if (statementResult.ok === false) {
+      return statementResult;
+    }
+    bodyStatements.push(statementResult.statement);
+  }
+
+  const closeBrace = cursor.current();
+  if (closeBrace.kind !== "right_brace") {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildParseUnexpectedToken({
+          file: fileName,
+          range: tokenToDiagnosticRange(fileName, closeBrace),
+          rangeText: closeBrace.lexeme,
+          message: "Expected '}' after loop task body.",
+        }),
+      ]),
+    };
+  }
+  cursor.advance();
+
+  const declarationRange: AstRange = {
+    fileName,
+    start: taskKeyword.start,
+    end: closeBrace.end,
+  };
+
+  return {
+    ok: true,
+    declaration: {
+      kind: "task_declaration",
+      range: declarationRange,
+      taskName: taskNameToken.lexeme,
+      schedule: {
+        kind: "loop",
+        loopKeywordRange,
+      },
       bodyStatements,
     },
   };
@@ -1592,21 +1675,10 @@ function parseWaitStatement(
   const waitKeyword = cursor.current();
   cursor.advance();
 
-  const numberToken = cursor.current();
-  if (numberToken.kind !== "number_literal") {
-    return {
-      ok: false,
-      report: createDiagnosticReport([
-        buildParseUnexpectedToken({
-          file: fileName,
-          range: tokenToDiagnosticRange(fileName, numberToken),
-          rangeText: numberToken.lexeme,
-          message: "Expected duration number after wait.",
-        }),
-      ]),
-    };
+  const durationExpressionResult = parseExpression(cursor);
+  if (durationExpressionResult.ok === false) {
+    return durationExpressionResult;
   }
-  cursor.advance();
 
   const unitToken = cursor.current();
   if (unitToken.kind !== "ms_keyword") {
@@ -1626,7 +1698,7 @@ function parseWaitStatement(
 
   const waitRange: AstRange = {
     fileName,
-    start: numberToken.start,
+    start: durationExpressionResult.expression.range.start,
     end: unitToken.end,
   };
 
@@ -1641,7 +1713,7 @@ function parseWaitStatement(
     statement: {
       kind: "wait_statement",
       range: statementRange,
-      waitMilliseconds: Number.parseInt(numberToken.lexeme, 10),
+      durationMillisecondsExpression: durationExpressionResult.expression,
       waitRange,
     },
   };

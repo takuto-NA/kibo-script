@@ -2,9 +2,13 @@ import { TaskRegistry } from "../core/task-registry";
 import { SimulationRuntime } from "../core/simulation-runtime";
 import { EmbedController } from "../embed/embed-controller";
 import { TerminalSession } from "../interactive/terminal-session";
+import { createPhysicsWorldForBrowser } from "../physics/create-physics-world-for-browser";
+import { NoopPhysicsWorld } from "../physics/noop-physics-world";
+import { SwitchablePhysicsWorld } from "../physics/switchable-physics-world";
 import { renderDisplayFrameToCanvas } from "./canvas-display-renderer";
 import { createButton0PressView } from "./button-view";
 import { createLedIndicatorView } from "./led-view";
+import { createPhysicsSceneView } from "./physics-scene-view";
 import { createPwmLevelIndicatorView } from "./pwm-view";
 import { createScriptRunnerPanel } from "./script-runner-view";
 import { createTerminalView, type TerminalView } from "./terminal-view";
@@ -13,18 +17,26 @@ import "./styles.css";
 
 const MAX_SIMULATION_FRAME_DELTA_MILLISECONDS = 100;
 
+const PHYSICS_CANVAS_WIDTH_CSS_PIXELS = 900;
+const PHYSICS_CANVAS_HEIGHT_CSS_PIXELS = 560;
+
 export type CreateSimulatorViewParams = {
   rootElementId: string;
 };
 
 /**
- * Mounts terminal + OLED canvas + embed bridge into the given root element.
+ * Mounts terminal + OLED canvas + physics view + embed bridge into the given root element.
  */
-export function createSimulatorView(params: CreateSimulatorViewParams): void {
+export async function createSimulatorView(params: CreateSimulatorViewParams): Promise<void> {
   const root = document.getElementById(params.rootElementId);
   if (root === null) {
     throw new Error(`Root element not found: #${params.rootElementId}`);
   }
+
+  const physicsWorld = new SwitchablePhysicsWorld(new NoopPhysicsWorld());
+  void createPhysicsWorldForBrowser().then((initializedPhysicsWorld) => {
+    physicsWorld.replaceDelegate(initializedPhysicsWorld);
+  });
 
   const tasks = new TaskRegistry();
   let terminalView: TerminalView | undefined;
@@ -32,6 +44,7 @@ export function createSimulatorView(params: CreateSimulatorViewParams): void {
 
   const runtime = new SimulationRuntime({
     tasks,
+    physicsWorld,
     onAfterDeviceEffectApplied: (effect) => {
       if (effect.kind === "serial.println") {
         if (!isSubmittingInteractiveCommand) {
@@ -93,6 +106,12 @@ export function createSimulatorView(params: CreateSimulatorViewParams): void {
   });
   displayHost.appendChild(button0PressView.rootElement);
 
+  const physicsSceneView = createPhysicsSceneView({
+    widthCssPixels: PHYSICS_CANVAS_WIDTH_CSS_PIXELS,
+    heightCssPixels: PHYSICS_CANVAS_HEIGHT_CSS_PIXELS,
+  });
+  displayHost.appendChild(physicsSceneView.rootElement);
+
   layout.appendChild(terminalHost);
   layout.appendChild(displayHost);
   root.appendChild(layout);
@@ -119,7 +138,9 @@ export function createSimulatorView(params: CreateSimulatorViewParams): void {
   }
 
   function refreshLedPreview(): void {
-    ledIndicatorView.setLightOn(runtime.getDefaultDevices().led0.isOn());
+    const isOn = runtime.getDefaultDevices().led0.isOn();
+    ledIndicatorView.setLightOn(isOn);
+    physicsSceneView.setLedLit(isOn);
   }
 
   function refreshPwmPreview(): void {
@@ -134,6 +155,7 @@ export function createSimulatorView(params: CreateSimulatorViewParams): void {
   }
 
   refreshSimulatorOutputs();
+  physicsSceneView.syncFromPhysicsWorld(runtime.getPhysicsWorld());
 
   let previousFrameTimestampMilliseconds: number | undefined;
   function runSimulationFrame(timestampMilliseconds: number): void {
@@ -143,6 +165,9 @@ export function createSimulatorView(params: CreateSimulatorViewParams): void {
         MAX_SIMULATION_FRAME_DELTA_MILLISECONDS,
       );
       runtime.tick(elapsedMilliseconds);
+      runtime.getPhysicsWorld().step(elapsedMilliseconds);
+      physicsSceneView.syncFromPhysicsWorld(runtime.getPhysicsWorld());
+      physicsSceneView.setLedLit(runtime.getDefaultDevices().led0.isOn());
     }
     previousFrameTimestampMilliseconds = timestampMilliseconds;
     window.requestAnimationFrame(runSimulationFrame);

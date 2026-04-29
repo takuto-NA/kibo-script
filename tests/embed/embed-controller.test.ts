@@ -35,6 +35,12 @@ describe("EmbedController", () => {
       expect(result.outputs[1]).toMatch(/led0.on=/);
       expect(result.outputs[2]).toMatch(/pwm0.level=/);
       expect(result.outputs[3]).toMatch(/button0.pressed=/);
+      expect(result.outputs[4]).toMatch(/motor0.power=/);
+      expect(result.outputs[5]).toMatch(/motor1.power=/);
+      expect(result.outputs[6]).toMatch(/servo0.angle=/);
+      expect(result.outputs[7]).toMatch(/imu0.roll_mdeg=/);
+      expect(result.outputs[8]).toMatch(/imu0.pitch_mdeg=/);
+      expect(result.outputs[9]).toMatch(/imu0.yaw_mdeg=/);
     }
   });
 

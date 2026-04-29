@@ -18,7 +18,8 @@ export type BoundProgram = {
   animatorSymbols: Map<string, BoundAnimatorSymbol>;
   /** IR 下げ用に宣言順を保持 */
   animatorSymbolsInSourceOrder: BoundAnimatorSymbol[];
-  tasks: BoundTask[];
+  everyTasks: BoundEveryTask[];
+  loopTasks: BoundLoopTask[];
   onEventTasks: BoundOnEventTask[];
   /** state / const をソース順に束縛した行（型推論の宣言順序に使用） */
   valueSymbolsInSourceOrder: BoundValueSymbolInSourceOrderRow[];
@@ -75,7 +76,8 @@ export type BoundAnimatorSymbol = {
   range: AstRange;
 };
 
-export type BoundTask = {
+export type BoundEveryTask = {
+  runKind: "every";
   taskName: string;
   intervalValue: number;
   intervalUnit: "ms" | "deg";
@@ -83,6 +85,15 @@ export type BoundTask = {
   statements: BoundStatement[];
   range: AstRange;
 };
+
+export type BoundLoopTask = {
+  runKind: "loop";
+  taskName: string;
+  statements: BoundStatement[];
+  range: AstRange;
+};
+
+export type BoundTask = BoundEveryTask | BoundLoopTask;
 
 export type BoundOnEventTask = {
   taskName: string;
@@ -140,7 +151,7 @@ export type BoundSetStatement = {
 
 export type BoundWaitStatement = {
   kind: "wait_statement";
-  waitMilliseconds: number;
+  durationMillisecondsExpression: BoundExpression;
   waitRange: AstRange;
   range: AstRange;
 };

@@ -11,7 +11,6 @@ import type {
   BoundProgram,
   BoundSetStatement,
   BoundStatement,
-  BoundTask,
 } from "./bound-program";
 import { convertAstRangeToSourceRange } from "./ast-range-to-source-range";
 import { MIN_PWM_PERCENT, MAX_PWM_PERCENT } from "../core/animator-ramp";
@@ -57,7 +56,7 @@ export function typeCheckBoundProgram(boundProgram: BoundProgram): DiagnosticRep
     collectAnimatorDeclarationTypeDiagnostics(animatorSymbol, diagnostics);
   }
 
-  for (const task of boundProgram.tasks) {
+  for (const task of boundProgram.everyTasks) {
     if (task.intervalUnit !== "ms") {
       diagnostics.push(
         buildUnitTypeMismatch({
@@ -77,6 +76,19 @@ export function typeCheckBoundProgram(boundProgram: BoundProgram): DiagnosticRep
       tempValueKinds: new Map(),
       taskExecutionKind: "every_task",
       boundProgram,
+      insideIfBranchBody: false,
+    });
+  }
+
+  for (const task of boundProgram.loopTasks) {
+    collectStatementSequenceTypeDiagnostics({
+      statements: task.statements,
+      diagnostics,
+      stateValueKinds,
+      tempValueKinds: new Map(),
+      taskExecutionKind: "loop_task",
+      boundProgram,
+      insideIfBranchBody: false,
     });
   }
 
@@ -88,6 +100,7 @@ export function typeCheckBoundProgram(boundProgram: BoundProgram): DiagnosticRep
       tempValueKinds: new Map(),
       taskExecutionKind: "on_event_task",
       boundProgram,
+      insideIfBranchBody: false,
     });
   }
 
@@ -102,7 +115,12 @@ export function typeCheckBoundProgram(boundProgram: BoundProgram): DiagnosticRep
   for (const constSymbol of boundProgram.constSymbolsInSourceOrder) {
     walkBoundExpressionTree(constSymbol.initialValue, visitAnimatorStepDiagnostics);
   }
-  for (const task of boundProgram.tasks) {
+  for (const task of boundProgram.everyTasks) {
+    for (const statement of task.statements) {
+      walkStatementBoundExpressions(statement, visitAnimatorStepDiagnostics);
+    }
+  }
+  for (const task of boundProgram.loopTasks) {
     for (const statement of task.statements) {
       walkStatementBoundExpressions(statement, visitAnimatorStepDiagnostics);
     }
@@ -118,7 +136,11 @@ export function typeCheckBoundProgram(boundProgram: BoundProgram): DiagnosticRep
 
 type ExpressionValueKind = "integer" | "string";
 
-type TaskExecutionKind = "every_task" | "on_event_task";
+type TaskExecutionKind = "every_task" | "on_event_task" | "loop_task";
+
+function isAnimatorTimeExpressionRestrictedTaskExecutionKind(taskExecutionKind: TaskExecutionKind): boolean {
+  return taskExecutionKind === "on_event_task" || taskExecutionKind === "loop_task";
+}
 
 function inferBoundExpressionValueKind(
   expression: BoundExpression,
@@ -227,13 +249,57 @@ function inferBoundExpressionValueKind(
 }
 
 function inferReadPropertyValueKind(expression: BoundExpression & { kind: "read_property" }): ExpressionValueKind | undefined {
-  if (expression.deviceAddress.kind !== "adc") {
+  if (expression.deviceAddress.kind === "adc") {
+    if (expression.propertyName === "info") {
+      return "string";
+    }
+    return "integer";
+  }
+  if (expression.deviceAddress.kind === "imu") {
+    if (expression.propertyName === "info") {
+      return "string";
+    }
+    const imuIntegerPropertyNames = new Set([
+      "roll",
+      "pitch",
+      "yaw",
+      "accel_x",
+      "accel_y",
+      "accel_z",
+    ]);
+    if (imuIntegerPropertyNames.has(expression.propertyName)) {
+      return "integer";
+    }
     return undefined;
   }
-  if (expression.propertyName === "info") {
-    return "string";
+  if (expression.deviceAddress.kind === "motor") {
+    if (expression.propertyName === "info") {
+      return "string";
+    }
+    if (expression.propertyName === "" || expression.propertyName === "power") {
+      return "integer";
+    }
+    return undefined;
   }
-  return "integer";
+  if (expression.deviceAddress.kind === "servo") {
+    if (expression.propertyName === "info") {
+      return "string";
+    }
+    if (expression.propertyName === "" || expression.propertyName === "angle") {
+      return "integer";
+    }
+    return undefined;
+  }
+  if (expression.deviceAddress.kind === "pwm") {
+    if (expression.propertyName === "info") {
+      return "string";
+    }
+    if (expression.propertyName === "" || expression.propertyName === "level") {
+      return "integer";
+    }
+    return undefined;
+  }
+  return undefined;
 }
 
 function collectMatchStatementTypeDiagnostics(params: {
@@ -258,7 +324,7 @@ function collectMatchStatementTypeDiagnostics(params: {
     );
   }
 
-  if (params.taskExecutionKind === "on_event_task") {
+  if (isAnimatorTimeExpressionRestrictedTaskExecutionKind(params.taskExecutionKind)) {
     collectAnimatorTimeExpressionsInvalidForNonEveryTask(params.statement.matchExpression, params.diagnostics);
   }
 
@@ -270,6 +336,7 @@ function collectMatchStatementTypeDiagnostics(params: {
       tempValueKinds: new Map(params.tempValueKinds),
       taskExecutionKind: params.taskExecutionKind,
       boundProgram: params.boundProgram,
+      insideIfBranchBody: false,
     });
   }
 
@@ -280,6 +347,7 @@ function collectMatchStatementTypeDiagnostics(params: {
     tempValueKinds: new Map(params.tempValueKinds),
     taskExecutionKind: params.taskExecutionKind,
     boundProgram: params.boundProgram,
+    insideIfBranchBody: false,
   });
 }
 
@@ -290,6 +358,7 @@ function collectMatchBranchStatementSequenceTypeDiagnostics(params: {
   tempValueKinds: Map<string, ExpressionValueKind>;
   taskExecutionKind: TaskExecutionKind;
   boundProgram: BoundProgram;
+  insideIfBranchBody: boolean;
 }): void {
   for (const statement of params.statements) {
     collectMatchBranchStatementTypeDiagnostics({
@@ -299,6 +368,7 @@ function collectMatchBranchStatementSequenceTypeDiagnostics(params: {
       tempValueKinds: params.tempValueKinds,
       taskExecutionKind: params.taskExecutionKind,
       boundProgram: params.boundProgram,
+      insideIfBranchBody: params.insideIfBranchBody,
     });
   }
 }
@@ -310,6 +380,7 @@ function collectMatchBranchStatementTypeDiagnostics(params: {
   tempValueKinds: Map<string, ExpressionValueKind>;
   taskExecutionKind: TaskExecutionKind;
   boundProgram: BoundProgram;
+  insideIfBranchBody: boolean;
 }): void {
   if (params.statement.kind === "wait_statement") {
     params.diagnostics.push(
@@ -378,6 +449,7 @@ function collectMatchBranchStatementTypeDiagnostics(params: {
       tempValueKinds: new Map(params.tempValueKinds),
       taskExecutionKind: params.taskExecutionKind,
       boundProgram: params.boundProgram,
+      insideIfBranchBody: true,
     });
     collectMatchBranchStatementSequenceTypeDiagnostics({
       statements: params.statement.elseStatements,
@@ -386,6 +458,7 @@ function collectMatchBranchStatementTypeDiagnostics(params: {
       tempValueKinds: new Map(params.tempValueKinds),
       taskExecutionKind: params.taskExecutionKind,
       boundProgram: params.boundProgram,
+      insideIfBranchBody: true,
     });
     return;
   }
@@ -405,6 +478,7 @@ function collectStatementTypeDiagnostics(params: {
   tempValueKinds: Map<string, ExpressionValueKind>;
   taskExecutionKind: TaskExecutionKind;
   boundProgram: BoundProgram;
+  insideIfBranchBody: boolean;
 }): void {
   const statement = params.statement;
 
@@ -445,7 +519,7 @@ function collectStatementTypeDiagnostics(params: {
   }
 
   if (statement.kind === "temp_statement") {
-    if (params.taskExecutionKind === "on_event_task") {
+    if (isAnimatorTimeExpressionRestrictedTaskExecutionKind(params.taskExecutionKind)) {
       collectAnimatorTimeExpressionsInvalidForNonEveryTask(statement.valueExpression, params.diagnostics);
     }
     const inferredKind = inferBoundExpressionValueKind(
@@ -461,7 +535,7 @@ function collectStatementTypeDiagnostics(params: {
   }
 
   if (statement.kind === "if_statement") {
-    if (params.taskExecutionKind === "on_event_task") {
+    if (isAnimatorTimeExpressionRestrictedTaskExecutionKind(params.taskExecutionKind)) {
       collectAnimatorTimeExpressionsInvalidForNonEveryTask(statement.conditionExpression, params.diagnostics);
     }
     collectStatementSequenceTypeDiagnostics({
@@ -471,6 +545,7 @@ function collectStatementTypeDiagnostics(params: {
       tempValueKinds: new Map(params.tempValueKinds),
       taskExecutionKind: params.taskExecutionKind,
       boundProgram: params.boundProgram,
+      insideIfBranchBody: true,
     });
     collectStatementSequenceTypeDiagnostics({
       statements: statement.elseStatements,
@@ -479,11 +554,45 @@ function collectStatementTypeDiagnostics(params: {
       tempValueKinds: new Map(params.tempValueKinds),
       taskExecutionKind: params.taskExecutionKind,
       boundProgram: params.boundProgram,
+      insideIfBranchBody: true,
     });
     return;
   }
 
   if (statement.kind === "wait_statement") {
+    if (params.insideIfBranchBody) {
+      params.diagnostics.push(
+        buildMatchBranchUnsupportedStatement({
+          message: "if branch cannot contain 'wait' in this language version.",
+          range: convertAstRangeToSourceRange(statement.range),
+        }),
+      );
+      return;
+    }
+
+    collectAnimatorTimeExpressionsInvalidForNonEveryTask(
+      statement.durationMillisecondsExpression,
+      params.diagnostics,
+    );
+    collectPercentLiteralDiagnostics(statement.durationMillisecondsExpression, params.diagnostics);
+
+    const durationKind = inferBoundExpressionValueKind(
+      statement.durationMillisecondsExpression,
+      params.stateValueKinds,
+      params.tempValueKinds,
+      params.boundProgram,
+    );
+    if (durationKind === "string") {
+      params.diagnostics.push(
+        buildTypeArgumentTypeMismatch({
+          message: "wait duration must be an integer milliseconds expression.",
+          range: convertAstRangeToSourceRange(statement.range),
+          expected: { kind: "string", value: "integer" },
+          actual: { kind: "string", value: "string" },
+        }),
+      );
+    }
+
     return;
   }
 
@@ -498,6 +607,7 @@ function collectStatementSequenceTypeDiagnostics(params: {
   tempValueKinds: Map<string, ExpressionValueKind>;
   taskExecutionKind: TaskExecutionKind;
   boundProgram: BoundProgram;
+  insideIfBranchBody: boolean;
 }): void {
   for (const statement of params.statements) {
     collectStatementTypeDiagnostics({
@@ -507,6 +617,7 @@ function collectStatementSequenceTypeDiagnostics(params: {
       tempValueKinds: params.tempValueKinds,
       taskExecutionKind: params.taskExecutionKind,
       boundProgram: params.boundProgram,
+      insideIfBranchBody: params.insideIfBranchBody,
     });
   }
 }
@@ -519,7 +630,7 @@ function collectSetStatementTypeDiagnostics(params: {
   taskExecutionKind: TaskExecutionKind;
   boundProgram: BoundProgram;
 }): void {
-  if (params.taskExecutionKind === "on_event_task") {
+  if (isAnimatorTimeExpressionRestrictedTaskExecutionKind(params.taskExecutionKind)) {
     collectAnimatorTimeExpressionsInvalidForNonEveryTask(params.statement.valueExpression, params.diagnostics);
   }
 
@@ -672,7 +783,7 @@ function collectMethodCallTypeDiagnostics(params: {
     }
   }
 
-  if (params.taskExecutionKind === "on_event_task") {
+  if (isAnimatorTimeExpressionRestrictedTaskExecutionKind(params.taskExecutionKind)) {
     for (const argumentExpression of statement.arguments) {
       collectAnimatorTimeExpressionsInvalidForNonEveryTask(argumentExpression, params.diagnostics);
     }
@@ -927,6 +1038,7 @@ function walkStatementBoundExpressions(
     return;
   }
   if (statement.kind === "wait_statement") {
+    walkBoundExpressionTree(statement.durationMillisecondsExpression, visit);
     return;
   }
   const exhaustiveStatement: never = statement;

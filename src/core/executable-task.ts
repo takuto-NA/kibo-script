@@ -63,7 +63,8 @@ export type ExecutableStatement =
     }
   | {
       kind: "wait_milliseconds";
-      waitMilliseconds: number;
+      /** 実行時に 1 回評価し、整数 ms として解釈する（0 以下は実行時にタスク停止）。 */
+      durationMillisecondsExpression: ExecutableExpression;
     }
   | {
       kind: "match_string";
@@ -81,6 +82,11 @@ export type ExecutableStatement =
 export type CompiledEveryTask = {
   taskName: string;
   intervalMilliseconds: number;
+  statements: ExecutableStatement[];
+};
+
+export type CompiledLoopTask = {
+  taskName: string;
   statements: ExecutableStatement[];
 };
 
@@ -115,5 +121,6 @@ export type CompiledProgram = {
   constInitializers: { constName: string; expression: ExecutableExpression }[];
   animatorDefinitions: CompiledAnimatorDefinition[];
   everyTasks: CompiledEveryTask[];
+  loopTasks: CompiledLoopTask[];
   onEventTasks: CompiledOnEventTask[];
 };

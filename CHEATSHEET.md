@@ -42,6 +42,26 @@ task blink every 1000ms {
 - `blink` task が登録される
 - `led#0` ランプが 1 秒ごとに ON / OFF する
 
+## `task loop`（周期なしの状態遷移）
+
+`task patrol loop { ... }` は **周期タイマを持たない**。本体が最後まで進むと先頭へ戻るが、協調的スケジューラのため **各シミュレーション tick で少しずつ進む**（`wait` で明示的に時間を渡す）。
+
+```text
+state step = 0
+
+task patrol loop {
+  set step = 1
+  wait 250ms
+  set step = 2
+  wait 250ms
+}
+```
+
+制限（Phase 1）:
+
+- loop task は **少なくとも 1 つの `wait` が必要**（`match` 分岐内はカウントしない）。
+- `if` 分岐の中に `wait` は書けない（`task every` / `task on` / `task loop` 共通）。
+
 ## `button#0` を画面から押す（`task on`）
 
 右側パネルに **button#0** と **Press** ボタンがある。次の script を textarea に入れて `Compile & run on simulator` のあと、**Press** を押すと LED が切り替わる。
@@ -59,7 +79,7 @@ task react on button.pressed {
 
 ## `match`（文字列の最小形）
 
-`task` 本体で、`match <文字列式> { "ケース" => { ... } ... else => { ... } }` が使える。分岐の本体は `do` / `set` / `temp` / `if`（分岐内の `wait` と nested `match` は compile エラー）。
+`task` 本体で、`match <文字列式> { "ケース" => { ... } ... else => { ... } }` が使える。分岐の本体は `do` / `set` / `temp` / `if`（`match` 分岐内の `wait` / nested `match`、および `if` 分岐内の `wait` は compile エラー）。
 
 ```text
 state mode = "on"
@@ -80,7 +100,7 @@ task apply on button#0.pressed {
 - target は string 式のみ
 - pattern は string literal と `else` のみ
 - `else` は必須
-- branch 内は `do` / `set` / `temp` / `if`（`wait` と nested `match` は未対応）
+- branch 内は `do` / `set` / `temp` / `if`（`match` 分岐内の `wait` / nested `match`、`if` 分岐内の `wait` は未対応）
 
 ## `const` / `temp`（名前付き値）
 
@@ -132,7 +152,9 @@ if score > 3 {
 
 ## `wait` で task を一時停止する
 
-full compiler 経路（script textarea / embed loadScript）では `wait <N>ms` が使える。次の例は LED を ON にして 100ms 後に OFF にする。
+full compiler 経路（script textarea / embed loadScript）では `wait <integer-expression>ms` が使える（例: `wait 100ms` / `wait cruise_duration_ms ms`）。`wait` は **実行時に 1 回だけ**式を評価し、整数 ms として扱う（未評価・非整数・0 以下はその task を停止）。
+
+次の例は LED を ON にして 100ms 後に OFF にする。
 
 ```text
 task pulse every 1000ms {
@@ -170,7 +192,7 @@ task dim every 1000ms {
 
 - `%` は `0%`〜`100%` の整数パーセントとして解釈される。
 - `dt` はその `task every <N>ms` の **名目間隔 N**（ミリ秒）。
-- `task on` の本体や `state` の初期値では `dt` / `step` は使えない。
+- `task on` / `task loop` の本体や `state` の初期値では `dt` / `step` は使えない。
 
 ### 固定端点（`ramp from … to …`）
 
@@ -216,6 +238,99 @@ task toggle on button.pressed {
 task apply every 16ms {
   set led_level = step fade with led_target dt
   do led.level(led_level)
+}
+```
+
+## 物理ローバーを走らせる
+
+右パネルの **Physics** canvas で、固定筐体が直進・旋回・後退を繰り返す。`servo#0` のスキャナーが左右に振れ、後退フェーズでは筐体上の `led#0` と `pwm#0` のビーコンが強く光る。`serial#0` には `imu#0.yaw`（ミリ度）が流れる。
+
+```text
+ref left_motor = motor#0
+ref right_motor = motor#1
+ref scanner = servo#0
+ref hull_led = led#0
+ref glow = pwm#0
+ref imu = imu#0
+
+const scanner_min_degrees = -70
+const scanner_step_degrees = 5
+const scanner_edge_degrees = 70
+const cruise_power_percent = 58
+const turn_left_power_percent = 38
+const turn_right_power_percent = 62
+const reverse_left_power_percent = -54
+const reverse_right_power_percent = -28
+const dim_glow_percent = 35%
+const warning_glow_percent = 100%
+
+const cruise_duration_ms = 1280
+const turn_duration_ms = 1280
+const reverse_duration_ms = 1280
+
+state scanner_angle_degrees = scanner_min_degrees
+state scanner_direction = 1
+state glow_level = 0%
+state glow_target = 35%
+
+state left_power_target = 0
+state right_power_target = 0
+state warning_enabled = 0
+
+animator glow_fade = ramp over 360ms ease ease_in_out
+
+task patrol loop {
+  set warning_enabled = 0
+  set glow_target = dim_glow_percent
+  set left_power_target = cruise_power_percent
+  set right_power_target = cruise_power_percent
+  wait cruise_duration_ms ms
+
+  set left_power_target = turn_left_power_percent
+  set right_power_target = turn_right_power_percent
+  wait turn_duration_ms ms
+
+  set warning_enabled = 1
+  set glow_target = warning_glow_percent
+  set left_power_target = reverse_left_power_percent
+  set right_power_target = reverse_right_power_percent
+  wait reverse_duration_ms ms
+}
+
+task apply_outputs every 32ms {
+  if warning_enabled != 0 {
+    do hull_led.on()
+  } else {
+    do hull_led.off()
+  }
+
+  do left_motor.power(left_power_target)
+  do right_motor.power(right_power_target)
+}
+
+task scan_and_report every 32ms {
+  temp next_scanner_angle_degrees = scanner_angle_degrees + scanner_direction * scanner_step_degrees
+  set scanner_angle_degrees = next_scanner_angle_degrees
+
+  if scanner_angle_degrees > scanner_edge_degrees {
+    set scanner_direction = -1
+  } else {
+    set scanner_direction = scanner_direction
+  }
+
+  if scanner_angle_degrees < scanner_min_degrees {
+    set scanner_direction = 1
+  } else {
+    set scanner_direction = scanner_direction
+  }
+
+  do scanner.angle(scanner_angle_degrees)
+
+  set glow_level = step glow_fade with glow_target dt
+  do glow.level(glow_level)
+
+  temp yaw_mdeg = read imu#0.yaw
+  do serial#0.println(yaw_mdeg)
 }
 ```
 

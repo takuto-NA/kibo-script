@@ -103,6 +103,22 @@ export function mapDoMethodCallToDeviceEffects(params: {
     return [];
   }
 
+  if (address.kind === "motor" && methodName === "power" && argumentsList.length === 1) {
+    const first = argumentsList[0];
+    if (first !== undefined && first.kind === "integer") {
+      return [{ kind: "motor.power", address, powerPercent: first.value }];
+    }
+    return [];
+  }
+
+  if (address.kind === "servo" && methodName === "angle" && argumentsList.length === 1) {
+    const first = argumentsList[0];
+    if (first !== undefined && first.kind === "integer") {
+      return [{ kind: "servo.angle", address, angleDegrees: first.value }];
+    }
+    return [];
+  }
+
   return [];
 }
 

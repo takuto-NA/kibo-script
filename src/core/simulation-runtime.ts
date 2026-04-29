@@ -5,8 +5,7 @@ import {
   mapDoMethodCallToDeviceEffects,
   type ConcreteMethodArgument,
 } from "./executable-statement-to-device-effects";
-import type { CompiledAnimatorDefinition, CompiledProgram } from "./executable-task";
-import type { ExecutableStatement } from "./executable-task";
+import type { CompiledAnimatorDefinition, CompiledProgram, ExecutableExpression, ExecutableStatement } from "./executable-task";
 import { createInitialAnimatorRuntimeState, type AnimatorRuntimeState } from "./animator-runtime-state";
 import {
   evaluateExecutableExpression,
@@ -17,8 +16,15 @@ import {
 import { registerCompiledProgramOnTaskRegistry } from "./register-compiled-program";
 import type { DefaultDevices } from "../devices/create-default-devices";
 import { createDefaultDevices, registerDefaultDevices } from "../devices/create-default-devices";
+import { NoopPhysicsWorld } from "../physics/noop-physics-world";
+import type { PhysicsWorld } from "../physics/physics-world";
 import type { ScriptValue } from "./value";
 import type { TaskRecord, TaskRegistry } from "./task-registry";
+
+/**
+ * loop / every が同一 wake-up で暴走しないための協調的上限（分岐で wait を迂回しても止められる）。
+ */
+const MAXIMUM_EXECUTABLE_STATEMENTS_PER_TASK_DRAIN = 50_000;
 
 export type SimulationTickResult = {
   appliedEffectCount: number;
@@ -33,6 +39,7 @@ export class SimulationRuntime {
   private readonly deviceBus: DeviceBus;
   private readonly pendingEffects: DeviceEffect[] = [];
   private readonly internalDevices: DefaultDevices;
+  private readonly physicsWorld: PhysicsWorld;
   public readonly tasks: TaskRegistry;
   private totalSimulationMilliseconds = 0;
   private readonly scriptStateValues = new Map<string, number | string>();
@@ -44,16 +51,22 @@ export class SimulationRuntime {
   public constructor(params: {
     deviceBus?: DeviceBus;
     devices?: DefaultDevices;
+    physicsWorld?: PhysicsWorld;
     tasks: TaskRegistry;
     onAfterDeviceEffectApplied?: DeviceEffectAppliedListener;
   }) {
     this.deviceBus = params.deviceBus ?? new DeviceBus();
-    this.internalDevices = params.devices ?? createDefaultDevices();
+    this.physicsWorld = params.physicsWorld ?? new NoopPhysicsWorld();
+    this.internalDevices = params.devices ?? createDefaultDevices(this.physicsWorld);
     this.tasks = params.tasks;
     this.onAfterDeviceEffectApplied = params.onAfterDeviceEffectApplied;
     registerDefaultDevices((address, device) => {
       this.deviceBus.registerDevice(address, device);
     }, this.internalDevices);
+  }
+
+  public getPhysicsWorld(): PhysicsWorld {
+    return this.physicsWorld;
   }
 
   public getDeviceBus(): DeviceBus {
@@ -89,6 +102,8 @@ export class SimulationRuntime {
       taskRegistry: this.tasks,
       compiledProgram,
     });
+    this.startRunnableLoopTasks();
+    this.flushPendingEffects();
   }
 
   private initializeScriptStateFromCompiledProgram(compiledProgram: CompiledProgram): void {
@@ -168,8 +183,9 @@ export class SimulationRuntime {
 
   public tick(elapsedMilliseconds: number): SimulationTickResult {
     this.totalSimulationMilliseconds += elapsedMilliseconds;
-    this.resumeWaitingEveryTasks();
+    this.resumeWaitingTasks();
     this.advanceEveryTasks(elapsedMilliseconds);
+    this.startRunnableLoopTasks();
     const appliedEffectCount = this.flushPendingEffects();
     return { appliedEffectCount };
   }
@@ -214,9 +230,12 @@ export class SimulationRuntime {
     return appliedEffectCount;
   }
 
-  private resumeWaitingEveryTasks(): void {
+  private resumeWaitingTasks(): void {
     for (const task of this.tasks.listTasks()) {
-      if (!task.running || task.runMode !== "every") {
+      if (!task.running) {
+        continue;
+      }
+      if (task.runMode !== "every" && task.runMode !== "loop") {
         continue;
       }
       const progress = task.executionProgress;
@@ -231,6 +250,34 @@ export class SimulationRuntime {
     }
   }
 
+  private startRunnableLoopTasks(): void {
+    for (const task of this.tasks.listTasks()) {
+      if (!task.running || task.runMode !== "loop") {
+        continue;
+      }
+      if (task.compiledStatements === undefined) {
+        continue;
+      }
+      if (task.executionProgress === undefined) {
+        task.executionProgress = {
+          programCounter: 0,
+          resumeAtTotalMilliseconds: undefined,
+        };
+        this.drainTaskExecution(task);
+        continue;
+      }
+
+      const progress = task.executionProgress;
+      if (progress.resumeAtTotalMilliseconds !== undefined) {
+        continue;
+      }
+      if (progress.programCounter !== 0) {
+        continue;
+      }
+
+      this.drainTaskExecution(task);
+    }
+  }
   private advanceEveryTasks(elapsedMilliseconds: number): void {
     for (const task of this.tasks.listTasks()) {
       if (!task.running || task.runMode !== "every") {
@@ -269,7 +316,15 @@ export class SimulationRuntime {
       };
     }
 
+    let remainingExecutableStatementBudget = MAXIMUM_EXECUTABLE_STATEMENTS_PER_TASK_DRAIN;
+
     while (task.executionProgress.programCounter < statements.length) {
+      if (remainingExecutableStatementBudget <= 0) {
+        this.stopTaskAfterExecutableStatementBudgetExceeded(task);
+        return;
+      }
+      remainingExecutableStatementBudget -= 1;
+
       const programCounter = task.executionProgress.programCounter;
       if (programCounter === 0) {
         task.taskLocalValues = new Map();
@@ -289,8 +344,14 @@ export class SimulationRuntime {
       }
 
       if (statement.kind === "wait_milliseconds") {
-        task.executionProgress.resumeAtTotalMilliseconds =
-          this.totalSimulationMilliseconds + statement.waitMilliseconds;
+        const waitMilliseconds = this.evaluateWaitDurationMillisecondsOrStopTask({
+          durationExpression: statement.durationMillisecondsExpression,
+          task,
+        });
+        if (waitMilliseconds === undefined) {
+          return;
+        }
+        task.executionProgress.resumeAtTotalMilliseconds = this.totalSimulationMilliseconds + waitMilliseconds;
         task.executionProgress.programCounter = programCounter + 1;
         return;
       }
@@ -315,6 +376,43 @@ export class SimulationRuntime {
       }
     }
 
+    if (task.runMode === "loop") {
+      task.executionProgress.programCounter = 0;
+      return;
+    }
+
+    task.executionProgress = undefined;
+  }
+
+  private evaluateWaitDurationMillisecondsOrStopTask(params: {
+    durationExpression: ExecutableExpression;
+    task: TaskRecord;
+  }): number | undefined {
+    const evaluationContext = this.createEvaluationContextForTask(params.task);
+    const durationValue = evaluateExecutableExpression(params.durationExpression, evaluationContext);
+    if (durationValue === undefined) {
+      this.stopTaskAfterInvalidWaitDurationExpression(params.task);
+      return undefined;
+    }
+    const durationMilliseconds = scriptValueToIntegerOrUndefined(durationValue);
+    if (durationMilliseconds === undefined) {
+      this.stopTaskAfterInvalidWaitDurationExpression(params.task);
+      return undefined;
+    }
+    if (durationMilliseconds <= 0) {
+      this.stopTaskAfterInvalidWaitDurationExpression(params.task);
+      return undefined;
+    }
+    return durationMilliseconds;
+  }
+
+  private stopTaskAfterInvalidWaitDurationExpression(task: TaskRecord): void {
+    task.running = false;
+    task.executionProgress = undefined;
+  }
+
+  private stopTaskAfterExecutableStatementBudgetExceeded(task: TaskRecord): void {
+    task.running = false;
     task.executionProgress = undefined;
   }
 
