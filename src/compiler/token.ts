@@ -15,6 +15,7 @@ export type TokenKind =
   | "fat_arrow"
   | "plus"
   | "hash"
+  | "percent_sign"
   | "percent_keyword"
   | "deg_keyword"
   | "ms_keyword"

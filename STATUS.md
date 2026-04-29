@@ -2,40 +2,71 @@
 
 ## このドキュメントの責務
 
-このドキュメントは、現在のブラウザシミュレータで「できていること」「まだできていないこと」「次に実装すべきこと」を整理するための現状メモである。
+このドキュメントは、ブラウザ版 StaticCore Script Simulator の現状を短く把握できるように、「できていること」「制限」「次にやること」を整理するためのメモである。
 
-対象は `draft.md` にある StaticCore Script のブラウザ実行シミュレータで、現時点では MVP 実装の状態をまとめる。
+すぐ試すための例は [`CHEATSHEET.md`](CHEATSHEET.md) を参照する。
 
-## 現在できていること
+## 現在の要約
 
-### プロジェクト基盤
+MVP として、ブラウザ UI・仮想デバイス・task runtime・full compiler の縦断ルートは動作している。
 
-- TypeScript + Vite + Vitest のブラウザアプリとして起動できる。
-- `npm run dev` で開発サーバーを起動できる。
-- `npm run typecheck`、`npm test`、`npm run build` で検証できる。
-- `npm audit --audit-level=moderate` で脆弱性がない状態を確認済み。
+- ブラウザで端末、script runner、OLED 風 canvas、LED ランプ、**pwm#0 レベル（バー + テキスト）**、`button#0` の Press UI を表示できる。
+- `compileScript()` で複数行 script を parse / bind / type check / semantic check し、runtime IR に下げられる。
+- `state` / `set`、式、`read`、`wait`、`task on`、`match` 最小形まで実装済み。
+- `task on` は `button#0.pressed` 直書きと `ref button = button#0` 経由の `button.pressed` の両方に対応している。
+- Embed API から command / tick / snapshot / display frame / ADC 設定 / script load を呼べる。
+- structured diagnostics を JSON 互換形式で返せる。
 
-### ブラウザ UI
+## 動作確認
 
-- ブラウザ上に端末 UI を表示できる。
-- 端末からコマンドを入力できる。
-- コマンドの入力履歴と出力を表示できる。
-- structured diagnostics の JSON を端末内に表示できる。
-- 128×64 OLED 風の canvas 表示領域を持つ。
+現状の主要な回帰確認コマンド:
 
-- 端末の上に **StaticCore Script** 用のテキストエリアから `compileScript` して task を登録できる。
-- `led#0` の on/off をランプ表示できる。
-- **`button#0`**: 右パネルに `Press` ボタンがあり、クリックで `button#0.pressed` 向け `task on` を起動できる（`data-testid="simulator-button0-press"`）。
+```text
+npm run typecheck
+npm test
+npm run build
+npm run test:e2e
+npm audit --audit-level=moderate
+```
 
-### Interactive Command
+直近確認:
 
-次のコマンドは動作する。
+- `npm run typecheck`: 成功
+- `npm test`: 成功（30 files / 73 tests）
+- `npm run build`: 成功
+- `npm run test:e2e`: 成功（3 tests）
+
+## ブラウザ UI
+
+ブラウザ上で次を操作できる。
+
+- Interactive terminal: 1 行 command、task 操作、diagnostics 表示。
+- StaticCore Script textarea: 複数行 script を compile して runtime に登録。
+- `display#0`: 128x64 の 1bit framebuffer を OLED 風 canvas に描画。
+- `led#0`: on/off をランプで表示。
+- `pwm#0`: 0–100% の level をバーと数値で表示（script の `pwm#0.level` と同期）。
+- `button#0`: Press ボタンで `button#0.pressed` event を dispatch。
+
+関連ファイル:
+
+- `src/ui/simulator-view.ts`
+- `src/ui/script-runner-view.ts`
+- `src/ui/led-view.ts`
+- `src/ui/pwm-view.ts`
+- `src/ui/button-view.ts`
+- `src/ui/styles.css`
+
+## Interactive Command
+
+端末欄では、主に 1 行単位の確認と task 操作ができる。
 
 ```text
 read adc#0
 adc#0.info
 display#0.info
 led#0.info
+button#0.info
+pwm#0.info
 do serial#0.println("text")
 do display#0.clear()
 do display#0.pixel(x, y)
@@ -45,85 +76,130 @@ do display#0.present()
 do led#0.on()
 do led#0.off()
 do led#0.toggle()
+task <name> every <N>ms { do ... }
 list tasks
 show task <name>
 start task <name>
 stop task <name>
 drop task <name>
-task <name> every <N>ms { ... }
 ```
 
-### 仮想デバイス
+制限:
 
-実装済みのデバイスは次の通り。
+- interactive task body は現状 1 行 1 つの `do ...` のみ。
+- interactive task body で `state` / `set` / `wait` / `match` を使うには、今後 body parser を拡張する必要がある。
+- これらの構文を使う場合は、現状では script textarea の full compiler 経路を使う。
 
-- `adc#0`
-  - 固定または外部指定された raw 値を返せる。
-  - `read adc#0` で値を読める。
-  - `adc#0.info` で情報を表示できる。
-- `serial#0`
-  - `do serial#0.println("text")` 相当の出力を端末ログに出せる。
-- `display#0`
-  - 128×64 の 1bit framebuffer を持つ。
-  - `clear`、`pixel`、`line`、`circle`、`present` に対応している。
-  - `present()` までは draft buffer に描画し、`present()` で表示済み frame に反映する。
-  - canvas へ OLED 風に描画できる。
-- `led#0`
-  - `DeviceEffect` 経由で `on` / `off` / `toggle` の状態遷移ができる。
-  - `read` / `led#0.info` 相当の用途は `readProperty` から利用できる（full compiler パスは `ref` 束縛を使用）。
+## 仮想デバイス
 
-### Full compiler（Phase 0 縦断ルート）
+実装済みデバイス:
 
-次の multiple-line script を `compileScript()` で **parse / bind / type / semantic** し、`CompiledProgram`（runtime IR）を生成できる。
+- `adc#0`: raw 値を読める。Embed から値を設定できる。
+- `serial#0`: `println` による出力を保持できる。
+- `display#0`: `clear` / `pixel` / `line` / `circle` / `present` に対応。
+- `led#0`: `on` / `off` / `toggle` に対応。
+- `pwm#0`: `level(percent)` に対応。0-100% に clamp する。
+- `button#0`: UI / embed / test から押下状態を注入できる。
+
+未対応:
+
+- `display#0` の text 描画 API。
+- `serial#0` の高度な line input / stream 処理。
+- SSD1306 物理互換の I2C / SPI command、page addressing、GDDRAM layout。
+
+## Full Compiler
+
+入口は `src/compiler/compile-script.ts` の `compileScript(sourceText, fileName)`。
+
+成功時は `src/core/executable-task.ts` の `CompiledProgram` を返し、`SimulationRuntime.replaceCompiledProgram()` が state 初期化と task 登録を行う。失敗時は `DiagnosticReport` を返す。
+
+実装済みの主な構文:
+
+- `ref`
+- `state`
+- `task <name> every <N>ms`
+- `task <name> on <device#id>.<event>`
+- `task <name> on <ref>.<event>`
+- `do <device/ref>.<method>(...)`
+- `set <state> = <expression>`
+- `wait <N>ms`
+- `read <device#id>` 式
+- `match <string-expression> { "literal" => { ... } else => { ... } }`
+
+式 IR:
+
+- integer literal
+- string literal
+- state reference
+- binary `+`
+- device read
+
+`match` 最小形の制限:
+
+- statement としてのみ使う。
+- target は string 式のみ。
+- pattern は string literal と `else` のみ。
+- `else` は必須。
+- branch 内は `do` / `set` のみ。
+- branch 内 `wait`、nested `match`、範囲 pattern、`temp` は未対応。
+
+## Runtime
+
+`SimulationRuntime` は compiled task を cooperative に進める。
+
+- `every` task は `tick(elapsedMilliseconds)` で時間を進める。
+- `wait` は `resumeAtTotalMilliseconds` により再開時刻を持つ。
+- `task on` は `dispatchScriptEvent({ deviceAddress, eventName })` で同期的に起動する。
+- `match_string` は対象式を評価し、該当 branch だけを実行する。
+- `match` branch 内の `wait` は型検査で拒否するため、runtime の statement list は実行中に書き換えない。
+
+## Embed API
+
+Unity / WebView など別ホストから使うための `postMessage` API がある。
+
+対応済み message:
 
 ```text
-ref led = led#0
-
-task blink every 1000ms {
-  do led.toggle()
-}
+simulator.command
+simulator.tick
+simulator.getSnapshot
+simulator.getDisplayFrame
+simulator.setAdcValue
+simulator.loadScript
 ```
 
-- 入口: `src/compiler/compile-script.ts` の `compileScript(sourceText, fileName)`。
-- 失敗時は `DiagnosticReport`（`compiler.empty_script`、`parse.*`、`bind.*`、`type.*`、`semantic.*` 等）。
-- 成功時 IR は `src/core/executable-task.ts` の `CompiledProgram`。
-- `tests/compiler/fixtures/` に golden（`.sc` + `.expected.json`）がある（例: `serial-print-task.sc`）。
+`simulator.getSnapshot` の `outputs` には、少なくとも次が含まれる。
 
-Phase 0 の縦断ルートを土台に、Phase 1 で `state` / `set`、`read` 式、`wait`、`task on`、**`match`（文字列の最小形）** まで拡張済み。未対応は `match` の拡張（範囲・ネスト・分岐内 `wait`）、所有規則の本実装、`draft.md` 全文。
+```text
+adc0.raw=...
+led0.on=...
+pwm0.level=...
+button0.pressed=...
+```
 
-### Compiler Phase 1（進捗）
+response は成功時 `ok: true`、失敗時 `ok: false` と structured diagnostics を返す。
 
-fixture / integration で検証済みの項目:
+## Diagnostics
 
-- **式 IR**: `ExecutableExpression`（整数・文字列・`state_reference`・`binary_add`・`read_property`）
-- **`state` / `set`** と display 引数の整数式（例: `circle-animation.sc`）
-- **`read adc#0`** を `serial.println` の引数に（例: `serial-read-adc.sc`）
-- **`wait`** と task 内遅延（`tests/integration/wait-task-runtime.test.ts`）
-- **`task on`** と `dispatchScriptEvent`（`tests/integration/task-on-button-runtime.test.ts`）
-- **`match`（文字列 target・文字列リテラル case・必須 else・IR `match_string`）**（golden: `match-string-command.sc` 等、`tests/integration/match-string-runtime.test.ts`）
-- **`pwm#0`** / **`button#0`** デバイスモデルと Embed snapshot 拡張
-- **Ownership**: Phase 0 と同様に検査骨格のみ（本実装は未）
+エラーは JSON 互換の structured diagnostics として返す。
 
-未完了の主領域:
+代表例:
 
-- **`match` の拡張**（範囲パターン、ネストした `match`、分岐内 `wait`）、interactive task body の `state`/`set`/`wait`、ownership の本実装、`draft.md` 全文。
-
-### Compiler Phase 1 マイルストーン（旧メモ・参照用）
-
-`draft.md` 全体を一括ではなく、次の順で fixture を追加しながら進める。
-
-- 6.1 `read` を式として使う（例: `serial.println` の引数）と UART 系サンプル → **golden `serial-read-adc.sc`**
-- 6.2 `state` / `set` と永続束縛 → **`circle-animation.sc`**
-- 6.3 `wait`（task 内の遅延文）→ **integration**
-- 6.4 `task on` とイベント源（例: `button#0`）→ **integration**
-- 6.5 `match`（構文・型の最小検査）→ **golden `match-string-command.sc` 等**
-- 6.6 single-writer / ownership の本実装
-
-回帰用に golden を増やす（例: `serial-print-task.sc`、`blink-led.sc`、`circle-animation.sc`、`serial-read-adc.sc`、`button-toggle-on-event.sc`、`match-string-command.sc`）。
-
-### Structured Diagnostics
-
-エラーは JSON 互換の structured diagnostics として返せる。
+- `compiler.empty_script`
+- `parse.unsupported_command`
+- `parse.unexpected_token`
+- `name.unknown_reference`
+- `name.duplicate_declaration`
+- `unit.type_mismatch`
+- `type.method_not_found`
+- `type.method_arity_mismatch`
+- `type.argument_type_mismatch`
+- `match.target_requires_string`
+- `match.branch_unsupported_statement`
+- `semantic.duplicate_task_name`
+- `semantic.invalid_task_interval`
+- `runtime.out_of_range`
+- `task.unknown`
 
 例:
 
@@ -141,190 +217,148 @@ fixture / integration で検証済みの項目:
 }
 ```
 
-現在確認済みの代表例:
+## テスト状況
 
-- 未対応コマンド: `parse.unsupported_command`
-- 存在しないデバイス: `device.unknown_target`
-- 範囲外ピクセル: `runtime.out_of_range`
-- 存在しない task: `task.unknown`
-- full compiler: `compiler.empty_script`、`unit.type_mismatch`、`name.unknown_reference`、`semantic.duplicate_task_name` など
+サーバー不要の自動テストで次を確認している。
 
-### Task Registry
-
-次の task 操作はできる。
-
-- `task <name> every <N>ms { ... }` で task を登録する。
-- `list tasks` で task 一覧を表示する。
-- `show task <name>` で task 詳細を見る。
-- `start task <name>` で task を running にする。
-- `stop task <name>` で task を stopped にする。
-- `drop task <name>` で task を削除する。
-
-`task <name> every <N>ms { ... }` で登録された task は raw body テキストを保持する。登録時に body 内の各行を **full compiler 相当**（`compileDoStatementSourceLineToExecutableStatement`）で `ExecutableStatement[]` へ変換し `compiledStatements` に保存する。パース / bind / 型に失敗した行があると登録は **失敗**し structured diagnostics を返す。
-
-`compileScript()` 経路は `SimulationRuntime.replaceCompiledProgram()` が **script state 初期化**と task 再登録をまとめて行う。`every` task は `compiledStatements` を `tick()` 上で `wait` / `set` 含め段階実行し、Effect をキューしてフラッシュする。
-
-### 実行経路別の対応状況
-
-| 実行経路 / 機能 | 状態 | 確認方法 / 補足 |
-| --- | --- | --- |
-| `compileScript()` で複数行 script を compile | 実装済み | `tests/compiler/compile-script.test.ts`、`tests/compiler/fixture-runner.test.ts` |
-| `ref led = led#0` の名前解決 | 実装済み | `tests/compiler/binder.test.ts` |
-| `task blink every 1000ms { do led.toggle() }` の IR 生成 | 実装済み | `tests/compiler/fixtures/blink-led.sc` と `blink-led.expected.json` |
-| `CompiledProgram` を `TaskRegistry` に登録 | 実装済み | `registerCompiledProgramOnTaskRegistry()` |
-| `SimulationRuntime.tick()` で compiled task を発火 | 実装済み | `tests/integration/compiler-runtime.test.ts` |
-| `tick(999)` では LED 変化なし、`tick(1)` で toggle | 実装済み | `tests/integration/compiler-runtime.test.ts` |
-| `led#0` の仮想デバイス状態 | 実装済み | `tests/devices/led-device.test.ts` |
-| `every 1000deg` の単位エラー | 実装済み | `unit.type_mismatch`、`tests/compiler/type-checker.test.ts`、`invalid-unit.expected.json` |
-| 未定義 ref の診断 | 実装済み | `name.unknown_reference`、`tests/compiler/compile-script.test.ts` |
-| interactive shell の `task every` body（LED / serial / display の `do` のみ）を `tick()` で実行 | 実装済み | `compileInteractiveEveryTaskBodyToExecutableStatements`、`tests/integration/interactive-gap-characterization.test.ts` |
-| interactive shell から `do led#0.toggle()` | 実装済み | `tests/interactive/parse-interactive-command.test.ts` |
-| ブラウザ UI で LED 状態を表示 | 実装済み | `src/ui/led-view.ts`、`src/ui/simulator-view.ts` |
-| ブラウザ UI から複数行 script を compile/run | 実装済み | `src/ui/script-runner-view.ts`、`tests/ui/compile-and-register-script.test.ts` |
-| Embed `simulator.loadScript` | 実装済み | `tests/embed/embed-controller.test.ts` |
-| Embed `simulator.getSnapshot` に ADC / LED / PWM / button | 実装済み | 同上 |
-| `state` / `set` / 式引数（Circle アニメ） | 実装済み | `tests/compiler/fixtures/circle-animation.sc`、`tests/integration/circle-state-animation.test.ts` |
-| `read` + `serial.println` | 実装済み | `tests/compiler/fixtures/serial-read-adc.sc`、integration 可 |
-| `wait` 文 | 実装済み | `tests/integration/wait-task-runtime.test.ts` |
-| `task on` + イベント | 実装済み | `tests/integration/task-on-button-runtime.test.ts`、`dispatchScriptEvent` |
-| UI **`button#0` Press**（ブラウザ） | 実装済み | `src/ui/button-view.ts`、`tests/e2e/script-runner-button.spec.ts` |
-| **`match`（最小・文字列）** | 実装済み | `tests/compiler/fixtures/match-string-command.sc`、`tests/integration/match-string-runtime.test.ts` |
-| `pwm#0` / `button#0` | 実装済み | `src/devices/pwm-device.ts` / `button-device.ts`、snapshot に `pwm0` / `button0` |
-| ブラウザ E2E（script runner + LED / **button**） | 実装済み | `npm run test:e2e`、`tests/e2e/script-runner-led.spec.ts`、`tests/e2e/script-runner-button.spec.ts` |
-| interactive `task every` body（`do` のみ 1 行） | 実装済み | `compileDoStatementSourceLine` と同一 IR |
-| interactive body に `set` / `wait` 等 | 未対応 | 将来: body 用パーサ拡張 |
-| single-writer の本実装 | 未実装 | 検査骨格のみ |
-
-### Embed API
-
-Unity/WebView など別シミュレータ内で動かすための `postMessage` API の土台はある。
-
-対応済み message:
-
-```text
-simulator.command
-simulator.tick
-simulator.getSnapshot
-simulator.getDisplayFrame
-simulator.setAdcValue
-simulator.loadScript
-```
-
-`simulator.getSnapshot` の `outputs` は `adc0.raw=...`、`led0.on=...`、`pwm0.level=...`、`button0.pressed=...` を返す。
-
-response は成功時 `ok: true`、失敗時 `ok: false` と structured diagnostics を返す。
-
-### サーバー不要の自動テスト
-
-スクリーンショットや開発サーバーに依存せず、次をテストできる。
-
-- interactive command の parse/evaluate
+- interactive command の parse / evaluate
 - runtime と device bus
-- `adc#0`
-- `serial#0`
-- `display#0` framebuffer
-- OLED の RGBA 変換
+- virtual devices
+- OLED framebuffer / RGBA 変換
 - structured diagnostics
+- full compiler（lexer / parser / binder / type checker / semantic checker / golden fixtures）
+- compiled program 登録
+- `state` / `set` / `read` / `wait` / `task on` / `match`
+- UI の compile 経路
 - embed message
-- full compiler（lexer / parser / bind / type / semantic / fixture golden）
-- UI の compile 経路（`compile-and-register-simulation-script`）
-- embed の `loadScript` / snapshot
 
-現時点の確認結果:
+Playwright E2E で次を確認している。
+
+- script runner の default blink script で LED UI が変わる。
+- script runner に `task on button#0.pressed` を登録し、画面上の `button#0` Press で LED UI が変わる。
+
+代表的なテスト / fixture:
+
+- `tests/compiler/fixtures/blink-led.sc`
+- `tests/compiler/fixtures/circle-animation.sc`
+- `tests/compiler/fixtures/serial-read-adc.sc`
+- `tests/compiler/fixtures/button-toggle-on-event.sc`
+- `tests/compiler/fixtures/match-string-command.sc`
+- `tests/integration/compiler-runtime.test.ts`
+- `tests/integration/wait-task-runtime.test.ts`
+- `tests/integration/task-on-button-runtime.test.ts`
+- `tests/integration/match-string-runtime.test.ts`
+- `tests/e2e/script-runner-led.spec.ts`
+- `tests/e2e/script-runner-button.spec.ts`
+- `tests/e2e/script-runner-pwm.spec.ts`
+
+## `draft.md` との差分と現在の制限
+
+現状は MVP + Phase 1 の一部であり、`draft.md` 全体の実装ではない。
+
+できること:
+
+- `ref` / `state` / `set` / `read` / `wait`
+- `task every` / `task on`
+- 文字列 `match` の最小形
+- `led#0` の on / off / toggle
+- `pwm#0.level(number)` による PWM 出力値の変更
+- **animator v1**: `animator ... = ramp from A% to B% over Nms ease linear|ease_in_out`、**`dt`**（`task every` の名目間隔 ms）、**`step <name> with dt`** による 1 ショット ramp（`task on` や state 初期化では `dt` / `step` 不可）
+- **パーセントリテラル** `0%`…`100%`（v1 では整数パーセントに下ろす）
+- `display#0` の基本図形描画（clear / pixel / line / circle / present）
+
+まだできないこと:
+
+- `const` / `temp` / `range`
+- `%` を独立した型としての完全実装（角度や別単位との混合など）
+- `filter` / `estimator` / `controller`
+- **animator の restart / pause / reverse、`do animator.start()` 等のメソッド**
+- `match` の範囲 pattern、式としての `match`、nested `match`
+- `loop`、`wait until`、`else return`
+- `IMU` / `motor` / `servo`
+- serial の `line_ready` event や `read host.line`
+- ownership / single-writer checker 本実装
+- OLED の text API や SSD1306 物理互換
+
+### フェードイン・フェードアウト（animator v1）
+
+**`task every` 内**で `animator ramp` + `step ... with dt` + `pwm#0.level` により滑らかなフェードが書ける。ブラウザ右パネルで **pwm#0** のレベルバーを確認できる。
 
 ```text
-npm run typecheck
-npm test
-npm run build
-npm audit --audit-level=moderate
+ref led = pwm#0
+state led_level = 0%
+animator fade_in = ramp from 0% to 100% over 1200ms ease ease_in_out
+
+task fade every 16ms {
+  set led_level = step fade_in with dt
+  do led.level(led_level)
+}
 ```
 
-すべて成功済み。
+**v1 の制限**: program load 時に animator は初期化される **one-shot ramp**。`task on` や state 初期値では `dt` / `step ... with dt` は使用できない。ボタンから同一 animator を繰り返し再起動する API は未実装。
 
-## 現在できていないこと
-
-### Interactive `task every` body の制限
-
-body は **1 行 1 つの `do ...` のみ**（full compiler の `compileDoStatementSourceLineToExecutableStatement` と同一パイプライン）。`state` / `set` / `wait` を interactive task に載せるには構文拡張が必要。
-
-### Full Parser / Compiler でまだ弱い部分
-
-- **`match` の拡張**（範囲パターン、ネスト、分岐内 `wait`）
-- **single-writer / ownership** の本実装（検査骨格のみ）
-- **`draft.md` 全文**との完全一致
-
-実装済み: `state` / `set`、式、`read`、`wait`、`task on`、`pwm` / `button`、**UI button + `match` 最小**、ブラウザ E2E（LED + button）。
-
-### SSD1306 物理互換
-
-現在の `display#0` は StaticCore Script から見える表示デバイスであり、SSD1306 の完全エミュレータではない。
-
-未対応:
-
-- I2C / SPI command
-- SSD1306 page addressing
-- GDDRAM layout
-- Adafruit SSD1306 互換 API
-
-### ブラウザ E2E テスト
-
-Playwright による最小 smoke（`tests/e2e/script-runner-led.spec.ts`、`tests/e2e/script-runner-button.spec.ts`）。`npm run test:e2e`。
+従来どおり、`wait` と固定値の `pwm#0.level` を並べる書き方も引き続き有効。
 
 ```text
-npm run test:e2e
+ref led = pwm#0
+ref button = button#0
+
+task fade_out on button.pressed {
+  do led.level(100)
+  wait 80ms
+  do led.level(75)
+  wait 80ms
+  do led.level(50)
+  wait 80ms
+  do led.level(25)
+  wait 80ms
+  do led.level(0)
+}
 ```
 
-（初回のみ `npx playwright install chromium` が必要な場合あり。）
+未対応なのは、`draft.md` が想定する **`animator` の高度なライフサイクル**、負の `%`、および **`ease` の追加種類** など。
+### その他の重要な未対応:
+- `match` の拡張（範囲 pattern、nested `match`、branch 内 `wait`）。
+- single-writer / ownership checker の本実装。
+- `draft.md` 全文との完全整合。
+- `display#0` の text API。
+- serial input / stream 系の拡張。
+- SSD1306 物理互換。
 
 ## 次にやるべきこと
 
-### 1. `match` 文の拡張（範囲・ネスト・分岐内 `wait`）と Phase 1 残りの構文
+1. Interactive task body を full compiler と同じ意味に近づける。
+   - 重要度: 高
+   - 難易度: 高
+   - リスク: 高
+   - 理由: 端末経路と script textarea 経路の差が、ユーザーにとって分かりにくい。
 
-優先度: 高  
-難易度: 高  
-リスク: 高
+2. `match` を draft に近づける。
+   - 重要度: 高
+   - 難易度: 高
+   - リスク: 高
+   - 理由: branch 内 `wait` を許すには execution frame stack が必要。
 
-### 2. Interactive task body を複行文・`set` / `wait` まで拡張し full compiler と意味を揃える
+3. single-writer / ownership checker を実装する。
+   - 重要度: 中
+   - 難易度: 高
+   - リスク: 高
+   - 理由: 実行前に競合を検出する StaticCore Script らしさに関わる。
 
-優先度: 高  
-難易度: 高  
-リスク: 高
+4. Device Model を拡張する。
+   - 重要度: 中
+   - 難易度: 中
+   - リスク: 中
+   - 候補: display text、serial input、追加 device API。
 
-### 3. single-writer / ownership の本実装
+## 旧 Phase 1 メモ
 
-優先度: 中  
-難易度: 高  
-リスク: 高
+Phase 1 は次の順で実装済み。
 
-### 4. Device Model（display text / serial line input 等）
+- 6.1 `read` を式として使う（`serial-read-adc.sc`）
+- 6.2 `state` / `set` と永続束縛（`circle-animation.sc`）
+- 6.3 `wait`（`tests/integration/wait-task-runtime.test.ts`）
+- 6.4 `task on` と event source（`tests/integration/task-on-button-runtime.test.ts`）
+- 6.5 `match` 最小形（`match-string-command.sc`）
 
-優先度: 中  
-難易度: 中  
-リスク: 中
-
-## LED 点滅を可能にするための最短ルート
-
-ブラウザでは **テキストエリアから compile**、または **端末で `task ... { do led#0.toggle() }`** で `tick` と連動する。
-
-追加で改善できること:
-
-- interactive task body に `state` / `set` / `wait` / 複数文を載せる。
-- Playwright のカバレッジ拡大（操作パスの追加）。
-
-## 現時点のまとめ
-
-現在の実装は、StaticCore Script シミュレータの MVP として次の状態にある。
-
-- 端末は動く。
-- ADC は読める。
-- serial 出力はできる。
-- OLED 風 display は描画できる。
-- structured diagnostics は出せる。
-- task registry はある。
-- embed API の土台はある。
-- full compiler Phase 1 の主要構文（`state`、`read`、`wait`、`task on`、**`match` 最小**、デバイス拡張）がある。
-- Playwright によるブラウザ E2E（LED + **button**）がある。
-- 端末・ブラウザテキストエリア・embed の各経路から script / task を載せられる。
-- LED の状態が UI と snapshot で確認できる。
-
-未完了の主な領域は、`match` の拡張と ownership の本実装、interactive task body の複合構文対応、`draft.md` との完全整合である。
+残りは 6.6 single-writer / ownership の本実装。

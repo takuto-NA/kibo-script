@@ -8,6 +8,12 @@ export type BoundProgram = {
   stateSymbols: Map<string, BoundStateSymbol>;
   /** `state` 宣言がソースに現れた順（初期化評価順）。 */
   stateSymbolsInSourceOrder: BoundStateSymbol[];
+  /**
+   * アニメータ名 -> 定義。宣言の重複は束縛前に弾く。
+   */
+  animatorSymbols: Map<string, BoundAnimatorSymbol>;
+  /** IR 下げ用に宣言順を保持 */
+  animatorSymbolsInSourceOrder: BoundAnimatorSymbol[];
   tasks: BoundTask[];
   onEventTasks: BoundOnEventTask[];
 };
@@ -21,6 +27,23 @@ export type BoundRefSymbol = {
 export type BoundStateSymbol = {
   stateName: string;
   initialValue: BoundExpression;
+  range: AstRange;
+};
+
+/**
+ * 束縛済み animator 定義（型検査通過後に ease は linear / ease_in_out のみ）
+ */
+export type BoundAnimatorSymbol = {
+  animatorName: string;
+  fromPercent: number;
+  toPercent: number;
+  fromPercentRange: AstRange;
+  toPercentRange: AstRange;
+  durationValue: number;
+  durationUnit: "ms" | "deg";
+  durationRange: AstRange;
+  easeName: string;
+  easeRange: AstRange;
   range: AstRange;
 };
 
@@ -81,6 +104,9 @@ export type BoundExpression =
   | { kind: "integer"; value: number }
   | { kind: "string"; value: string }
   | { kind: "identifier"; name: string }
+  | { kind: "percent"; value: number; range: AstRange }
+  | { kind: "dt_reference"; range: AstRange }
+  | { kind: "step_animator"; animatorName: string; range: AstRange }
   | { kind: "binary_add"; left: BoundExpression; right: BoundExpression }
   | {
       kind: "read_property";

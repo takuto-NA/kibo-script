@@ -1,0 +1,54 @@
+{
+  "ok": true,
+  "program": {
+    "stateInitializers": [
+      {
+        "stateName": "led_level",
+        "expression": {
+          "kind": "integer_literal",
+          "value": 0
+        }
+      }
+    ],
+    "animatorDefinitions": [
+      {
+        "animatorName": "fade_in",
+        "fromPercent": 0,
+        "toPercent": 100,
+        "durationMilliseconds": 1000,
+        "ease": "linear"
+      }
+    ],
+    "everyTasks": [
+      {
+        "taskName": "fade",
+        "intervalMilliseconds": 100,
+        "statements": [
+          {
+            "kind": "assign_state",
+            "stateName": "led_level",
+            "valueExpression": {
+              "kind": "step_animator",
+              "animatorName": "fade_in"
+            }
+          },
+          {
+            "kind": "do_method_call",
+            "deviceAddress": {
+              "kind": "pwm",
+              "id": 0
+            },
+            "methodName": "level",
+            "arguments": [
+              {
+                "kind": "state_reference",
+                "stateName": "led_level"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "onEventTasks": []
+  }
+}

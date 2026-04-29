@@ -1,0 +1,23 @@
+{
+  "ok": false,
+  "diagnostics": [
+    {
+      "id": "type.animator_unsupported_ease",
+      "phase": "type_check",
+      "message": "Unsupported animator ease \"cubic\" (expected \"linear\" or \"ease_in_out\").",
+      "location": {
+        "file": "fade-animator-invalid-ease.sc",
+        "start": {
+          "line": 1,
+          "column": 53,
+          "offset": 52
+        },
+        "end": {
+          "line": 1,
+          "column": 58,
+          "offset": 57
+        }
+      }
+    }
+  ]
+}

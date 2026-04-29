@@ -16,7 +16,8 @@ export type TopLevelDeclarationAst =
   | RefDeclarationAst
   | TaskDeclarationAst
   | StateDeclarationAst
-  | TaskOnDeclarationAst;
+  | TaskOnDeclarationAst
+  | AnimatorDeclarationAst;
 
 export type StateDeclarationAst = {
   kind: "state_declaration";
@@ -56,6 +57,25 @@ export type TaskOnDeclarationAst = {
   eventTarget: TaskOnEventTargetAst;
   eventName: string;
   bodyStatements: StatementAst[];
+};
+
+/**
+ * v1: `animator name = ramp from A% to B% over Nms ease linear|ease_in_out`
+ * （不正な単位・ease はパースは通し、型検査で拒否する場合がある）
+ */
+export type AnimatorDeclarationAst = {
+  kind: "animator_declaration";
+  range: AstRange;
+  animatorName: string;
+  fromPercent: number;
+  toPercent: number;
+  fromPercentRange: AstRange;
+  toPercentRange: AstRange;
+  durationValue: number;
+  durationUnit: "ms" | "deg";
+  durationRange: AstRange;
+  easeName: string;
+  easeRange: AstRange;
 };
 
 export type TaskOnEventTargetAst =
@@ -124,8 +144,17 @@ export type CallExpressionAst = {
  */
 export type MethodArgumentExpressionAst =
   | { kind: "integer_literal"; range: AstRange; value: number }
+  | { kind: "percent_literal"; range: AstRange; value: number }
   | { kind: "string_literal"; range: AstRange; value: string }
   | { kind: "identifier_expression"; range: AstRange; name: string }
+  /** every タスクの名目間隔（ms）。state 名 `dt` とは別（式では `dt` は常にこれを指す）。 */
+  | { kind: "dt_expression"; range: AstRange }
+  /** `step <animator> with dt` */
+  | {
+      kind: "step_animator_expression";
+      range: AstRange;
+      animatorName: string;
+    }
   | { kind: "binary_add"; range: AstRange; left: MethodArgumentExpressionAst; right: MethodArgumentExpressionAst }
   | { kind: "read_expression"; range: AstRange; readTarget: ReadTargetAst };
 

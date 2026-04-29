@@ -1,0 +1,23 @@
+{
+  "ok": false,
+  "diagnostics": [
+    {
+      "id": "name.unknown_reference",
+      "phase": "bind",
+      "message": "Unknown reference \"no_such_animator\".",
+      "location": {
+        "file": "fade-animator-unknown.sc",
+        "start": {
+          "line": 5,
+          "column": 19,
+          "offset": 132
+        },
+        "end": {
+          "line": 5,
+          "column": 48,
+          "offset": 161
+        }
+      }
+    }
+  ]
+}

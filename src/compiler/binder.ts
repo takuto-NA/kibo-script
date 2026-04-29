@@ -1,5 +1,5 @@
 /**
- * AST を走査し ref / state を解決し、task 本体の文をバインドする。
+ * AST を走査し ref / animator / state を解決し、task 本体の文をバインドする。
  */
 
 import type {
@@ -20,6 +20,7 @@ import {
 } from "../diagnostics/diagnostic-builder";
 import type {
   BoundDoStatement,
+  BoundAnimatorSymbol,
   BoundExpression,
   BoundMatchStatement,
   BoundOnEventTask,
@@ -93,6 +94,47 @@ export function bindProgram(ast: ProgramAst, sourceFileName: string): BindProgra
     return { ok: false, report: createDiagnosticReport(diagnostics) };
   }
 
+  const animatorSymbols = new Map<string, BoundAnimatorSymbol>();
+  const animatorSymbolsInSourceOrder: BoundAnimatorSymbol[] = [];
+
+  for (const declaration of ast.declarations) {
+    if (declaration.kind !== "animator_declaration") {
+      continue;
+    }
+
+    const existingAnimator = animatorSymbols.get(declaration.animatorName);
+    if (existingAnimator !== undefined) {
+      diagnostics.push(
+        buildNameDuplicateDeclaration({
+          name: declaration.animatorName,
+          range: astRangeToSourceRange(declaration.range),
+          secondaryRange: astRangeToSourceRange(existingAnimator.range),
+        }),
+      );
+      continue;
+    }
+
+    const boundAnimator: BoundAnimatorSymbol = {
+      animatorName: declaration.animatorName,
+      fromPercent: declaration.fromPercent,
+      toPercent: declaration.toPercent,
+      fromPercentRange: declaration.fromPercentRange,
+      toPercentRange: declaration.toPercentRange,
+      durationValue: declaration.durationValue,
+      durationUnit: declaration.durationUnit,
+      durationRange: declaration.durationRange,
+      easeName: declaration.easeName,
+      easeRange: declaration.easeRange,
+      range: declaration.range,
+    };
+    animatorSymbols.set(declaration.animatorName, boundAnimator);
+    animatorSymbolsInSourceOrder.push(boundAnimator);
+  }
+
+  if (diagnostics.length > 0) {
+    return { ok: false, report: createDiagnosticReport(diagnostics) };
+  }
+
   const stateDeclarations = ast.declarations.flatMap((declaration) =>
     declaration.kind === "state_declaration" ? [declaration] : [],
   );
@@ -129,6 +171,7 @@ export function bindProgram(ast: ProgramAst, sourceFileName: string): BindProgra
       expression: declaration.initialValueExpression,
       refSymbolTable,
       stateSymbols,
+      animatorSymbols,
     });
     if (bindExpressionResult.ok === false) {
       return bindExpressionResult;
@@ -155,6 +198,7 @@ export function bindProgram(ast: ProgramAst, sourceFileName: string): BindProgra
         taskDeclaration: declaration,
         refSymbolTable,
         stateSymbols,
+        animatorSymbols,
       });
       if (bindTaskResult.ok === false) {
         return bindTaskResult;
@@ -168,6 +212,7 @@ export function bindProgram(ast: ProgramAst, sourceFileName: string): BindProgra
         taskOnDeclaration: declaration,
         refSymbolTable,
         stateSymbols,
+        animatorSymbols,
       });
       if (bindOnResult.ok === false) {
         return bindOnResult;
@@ -190,6 +235,8 @@ export function bindProgram(ast: ProgramAst, sourceFileName: string): BindProgra
     refSymbols,
     stateSymbols,
     stateSymbolsInSourceOrder: buildStateSymbolsInSourceOrder(ast, stateSymbols),
+    animatorSymbols,
+    animatorSymbolsInSourceOrder,
     tasks: boundTasks,
     onEventTasks: boundOnEventTasks,
   };
@@ -218,6 +265,7 @@ function bindTaskDeclaration(params: {
   taskDeclaration: TaskDeclarationAst;
   refSymbolTable: RefSymbolTable;
   stateSymbols: Map<string, BoundStateSymbol>;
+  animatorSymbols: ReadonlyMap<string, BoundAnimatorSymbol>;
 }): { ok: true; boundTask: BoundTask } | { ok: false; report: DiagnosticReport } {
   const boundStatements: BoundStatement[] = [];
 
@@ -226,6 +274,7 @@ function bindTaskDeclaration(params: {
       statement,
       refSymbolTable: params.refSymbolTable,
       stateSymbols: params.stateSymbols,
+      animatorSymbols: params.animatorSymbols,
     });
     if (bindStatementResult.ok === false) {
       return bindStatementResult;
@@ -249,6 +298,7 @@ function bindTaskOnDeclaration(params: {
   taskOnDeclaration: TaskOnDeclarationAst;
   refSymbolTable: RefSymbolTable;
   stateSymbols: Map<string, BoundStateSymbol>;
+  animatorSymbols: ReadonlyMap<string, BoundAnimatorSymbol>;
 }): { ok: true; boundTask: BoundOnEventTask } | { ok: false; report: DiagnosticReport } {
   const resolveEventTargetResult = resolveTaskOnEventTargetToDeviceAddress({
     eventTarget: params.taskOnDeclaration.eventTarget,
@@ -265,6 +315,7 @@ function bindTaskOnDeclaration(params: {
       statement,
       refSymbolTable: params.refSymbolTable,
       stateSymbols: params.stateSymbols,
+      animatorSymbols: params.animatorSymbols,
     });
     if (bindStatementResult.ok === false) {
       return bindStatementResult;
@@ -326,6 +377,7 @@ function bindStatement(params: {
   statement: import("../ast/script-ast").StatementAst;
   refSymbolTable: RefSymbolTable;
   stateSymbols: Map<string, BoundStateSymbol>;
+  animatorSymbols: ReadonlyMap<string, BoundAnimatorSymbol>;
 }): { ok: true; boundStatement: BoundStatement } | { ok: false; report: DiagnosticReport } {
   if (params.statement.kind === "do_statement") {
     const receiver = params.statement.callExpression.receiver;
@@ -343,6 +395,7 @@ function bindStatement(params: {
         expression: argument,
         refSymbolTable: params.refSymbolTable,
         stateSymbols: params.stateSymbols,
+        animatorSymbols: params.animatorSymbols,
       });
       if (bindArgumentResult.ok === false) {
         return bindArgumentResult;
@@ -379,6 +432,7 @@ function bindStatement(params: {
       expression: params.statement.valueExpression,
       refSymbolTable: params.refSymbolTable,
       stateSymbols: params.stateSymbols,
+      animatorSymbols: params.animatorSymbols,
     });
     if (bindValueResult.ok === false) {
       return bindValueResult;
@@ -398,6 +452,7 @@ function bindStatement(params: {
       expression: params.statement.matchTargetExpression,
       refSymbolTable: params.refSymbolTable,
       stateSymbols: params.stateSymbols,
+      animatorSymbols: params.animatorSymbols,
     });
     if (bindTargetResult.ok === false) {
       return bindTargetResult;
@@ -415,6 +470,7 @@ function bindStatement(params: {
           statement: branchStatement,
           refSymbolTable: params.refSymbolTable,
           stateSymbols: params.stateSymbols,
+          animatorSymbols: params.animatorSymbols,
         });
         if (branchBindResult.ok === false) {
           return branchBindResult;
@@ -433,6 +489,7 @@ function bindStatement(params: {
         statement: branchStatement,
         refSymbolTable: params.refSymbolTable,
         stateSymbols: params.stateSymbols,
+        animatorSymbols: params.animatorSymbols,
       });
       if (branchBindResult.ok === false) {
         return branchBindResult;
@@ -548,11 +605,53 @@ function bindMethodArgumentExpression(params: {
   expression: MethodArgumentExpressionAst;
   refSymbolTable: RefSymbolTable;
   stateSymbols: Map<string, BoundStateSymbol>;
+  animatorSymbols: ReadonlyMap<string, BoundAnimatorSymbol>;
 }): { ok: true; expression: BoundExpression } | { ok: false; report: DiagnosticReport } {
   if (params.expression.kind === "integer_literal") {
     return {
       ok: true,
       expression: { kind: "integer", value: params.expression.value },
+    };
+  }
+
+  if (params.expression.kind === "percent_literal") {
+    return {
+      ok: true,
+      expression: {
+        kind: "percent",
+        value: params.expression.value,
+        range: params.expression.range,
+      },
+    };
+  }
+
+  if (params.expression.kind === "dt_expression") {
+    return {
+      ok: true,
+      expression: { kind: "dt_reference", range: params.expression.range },
+    };
+  }
+
+  if (params.expression.kind === "step_animator_expression") {
+    if (!params.animatorSymbols.has(params.expression.animatorName)) {
+      return {
+        ok: false,
+        report: createDiagnosticReport([
+          buildNameUnknownReference({
+            name: params.expression.animatorName,
+            range: astRangeToSourceRange(params.expression.range),
+            rangeText: params.expression.animatorName,
+          }),
+        ]),
+      };
+    }
+    return {
+      ok: true,
+      expression: {
+        kind: "step_animator",
+        animatorName: params.expression.animatorName,
+        range: params.expression.range,
+      },
     };
   }
 
@@ -588,6 +687,7 @@ function bindMethodArgumentExpression(params: {
       expression: params.expression.left,
       refSymbolTable: params.refSymbolTable,
       stateSymbols: params.stateSymbols,
+      animatorSymbols: params.animatorSymbols,
     });
     if (leftResult.ok === false) {
       return leftResult;
@@ -596,6 +696,7 @@ function bindMethodArgumentExpression(params: {
       expression: params.expression.right,
       refSymbolTable: params.refSymbolTable,
       stateSymbols: params.stateSymbols,
+      animatorSymbols: params.animatorSymbols,
     });
     if (rightResult.ok === false) {
       return rightResult;

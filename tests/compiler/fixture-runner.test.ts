@@ -117,4 +117,81 @@ describe("compiler fixture golden tests", () => {
     const actual = serializeCompileScriptResultForGoldenTest(result);
     expect(actual).toEqual(expected);
   });
+
+  it("compiles fade-animator-linear.sc without diagnostics", () => {
+    const fixturePath = join(testsCompilerDirectory, "fixtures", "fade-animator-linear.sc");
+    const sourceText = readFileSync(fixturePath, "utf-8").replace(/\r\n/g, "\n");
+    const result = compileScript(sourceText, "fade-animator-linear.sc");
+    const expectedPath = join(testsCompilerDirectory, "fixtures", "fade-animator-linear.expected.json");
+    const expectedText = readFileSync(expectedPath, "utf-8");
+    const expected = JSON.parse(expectedText) as unknown;
+    const actual = serializeCompileScriptResultForGoldenTest(result);
+    expect(actual).toEqual(expected);
+  });
+
+  it("compiles fade-animator-ease-in-out.sc without diagnostics", () => {
+    const fixturePath = join(testsCompilerDirectory, "fixtures", "fade-animator-ease-in-out.sc");
+    const sourceText = readFileSync(fixturePath, "utf-8").replace(/\r\n/g, "\n");
+    const result = compileScript(sourceText, "fade-animator-ease-in-out.sc");
+    const expectedPath = join(testsCompilerDirectory, "fixtures", "fade-animator-ease-in-out.expected.json");
+    const expectedText = readFileSync(expectedPath, "utf-8");
+    const expected = JSON.parse(expectedText) as unknown;
+    const actual = serializeCompileScriptResultForGoldenTest(result);
+    expect(actual).toEqual(expected);
+  });
+
+  it("rejects fade-animator-unknown.sc with name.unknown_reference", () => {
+    const fixturePath = join(testsCompilerDirectory, "fixtures", "fade-animator-unknown.sc");
+    const sourceText = readFileSync(fixturePath, "utf-8").replace(/\r\n/g, "\n");
+    const result = compileScript(sourceText, "fade-animator-unknown.sc");
+    const expectedPath = join(testsCompilerDirectory, "fixtures", "fade-animator-unknown.expected.json");
+    const expectedText = readFileSync(expectedPath, "utf-8");
+    const expected = JSON.parse(expectedText) as unknown;
+    const actual = serializeCompileScriptResultForGoldenTest(result);
+    expect(actual).toEqual(expected);
+  });
+
+  it("rejects fade-animator-invalid-unit.sc with unit.type_mismatch on animator duration", () => {
+    const fixturePath = join(testsCompilerDirectory, "fixtures", "fade-animator-invalid-unit.sc");
+    const sourceText = readFileSync(fixturePath, "utf-8").replace(/\r\n/g, "\n");
+    const result = compileScript(sourceText, "fade-animator-invalid-unit.sc");
+    const expectedPath = join(testsCompilerDirectory, "fixtures", "fade-animator-invalid-unit.expected.json");
+    const expectedText = readFileSync(expectedPath, "utf-8");
+    const expected = JSON.parse(expectedText) as unknown;
+    const actual = serializeCompileScriptResultForGoldenTest(result);
+    expect(actual).toEqual(expected);
+  });
+
+  it("rejects fade-animator-invalid-percent.sc with type.percent_literal_out_of_range", () => {
+    const fixturePath = join(testsCompilerDirectory, "fixtures", "fade-animator-invalid-percent.sc");
+    const sourceText = readFileSync(fixturePath, "utf-8").replace(/\r\n/g, "\n");
+    const result = compileScript(sourceText, "fade-animator-invalid-percent.sc");
+    const expectedPath = join(testsCompilerDirectory, "fixtures", "fade-animator-invalid-percent.expected.json");
+    const expectedText = readFileSync(expectedPath, "utf-8");
+    const expected = JSON.parse(expectedText) as unknown;
+    const actual = serializeCompileScriptResultForGoldenTest(result);
+    expect(actual).toEqual(expected);
+  });
+
+  it("rejects fade-animator-invalid-ease.sc with type.animator_unsupported_ease", () => {
+    const fixturePath = join(testsCompilerDirectory, "fixtures", "fade-animator-invalid-ease.sc");
+    const sourceText = readFileSync(fixturePath, "utf-8").replace(/\r\n/g, "\n");
+    const result = compileScript(sourceText, "fade-animator-invalid-ease.sc");
+    const expectedPath = join(testsCompilerDirectory, "fixtures", "fade-animator-invalid-ease.expected.json");
+    const expectedText = readFileSync(expectedPath, "utf-8");
+    const expected = JSON.parse(expectedText) as unknown;
+    const actual = serializeCompileScriptResultForGoldenTest(result);
+    expect(actual).toEqual(expected);
+  });
+
+  it("rejects fade-animator-dt-in-event.sc with type.animator_time_expression_invalid_context", () => {
+    const fixturePath = join(testsCompilerDirectory, "fixtures", "fade-animator-dt-in-event.sc");
+    const sourceText = readFileSync(fixturePath, "utf-8").replace(/\r\n/g, "\n");
+    const result = compileScript(sourceText, "fade-animator-dt-in-event.sc");
+    const expectedPath = join(testsCompilerDirectory, "fixtures", "fade-animator-dt-in-event.expected.json");
+    const expectedText = readFileSync(expectedPath, "utf-8");
+    const expected = JSON.parse(expectedText) as unknown;
+    const actual = serializeCompileScriptResultForGoldenTest(result);
+    expect(actual).toEqual(expected);
+  });
 });

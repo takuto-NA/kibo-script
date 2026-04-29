@@ -5,7 +5,7 @@ import {
   mapDoMethodCallToDeviceEffects,
   type ConcreteMethodArgument,
 } from "./executable-statement-to-device-effects";
-import type { CompiledProgram } from "./executable-task";
+import type { CompiledAnimatorDefinition, CompiledProgram } from "./executable-task";
 import type { ExecutableStatement } from "./executable-task";
 import {
   evaluateExecutableExpression,
@@ -32,6 +32,8 @@ export class SimulationRuntime {
   public readonly tasks: TaskRegistry;
   private totalSimulationMilliseconds = 0;
   private readonly scriptStateValues = new Map<string, number | string>();
+  private compiledAnimatorDefinitionsByName = new Map<string, CompiledAnimatorDefinition>();
+  private readonly animatorElapsedMillisecondsByName = new Map<string, number>();
 
   public constructor(params: {
     deviceBus?: DeviceBus;
@@ -66,6 +68,13 @@ export class SimulationRuntime {
    * 登録済み task を破棄し、CompiledProgram の state 初期化と task 再登録を行う。
    */
   public replaceCompiledProgram(compiledProgram: CompiledProgram): void {
+    this.compiledAnimatorDefinitionsByName = new Map(
+      compiledProgram.animatorDefinitions.map((definition) => [definition.animatorName, definition]),
+    );
+    this.animatorElapsedMillisecondsByName.clear();
+    for (const definition of compiledProgram.animatorDefinitions) {
+      this.animatorElapsedMillisecondsByName.set(definition.animatorName, 0);
+    }
     this.tasks.clearAllTasks();
     this.initializeScriptStateFromCompiledProgram(compiledProgram);
     registerCompiledProgramOnTaskRegistry({
@@ -76,7 +85,7 @@ export class SimulationRuntime {
 
   private initializeScriptStateFromCompiledProgram(compiledProgram: CompiledProgram): void {
     this.scriptStateValues.clear();
-    const evaluationContext = this.createEvaluationContext();
+    const evaluationContext = this.createEvaluationContextForStateInitialization();
     for (const initializer of compiledProgram.stateInitializers) {
       const scriptValue = evaluateExecutableExpression(initializer.expression, evaluationContext);
       if (scriptValue === undefined) {
@@ -141,10 +150,23 @@ export class SimulationRuntime {
     return { appliedEffectCount };
   }
 
-  private createEvaluationContext(): EvaluateExecutableExpressionContext {
+  private createEvaluationContextForStateInitialization(): EvaluateExecutableExpressionContext {
     return {
       deviceBus: this.deviceBus,
       stateValues: this.scriptStateValues,
+    };
+  }
+
+  private createEvaluationContextForTask(task: TaskRecord): EvaluateExecutableExpressionContext {
+    return {
+      deviceBus: this.deviceBus,
+      stateValues: this.scriptStateValues,
+      taskExecution: {
+        runMode: task.runMode,
+        nominalIntervalMilliseconds: task.intervalMilliseconds,
+      },
+      animatorDefinitionsByName: this.compiledAnimatorDefinitionsByName,
+      animatorElapsedMillisecondsByName: this.animatorElapsedMillisecondsByName,
     };
   }
 
@@ -224,20 +246,20 @@ export class SimulationRuntime {
       }
 
       if (statement.kind === "assign_state") {
-        this.executeAssignStateStatement(statement);
+        this.executeAssignStateStatement(statement, task);
         task.executionProgress.programCounter = programCounter + 1;
         continue;
       }
 
       if (statement.kind === "do_method_call") {
-        const effects = this.effectsForDoMethodCall(statement);
+        const effects = this.effectsForDoMethodCall(statement, task);
         this.queueEffects(effects);
         task.executionProgress.programCounter = programCounter + 1;
         continue;
       }
 
       if (statement.kind === "match_string") {
-        this.executeMatchStringStatement(statement);
+        this.executeMatchStringStatement(statement, task);
         task.executionProgress.programCounter = programCounter + 1;
         continue;
       }
@@ -248,8 +270,9 @@ export class SimulationRuntime {
 
   private executeMatchStringStatement(
     statement: ExecutableStatement & { kind: "match_string" },
+    task: TaskRecord,
   ): void {
-    const evaluationContext = this.createEvaluationContext();
+    const evaluationContext = this.createEvaluationContextForTask(task);
     const scriptValue = evaluateExecutableExpression(statement.targetExpression, evaluationContext);
     let chosenBranchStatements: ExecutableStatement[] | undefined;
     if (scriptValue !== undefined && scriptValue.tag === "string") {
@@ -263,27 +286,30 @@ export class SimulationRuntime {
     }
     const statementsToExecute =
       chosenBranchStatements !== undefined ? chosenBranchStatements : statement.elseBranchStatements;
-    this.executeExecutableStatementsWithoutWaiting(statementsToExecute);
+    this.executeExecutableStatementsWithoutWaiting(statementsToExecute, task);
   }
 
   /**
    * match 分岐内など、wait で中断しないブロック向け。型検査で分岐内 wait は拒否する。
    */
-  private executeExecutableStatementsWithoutWaiting(statements: ExecutableStatement[]): void {
+  private executeExecutableStatementsWithoutWaiting(
+    statements: ExecutableStatement[],
+    task: TaskRecord,
+  ): void {
     for (const innerStatement of statements) {
       if (innerStatement.kind === "do_method_call") {
-        const effects = this.effectsForDoMethodCall(innerStatement);
+        const effects = this.effectsForDoMethodCall(innerStatement, task);
         this.queueEffects(effects);
         continue;
       }
 
       if (innerStatement.kind === "assign_state") {
-        this.executeAssignStateStatement(innerStatement);
+        this.executeAssignStateStatement(innerStatement, task);
         continue;
       }
 
       if (innerStatement.kind === "match_string") {
-        this.executeMatchStringStatement(innerStatement);
+        this.executeMatchStringStatement(innerStatement, task);
         continue;
       }
 
@@ -296,8 +322,9 @@ export class SimulationRuntime {
 
   private executeAssignStateStatement(
     statement: ExecutableStatement & { kind: "assign_state" },
+    task: TaskRecord,
   ): void {
-    const evaluationContext = this.createEvaluationContext();
+    const evaluationContext = this.createEvaluationContextForTask(task);
     const scriptValue = evaluateExecutableExpression(statement.valueExpression, evaluationContext);
     if (scriptValue === undefined) {
       return;
@@ -313,8 +340,9 @@ export class SimulationRuntime {
 
   private effectsForDoMethodCall(
     statement: ExecutableStatement & { kind: "do_method_call" },
+    task: TaskRecord,
   ): DeviceEffect[] {
-    const evaluationContext = this.createEvaluationContext();
+    const evaluationContext = this.createEvaluationContextForTask(task);
 
     if (statement.deviceAddress.kind === "serial" && statement.methodName === "println") {
       const firstArgument = statement.arguments[0];

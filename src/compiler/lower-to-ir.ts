@@ -21,6 +21,14 @@ export function lowerBoundProgramToCompiledProgram(boundProgram: BoundProgram): 
     expression: lowerBoundExpression(symbol.initialValue),
   }));
 
+  const animatorDefinitions = boundProgram.animatorSymbolsInSourceOrder.map((symbol) => ({
+    animatorName: symbol.animatorName,
+    fromPercent: symbol.fromPercent,
+    toPercent: symbol.toPercent,
+    durationMilliseconds: symbol.durationValue,
+    ease: symbol.easeName === "linear" ? ("linear" as const) : ("ease_in_out" as const),
+  }));
+
   const everyTasks: CompiledEveryTask[] = boundProgram.tasks.map((task) => ({
     taskName: task.taskName,
     intervalMilliseconds: task.intervalValue,
@@ -36,6 +44,7 @@ export function lowerBoundProgramToCompiledProgram(boundProgram: BoundProgram): 
 
   return {
     stateInitializers,
+    animatorDefinitions,
     everyTasks,
     onEventTasks,
   };
@@ -80,6 +89,18 @@ export function lowerBoundStatementToExecutableStatement(statement: BoundStateme
 function lowerBoundExpression(expression: BoundExpression): ExecutableExpression {
   if (expression.kind === "integer") {
     return { kind: "integer_literal", value: expression.value };
+  }
+
+  if (expression.kind === "percent") {
+    return { kind: "integer_literal", value: expression.value };
+  }
+
+  if (expression.kind === "dt_reference") {
+    return { kind: "dt_interval_ms" };
+  }
+
+  if (expression.kind === "step_animator") {
+    return { kind: "step_animator", animatorName: expression.animatorName };
   }
 
   if (expression.kind === "string") {

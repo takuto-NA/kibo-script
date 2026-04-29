@@ -23,9 +23,10 @@ export function serializeCompileScriptResultForGoldenTest(
 
   return {
     ok: true,
-    program: {
-      stateInitializers: compileScriptResult.program.stateInitializers,
-      everyTasks: compileScriptResult.program.everyTasks.map((everyTask) => ({
+      program: {
+        stateInitializers: compileScriptResult.program.stateInitializers,
+        animatorDefinitions: compileScriptResult.program.animatorDefinitions,
+        everyTasks: compileScriptResult.program.everyTasks.map((everyTask) => ({
         taskName: everyTask.taskName,
         intervalMilliseconds: everyTask.intervalMilliseconds,
         statements: everyTask.statements,

@@ -299,3 +299,49 @@ export function buildMatchBranchUnsupportedStatement(params: {
   };
 }
 
+export function buildPercentLiteralOutOfRange(params: {
+  range?: SourceRange;
+  rangeText?: string;
+  actualPercent: number;
+}): StructuredDiagnostic {
+  return {
+    id: "type.percent_literal_out_of_range",
+    severity: "error",
+    phase: "type_check",
+    message: `Percent literal must be between ${MIN_PERCENT_LITERAL_BOUND}% and ${MAX_PERCENT_LITERAL_BOUND}% (got ${params.actualPercent}).`,
+    location: params.range,
+    rangeText: params.rangeText,
+    explanation: "PWM fade literals map percent signs onto integers for now.",
+  };
+}
+
+export function buildAnimatorEaseUnsupported(params: {
+  easeName: string;
+  range?: SourceRange;
+}): StructuredDiagnostic {
+  return {
+    id: "type.animator_unsupported_ease",
+    severity: "error",
+    phase: "type_check",
+    message: `Unsupported animator ease "${params.easeName}" (expected "linear" or "ease_in_out").`,
+    location: params.range,
+  };
+}
+
+export function buildAnimatorTimeExpressionInvalidContext(params: {
+  range?: SourceRange;
+}): StructuredDiagnostic {
+  return {
+    id: "type.animator_time_expression_invalid_context",
+    severity: "error",
+    phase: "type_check",
+    message:
+      'Expressions "dt" and "step ... with dt" are only valid inside a task declared with "every" (not in state initializers or "task on").',
+    location: params.range,
+    explanation: "Event tasks and state initializers have no stable nominal dt interval in this language version.",
+  };
+}
+
+const MIN_PERCENT_LITERAL_BOUND = 0;
+const MAX_PERCENT_LITERAL_BOUND = 100;
+

@@ -5,6 +5,7 @@ import { TerminalSession } from "../interactive/terminal-session";
 import { renderDisplayFrameToCanvas } from "./canvas-display-renderer";
 import { createButton0PressView } from "./button-view";
 import { createLedIndicatorView } from "./led-view";
+import { createPwmLevelIndicatorView } from "./pwm-view";
 import { createScriptRunnerPanel } from "./script-runner-view";
 import { createTerminalView } from "./terminal-view";
 
@@ -55,6 +56,9 @@ export function createSimulatorView(params: CreateSimulatorViewParams): void {
   const ledIndicatorView = createLedIndicatorView({ labelText: "led#0" });
   displayHost.appendChild(ledIndicatorView.rootElement);
 
+  const pwmLevelView = createPwmLevelIndicatorView({ labelText: "pwm#0" });
+  displayHost.appendChild(pwmLevelView.rootElement);
+
   const button0PressView = createButton0PressView({
     simulationRuntime: runtime,
     onAfterButtonPress: () => {
@@ -77,6 +81,7 @@ export function createSimulatorView(params: CreateSimulatorViewParams): void {
     const frame = runtime.getDefaultDevices().display0.getPresentedFrameBytes();
     renderDisplayFrameToCanvas(canvas, frame);
     ledIndicatorView.setLightOn(runtime.getDefaultDevices().led0.isOn());
+    pwmLevelView.setLevelPercent(runtime.getDefaultDevices().pwm0.getLevelPercent());
   }
 
   refreshSimulatorOutputs();

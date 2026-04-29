@@ -2,6 +2,7 @@
   "ok": true,
   "program": {
     "stateInitializers": [],
+    "animatorDefinitions": [],
     "everyTasks": [
       {
         "taskName": "monitor",

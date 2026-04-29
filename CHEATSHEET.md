@@ -116,6 +116,25 @@ task dim every 1000ms {
 }
 ```
 
+## PWM フェード（animator v1）
+
+`task every` の本体で、`animator ramp` と `step ... with dt` を使う。**右パネルの pwm#0** でレベル変化を確認できる。
+
+- `%` は `0%`〜`100%` の整数パーセントとして解釈される。
+- `dt` はその `task every <N>ms` の **名目間隔 N**（ミリ秒）。
+- `task on` の本体や `state` の初期値では `dt` / `step` は使えない。
+
+```text
+ref led = pwm#0
+state led_level = 0%
+animator fade_in = ramp from 0% to 100% over 1200ms ease ease_in_out
+
+task fade every 16ms {
+  set led_level = step fade_in with dt
+  do led.level(led_level)
+}
+```
+
 ## Interactive Command
 
 端末欄では 1 行ずつ実行できる。

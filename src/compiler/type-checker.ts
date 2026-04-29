@@ -4,6 +4,7 @@
 
 import type {
   BoundDoStatement,
+  BoundAnimatorSymbol,
   BoundExpression,
   BoundMatchStatement,
   BoundProgram,
@@ -12,12 +13,16 @@ import type {
   BoundTask,
 } from "./bound-program";
 import { convertAstRangeToSourceRange } from "./ast-range-to-source-range";
+import { MIN_PWM_PERCENT, MAX_PWM_PERCENT } from "../core/animator-ramp";
 import { DEVICE_METHOD_SIGNATURES } from "./static-type";
 import type { DiagnosticReport } from "../diagnostics/diagnostic";
 import { createDiagnosticReport } from "../diagnostics/diagnostic";
 import {
+  buildAnimatorEaseUnsupported,
+  buildAnimatorTimeExpressionInvalidContext,
   buildMatchBranchUnsupportedStatement,
   buildMatchTargetRequiresString,
+  buildPercentLiteralOutOfRange,
   buildTypeArgumentTypeMismatch,
   buildTypeMethodArityMismatch,
   buildTypeMethodNotFound,
@@ -41,6 +46,12 @@ export function typeCheckBoundProgram(boundProgram: BoundProgram): DiagnosticRep
       continue;
     }
     stateValueKinds.set(stateName, inferredKind);
+    collectPercentLiteralDiagnostics(symbol.initialValue, diagnostics);
+    collectDisallowedAnimatorTimeExpressionsOutsideEveryTask(symbol.initialValue, diagnostics);
+  }
+
+  for (const animatorSymbol of boundProgram.animatorSymbolsInSourceOrder) {
+    collectAnimatorDeclarationTypeDiagnostics(animatorSymbol, diagnostics);
   }
 
   for (const task of boundProgram.tasks) {
@@ -61,6 +72,7 @@ export function typeCheckBoundProgram(boundProgram: BoundProgram): DiagnosticRep
         statement,
         diagnostics,
         stateValueKinds,
+        taskExecutionKind: "every_task",
       });
     }
   }
@@ -71,6 +83,7 @@ export function typeCheckBoundProgram(boundProgram: BoundProgram): DiagnosticRep
         statement,
         diagnostics,
         stateValueKinds,
+        taskExecutionKind: "on_event_task",
       });
     }
   }
@@ -79,6 +92,8 @@ export function typeCheckBoundProgram(boundProgram: BoundProgram): DiagnosticRep
 }
 
 type ExpressionValueKind = "integer" | "string";
+
+type TaskExecutionKind = "every_task" | "on_event_task";
 
 function inferBoundExpressionValueKind(
   expression: BoundExpression,
@@ -109,6 +124,18 @@ function inferBoundExpressionValueKind(
     return inferReadPropertyValueKind(expression);
   }
 
+  if (expression.kind === "percent") {
+    return "integer";
+  }
+
+  if (expression.kind === "dt_reference") {
+    return "integer";
+  }
+
+  if (expression.kind === "step_animator") {
+    return "integer";
+  }
+
   return undefined;
 }
 
@@ -126,6 +153,7 @@ function collectMatchStatementTypeDiagnostics(params: {
   statement: BoundMatchStatement;
   diagnostics: DiagnosticReport["diagnostics"];
   stateValueKinds: Map<string, ExpressionValueKind>;
+  taskExecutionKind: TaskExecutionKind;
 }): void {
   const matchTargetKind = inferBoundExpressionValueKind(params.statement.matchExpression, params.stateValueKinds);
   if (matchTargetKind !== "string") {
@@ -136,12 +164,17 @@ function collectMatchStatementTypeDiagnostics(params: {
     );
   }
 
+  if (params.taskExecutionKind === "on_event_task") {
+    collectAnimatorTimeExpressionsInvalidForNonEveryTask(params.statement.matchExpression, params.diagnostics);
+  }
+
   for (const stringCase of params.statement.stringCases) {
     for (const branchStatement of stringCase.statements) {
       collectMatchBranchStatementTypeDiagnostics({
         statement: branchStatement,
         diagnostics: params.diagnostics,
         stateValueKinds: params.stateValueKinds,
+        taskExecutionKind: params.taskExecutionKind,
       });
     }
   }
@@ -151,6 +184,7 @@ function collectMatchStatementTypeDiagnostics(params: {
       statement: branchStatement,
       diagnostics: params.diagnostics,
       stateValueKinds: params.stateValueKinds,
+      taskExecutionKind: params.taskExecutionKind,
     });
   }
 }
@@ -159,6 +193,7 @@ function collectMatchBranchStatementTypeDiagnostics(params: {
   statement: BoundStatement;
   diagnostics: DiagnosticReport["diagnostics"];
   stateValueKinds: Map<string, ExpressionValueKind>;
+  taskExecutionKind: TaskExecutionKind;
 }): void {
   if (params.statement.kind === "wait_statement") {
     params.diagnostics.push(
@@ -185,6 +220,7 @@ function collectMatchBranchStatementTypeDiagnostics(params: {
       statement: params.statement,
       diagnostics: params.diagnostics,
       stateValueKinds: params.stateValueKinds,
+      taskExecutionKind: params.taskExecutionKind,
     });
     return;
   }
@@ -193,6 +229,7 @@ function collectMatchBranchStatementTypeDiagnostics(params: {
     statement: params.statement,
     diagnostics: params.diagnostics,
     stateValueKinds: params.stateValueKinds,
+    taskExecutionKind: params.taskExecutionKind,
   });
 }
 
@@ -200,6 +237,7 @@ function collectStatementTypeDiagnostics(params: {
   statement: BoundStatement;
   diagnostics: DiagnosticReport["diagnostics"];
   stateValueKinds: Map<string, ExpressionValueKind>;
+  taskExecutionKind: TaskExecutionKind;
 }): void {
   const statement = params.statement;
 
@@ -208,6 +246,7 @@ function collectStatementTypeDiagnostics(params: {
       statement,
       diagnostics: params.diagnostics,
       stateValueKinds: params.stateValueKinds,
+      taskExecutionKind: params.taskExecutionKind,
     });
     return;
   }
@@ -217,6 +256,7 @@ function collectStatementTypeDiagnostics(params: {
       statement,
       diagnostics: params.diagnostics,
       stateValueKinds: params.stateValueKinds,
+      taskExecutionKind: params.taskExecutionKind,
     });
     return;
   }
@@ -226,6 +266,7 @@ function collectStatementTypeDiagnostics(params: {
       statement,
       diagnostics: params.diagnostics,
       stateValueKinds: params.stateValueKinds,
+      taskExecutionKind: params.taskExecutionKind,
     });
     return;
   }
@@ -239,7 +280,12 @@ function collectSetStatementTypeDiagnostics(params: {
   statement: BoundSetStatement;
   diagnostics: DiagnosticReport["diagnostics"];
   stateValueKinds: Map<string, ExpressionValueKind>;
+  taskExecutionKind: TaskExecutionKind;
 }): void {
+  if (params.taskExecutionKind === "on_event_task") {
+    collectAnimatorTimeExpressionsInvalidForNonEveryTask(params.statement.valueExpression, params.diagnostics);
+  }
+
   const expectedKind = params.stateValueKinds.get(params.statement.stateName);
   const actualKind = inferBoundExpressionValueKind(params.statement.valueExpression, params.stateValueKinds);
   if (expectedKind !== undefined && actualKind !== undefined && expectedKind !== actualKind) {
@@ -258,6 +304,7 @@ function collectMethodCallTypeDiagnostics(params: {
   statement: BoundDoStatement;
   diagnostics: DiagnosticReport["diagnostics"];
   stateValueKinds: Map<string, ExpressionValueKind>;
+  taskExecutionKind: TaskExecutionKind;
 }): void {
   const statement = params.statement;
   const methodSignatures = DEVICE_METHOD_SIGNATURES[statement.deviceAddress.kind];
@@ -364,5 +411,103 @@ function collectMethodCallTypeDiagnostics(params: {
         }),
       );
     }
+  }
+
+  if (params.taskExecutionKind === "on_event_task") {
+    for (const argumentExpression of statement.arguments) {
+      collectAnimatorTimeExpressionsInvalidForNonEveryTask(argumentExpression, params.diagnostics);
+    }
+  }
+}
+
+function collectAnimatorDeclarationTypeDiagnostics(
+  animator: BoundAnimatorSymbol,
+  diagnostics: DiagnosticReport["diagnostics"],
+): void {
+  if (animator.fromPercent < MIN_PWM_PERCENT || animator.fromPercent > MAX_PWM_PERCENT) {
+    diagnostics.push(
+      buildPercentLiteralOutOfRange({
+        range: convertAstRangeToSourceRange(animator.fromPercentRange),
+        actualPercent: animator.fromPercent,
+      }),
+    );
+  }
+
+  if (animator.toPercent < MIN_PWM_PERCENT || animator.toPercent > MAX_PWM_PERCENT) {
+    diagnostics.push(
+      buildPercentLiteralOutOfRange({
+        range: convertAstRangeToSourceRange(animator.toPercentRange),
+        actualPercent: animator.toPercent,
+      }),
+    );
+  }
+
+  if (animator.durationUnit !== "ms") {
+    diagnostics.push(
+      buildUnitTypeMismatch({
+        message: 'Animator ramp duration must use the "ms" time unit.',
+        range: convertAstRangeToSourceRange(animator.durationRange),
+        expected: { kind: "unit", unit: "ms" },
+        actual: { kind: "unit", unit: animator.durationUnit },
+      }),
+    );
+  }
+
+  if (animator.easeName !== "linear" && animator.easeName !== "ease_in_out") {
+    diagnostics.push(
+      buildAnimatorEaseUnsupported({
+        easeName: animator.easeName,
+        range: convertAstRangeToSourceRange(animator.easeRange),
+      }),
+    );
+  }
+}
+
+function collectPercentLiteralDiagnostics(
+  expression: BoundExpression,
+  diagnostics: DiagnosticReport["diagnostics"],
+): void {
+  if (expression.kind === "percent") {
+    if (expression.value < MIN_PWM_PERCENT || expression.value > MAX_PWM_PERCENT) {
+      diagnostics.push(
+        buildPercentLiteralOutOfRange({
+          range: convertAstRangeToSourceRange(expression.range),
+          rangeText: String(expression.value),
+          actualPercent: expression.value,
+        }),
+      );
+    }
+    return;
+  }
+
+  if (expression.kind === "binary_add") {
+    collectPercentLiteralDiagnostics(expression.left, diagnostics);
+    collectPercentLiteralDiagnostics(expression.right, diagnostics);
+  }
+}
+
+function collectDisallowedAnimatorTimeExpressionsOutsideEveryTask(
+  expression: BoundExpression,
+  diagnostics: DiagnosticReport["diagnostics"],
+): void {
+  collectAnimatorTimeExpressionsInvalidForNonEveryTask(expression, diagnostics);
+}
+
+function collectAnimatorTimeExpressionsInvalidForNonEveryTask(
+  expression: BoundExpression,
+  diagnostics: DiagnosticReport["diagnostics"],
+): void {
+  if (expression.kind === "dt_reference" || expression.kind === "step_animator") {
+    diagnostics.push(
+      buildAnimatorTimeExpressionInvalidContext({
+        range: convertAstRangeToSourceRange(expression.range),
+      }),
+    );
+    return;
+  }
+
+  if (expression.kind === "binary_add") {
+    collectAnimatorTimeExpressionsInvalidForNonEveryTask(expression.left, diagnostics);
+    collectAnimatorTimeExpressionsInvalidForNonEveryTask(expression.right, diagnostics);
   }
 }
