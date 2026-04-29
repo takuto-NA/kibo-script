@@ -1,6 +1,8 @@
 ﻿import type {
   AstRange,
   AnimatorDeclarationAst,
+  AnimatorRampFromToAst,
+  AnimatorRampOverOnlyAst,
   CallExpressionAst,
   CallReceiverAst,
   DoStatementAst,
@@ -375,63 +377,77 @@ function parseAnimatorDeclaration(
   }
   cursor.advance();
 
-  const fromKwToken = cursor.current();
-  if (fromKwToken.kind !== "identifier" || fromKwToken.lexeme !== "from") {
+  const branchToken = cursor.current();
+  let rampAst: AnimatorRampFromToAst | AnimatorRampOverOnlyAst;
+
+  if (branchToken.kind === "identifier" && branchToken.lexeme === "from") {
+    cursor.advance();
+
+    const fromPercentResult = parsePercentLiteral(cursor);
+    if (fromPercentResult.ok === false) {
+      return fromPercentResult;
+    }
+
+    const toKwToken = cursor.current();
+    if (toKwToken.kind !== "identifier" || toKwToken.lexeme !== "to") {
+      return {
+        ok: false,
+        report: createDiagnosticReport([
+          buildParseUnexpectedToken({
+            file: fileName,
+            range: tokenToDiagnosticRange(fileName, toKwToken),
+            rangeText: toKwToken.lexeme,
+            message: "Expected 'to' in animator ramp.",
+          }),
+        ]),
+      };
+    }
+    cursor.advance();
+
+    const toPercentResult = parsePercentLiteral(cursor);
+    if (toPercentResult.ok === false) {
+      return toPercentResult;
+    }
+
+    const overAfterFromToToken = cursor.current();
+    if (overAfterFromToToken.kind !== "identifier" || overAfterFromToToken.lexeme !== "over") {
+      return {
+        ok: false,
+        report: createDiagnosticReport([
+          buildParseUnexpectedToken({
+            file: fileName,
+            range: tokenToDiagnosticRange(fileName, overAfterFromToToken),
+            rangeText: overAfterFromToToken.lexeme,
+            message: "Expected 'over' before animator duration.",
+          }),
+        ]),
+      };
+    }
+    cursor.advance();
+
+    rampAst = {
+      kind: "ramp_from_to",
+      fromPercent: fromPercentResult.value,
+      toPercent: toPercentResult.value,
+      fromPercentRange: fromPercentResult.range,
+      toPercentRange: toPercentResult.range,
+    };
+  } else if (branchToken.kind === "identifier" && branchToken.lexeme === "over") {
+    cursor.advance();
+    rampAst = { kind: "ramp_over_only" };
+  } else {
     return {
       ok: false,
       report: createDiagnosticReport([
         buildParseUnexpectedToken({
           file: fileName,
-          range: tokenToDiagnosticRange(fileName, fromKwToken),
-          rangeText: fromKwToken.lexeme,
-          message: "Expected 'from' in animator ramp.",
+          range: tokenToDiagnosticRange(fileName, branchToken),
+          rangeText: branchToken.lexeme,
+          message: "Expected 'from' or 'over' after 'ramp' in animator declaration.",
         }),
       ]),
     };
   }
-  cursor.advance();
-
-  const fromPercentResult = parsePercentLiteral(cursor);
-  if (fromPercentResult.ok === false) {
-    return fromPercentResult;
-  }
-
-  const toKwToken = cursor.current();
-  if (toKwToken.kind !== "identifier" || toKwToken.lexeme !== "to") {
-    return {
-      ok: false,
-      report: createDiagnosticReport([
-        buildParseUnexpectedToken({
-          file: fileName,
-          range: tokenToDiagnosticRange(fileName, toKwToken),
-          rangeText: toKwToken.lexeme,
-          message: "Expected 'to' in animator ramp.",
-        }),
-      ]),
-    };
-  }
-  cursor.advance();
-
-  const toPercentResult = parsePercentLiteral(cursor);
-  if (toPercentResult.ok === false) {
-    return toPercentResult;
-  }
-
-  const overKwToken = cursor.current();
-  if (overKwToken.kind !== "identifier" || overKwToken.lexeme !== "over") {
-    return {
-      ok: false,
-      report: createDiagnosticReport([
-        buildParseUnexpectedToken({
-          file: fileName,
-          range: tokenToDiagnosticRange(fileName, overKwToken),
-          rangeText: overKwToken.lexeme,
-          message: "Expected 'over' before animator duration.",
-        }),
-      ]),
-    };
-  }
-  cursor.advance();
 
   const durationNumberToken = cursor.current();
   if (durationNumberToken.kind !== "number_literal") {
@@ -520,10 +536,7 @@ function parseAnimatorDeclaration(
       kind: "animator_declaration",
       range: declarationRange,
       animatorName: nameToken.lexeme,
-      fromPercent: fromPercentResult.value,
-      toPercent: toPercentResult.value,
-      fromPercentRange: fromPercentResult.range,
-      toPercentRange: toPercentResult.range,
+      ramp: rampAst,
       durationValue: Number.parseInt(durationNumberToken.lexeme, 10),
       durationUnit,
       durationRange,
@@ -1658,27 +1671,48 @@ function parsePrimaryExpression(
       };
     }
     cursor.advance();
-    const dtToken = cursor.current();
-    if (dtToken.kind !== "identifier" || dtToken.lexeme !== "dt") {
+    const afterWithToken = cursor.current();
+    if (afterWithToken.kind === "identifier" && afterWithToken.lexeme === "dt") {
+      const dtToken = afterWithToken;
+      cursor.advance();
+      return {
+        ok: true,
+        expression: {
+          kind: "step_animator_expression",
+          range: { fileName, start: stepStart, end: dtToken.end },
+          animatorName: animatorNameToken.lexeme,
+        },
+      };
+    }
+
+    const targetResult = parseAdditiveExpression(cursor);
+    if (targetResult.ok === false) {
+      return targetResult;
+    }
+
+    const dtAfterTargetToken = cursor.current();
+    if (dtAfterTargetToken.kind !== "identifier" || dtAfterTargetToken.lexeme !== "dt") {
       return {
         ok: false,
         report: createDiagnosticReport([
           buildParseUnexpectedToken({
             file: fileName,
-            range: tokenToDiagnosticRange(fileName, dtToken),
-            rangeText: dtToken.lexeme,
-            message: "Expected 'dt' after 'with' in step expression.",
+            range: tokenToDiagnosticRange(fileName, dtAfterTargetToken),
+            rangeText: dtAfterTargetToken.lexeme,
+            message: "Expected 'dt' after step target expression.",
           }),
         ]),
       };
     }
     cursor.advance();
+
     return {
       ok: true,
       expression: {
         kind: "step_animator_expression",
-        range: { fileName, start: stepStart, end: dtToken.end },
+        range: { fileName, start: stepStart, end: dtAfterTargetToken.end },
         animatorName: animatorNameToken.lexeme,
+        targetExpression: targetResult.expression,
       },
     };
   }

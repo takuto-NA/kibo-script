@@ -194,4 +194,81 @@ describe("compiler fixture golden tests", () => {
     const actual = serializeCompileScriptResultForGoldenTest(result);
     expect(actual).toEqual(expected);
   });
+
+  it("compiles fade-animator-target-step.sc without diagnostics", () => {
+    const fixturePath = join(testsCompilerDirectory, "fixtures", "fade-animator-target-step.sc");
+    const sourceText = readFileSync(fixturePath, "utf-8").replace(/\r\n/g, "\n");
+    const result = compileScript(sourceText, "fade-animator-target-step.sc");
+    const expectedPath = join(testsCompilerDirectory, "fixtures", "fade-animator-target-step.expected.json");
+    const expectedText = readFileSync(expectedPath, "utf-8");
+    const expected = JSON.parse(expectedText) as unknown;
+    const actual = serializeCompileScriptResultForGoldenTest(result);
+    expect(actual).toEqual(expected);
+  });
+
+  it("compiles fade-animator-ramp-over.sc without diagnostics", () => {
+    const fixturePath = join(testsCompilerDirectory, "fixtures", "fade-animator-ramp-over.sc");
+    const sourceText = readFileSync(fixturePath, "utf-8").replace(/\r\n/g, "\n");
+    const result = compileScript(sourceText, "fade-animator-ramp-over.sc");
+    const expectedPath = join(testsCompilerDirectory, "fixtures", "fade-animator-ramp-over.expected.json");
+    const expectedText = readFileSync(expectedPath, "utf-8");
+    const expected = JSON.parse(expectedText) as unknown;
+    const actual = serializeCompileScriptResultForGoldenTest(result);
+    expect(actual).toEqual(expected);
+  });
+
+  it("rejects fade-animator-target-step-unknown.sc with name.unknown_reference", () => {
+    const fixturePath = join(testsCompilerDirectory, "fixtures", "fade-animator-target-step-unknown.sc");
+    const sourceText = readFileSync(fixturePath, "utf-8").replace(/\r\n/g, "\n");
+    const result = compileScript(sourceText, "fade-animator-target-step-unknown.sc");
+    const expectedPath = join(testsCompilerDirectory, "fixtures", "fade-animator-target-step-unknown.expected.json");
+    const expectedText = readFileSync(expectedPath, "utf-8");
+    const expected = JSON.parse(expectedText) as unknown;
+    const actual = serializeCompileScriptResultForGoldenTest(result);
+    expect(actual).toEqual(expected);
+  });
+
+  it("rejects fade-animator-target-step-invalid-target.sc with type.argument_type_mismatch", () => {
+    const fixturePath = join(testsCompilerDirectory, "fixtures", "fade-animator-target-step-invalid-target.sc");
+    const sourceText = readFileSync(fixturePath, "utf-8").replace(/\r\n/g, "\n");
+    const result = compileScript(sourceText, "fade-animator-target-step-invalid-target.sc");
+    const expectedPath = join(testsCompilerDirectory, "fixtures", "fade-animator-target-step-invalid-target.expected.json");
+    const expectedText = readFileSync(expectedPath, "utf-8");
+    const expected = JSON.parse(expectedText) as unknown;
+    const actual = serializeCompileScriptResultForGoldenTest(result);
+    expect(actual).toEqual(expected);
+  });
+
+  it("rejects fade-animator-target-step-in-event.sc with type.animator_time_expression_invalid_context", () => {
+    const fixturePath = join(testsCompilerDirectory, "fixtures", "fade-animator-target-step-in-event.sc");
+    const sourceText = readFileSync(fixturePath, "utf-8").replace(/\r\n/g, "\n");
+    const result = compileScript(sourceText, "fade-animator-target-step-in-event.sc");
+    const expectedPath = join(testsCompilerDirectory, "fixtures", "fade-animator-target-step-in-event.expected.json");
+    const expectedText = readFileSync(expectedPath, "utf-8");
+    const expected = JSON.parse(expectedText) as unknown;
+    const actual = serializeCompileScriptResultForGoldenTest(result);
+    expect(actual).toEqual(expected);
+  });
+
+  it("rejects fade-animator-ramp-over-without-target.sc with type.animator_step_requires_target", () => {
+    const fixturePath = join(testsCompilerDirectory, "fixtures", "fade-animator-ramp-over-without-target.sc");
+    const sourceText = readFileSync(fixturePath, "utf-8").replace(/\r\n/g, "\n");
+    const result = compileScript(sourceText, "fade-animator-ramp-over-without-target.sc");
+    const expectedPath = join(testsCompilerDirectory, "fixtures", "fade-animator-ramp-over-without-target.expected.json");
+    const expectedText = readFileSync(expectedPath, "utf-8");
+    const expected = JSON.parse(expectedText) as unknown;
+    const actual = serializeCompileScriptResultForGoldenTest(result);
+    expect(actual).toEqual(expected);
+  });
+
+  it("rejects fade-animator-from-to-with-target.sc with type.animator_step_forbids_target", () => {
+    const fixturePath = join(testsCompilerDirectory, "fixtures", "fade-animator-from-to-with-target.sc");
+    const sourceText = readFileSync(fixturePath, "utf-8").replace(/\r\n/g, "\n");
+    const result = compileScript(sourceText, "fade-animator-from-to-with-target.sc");
+    const expectedPath = join(testsCompilerDirectory, "fixtures", "fade-animator-from-to-with-target.expected.json");
+    const expectedText = readFileSync(expectedPath, "utf-8");
+    const expected = JSON.parse(expectedText) as unknown;
+    const actual = serializeCompileScriptResultForGoldenTest(result);
+    expect(actual).toEqual(expected);
+  });
 });

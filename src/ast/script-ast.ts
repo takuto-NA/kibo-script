@@ -59,18 +59,28 @@ export type TaskOnDeclarationAst = {
   bodyStatements: StatementAst[];
 };
 
+/** `ramp from A% to B% over ...`（固定端点 one-shot） */
+export type AnimatorRampFromToAst = {
+  kind: "ramp_from_to";
+  fromPercent: number;
+  toPercent: number;
+  fromPercentRange: AstRange;
+  toPercentRange: AstRange;
+};
+
+/** `ramp over Nms ...`（目標は `step anim with <expr> dt` で与える） */
+export type AnimatorRampOverOnlyAst = {
+  kind: "ramp_over_only";
+};
+
 /**
- * v1: `animator name = ramp from A% to B% over Nms ease linear|ease_in_out`
- * （不正な単位・ease はパースは通し、型検査で拒否する場合がある）
+ * animator 宣言: `ramp from ... to ... over ...` または `ramp over ...`
  */
 export type AnimatorDeclarationAst = {
   kind: "animator_declaration";
   range: AstRange;
   animatorName: string;
-  fromPercent: number;
-  toPercent: number;
-  fromPercentRange: AstRange;
-  toPercentRange: AstRange;
+  ramp: AnimatorRampFromToAst | AnimatorRampOverOnlyAst;
   durationValue: number;
   durationUnit: "ms" | "deg";
   durationRange: AstRange;
@@ -149,11 +159,13 @@ export type MethodArgumentExpressionAst =
   | { kind: "identifier_expression"; range: AstRange; name: string }
   /** every タスクの名目間隔（ms）。state 名 `dt` とは別（式では `dt` は常にこれを指す）。 */
   | { kind: "dt_expression"; range: AstRange }
-  /** `step <animator> with dt` */
+  /** `step <animator> with dt` または `step <animator> with <expr> dt` */
   | {
       kind: "step_animator_expression";
       range: AstRange;
       animatorName: string;
+      /** 省略時は固定端点 animator 向けの one-shot step */
+      targetExpression?: MethodArgumentExpressionAst;
     }
   | { kind: "binary_add"; range: AstRange; left: MethodArgumentExpressionAst; right: MethodArgumentExpressionAst }
   | { kind: "read_expression"; range: AstRange; readTarget: ReadTargetAst };

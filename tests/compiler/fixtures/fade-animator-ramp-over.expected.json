@@ -3,6 +3,13 @@
   "program": {
     "stateInitializers": [
       {
+        "stateName": "led_target",
+        "expression": {
+          "kind": "integer_literal",
+          "value": 0
+        }
+      },
+      {
         "stateName": "led_level",
         "expression": {
           "kind": "integer_literal",
@@ -12,25 +19,27 @@
     ],
     "animatorDefinitions": [
       {
-        "animatorName": "fade_in",
-        "rampKind": "from_to",
-        "fromPercent": 0,
-        "toPercent": 100,
+        "animatorName": "fade",
+        "rampKind": "over_only",
         "durationMilliseconds": 500,
-        "ease": "ease_in_out"
+        "ease": "linear"
       }
     ],
     "everyTasks": [
       {
-        "taskName": "fade",
-        "intervalMilliseconds": 50,
+        "taskName": "apply",
+        "intervalMilliseconds": 16,
         "statements": [
           {
             "kind": "assign_state",
             "stateName": "led_level",
             "valueExpression": {
               "kind": "step_animator",
-              "animatorName": "fade_in"
+              "animatorName": "fade",
+              "targetExpression": {
+                "kind": "state_reference",
+                "stateName": "led_target"
+              }
             }
           },
           {

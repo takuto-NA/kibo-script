@@ -1,0 +1,23 @@
+{
+  "ok": false,
+  "diagnostics": [
+    {
+      "id": "type.animator_step_requires_target",
+      "phase": "type_check",
+      "message": "\"ramp over ...\" animator requires `step <name> with <target> dt` (target expression between `with` and `dt`).",
+      "location": {
+        "file": "fade-animator-ramp-over-without-target.sc",
+        "start": {
+          "line": 7,
+          "column": 19,
+          "offset": 122
+        },
+        "end": {
+          "line": 7,
+          "column": 33,
+          "offset": 136
+        }
+      }
+    }
+  ]
+}

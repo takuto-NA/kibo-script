@@ -13,6 +13,7 @@
     "animatorDefinitions": [
       {
         "animatorName": "fade_in",
+        "rampKind": "from_to",
         "fromPercent": 0,
         "toPercent": 100,
         "durationMilliseconds": 1000,

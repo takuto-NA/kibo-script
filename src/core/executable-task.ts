@@ -9,8 +9,8 @@ export type ExecutableExpression =
   | { kind: "state_reference"; stateName: string }
   /** `task every` の 1 回起動の名目 dt（ms）。on_event では式として使えない。 */
   | { kind: "dt_interval_ms" }
-  /** アニメータを dt 分進め、現在のパーセント（整数）を返す。 */
-  | { kind: "step_animator"; animatorName: string }
+  /** アニメータを dt 分進め、現在のパーセント（整数）を返す。`over_only` 定義では target が必須。 */
+  | { kind: "step_animator"; animatorName: string; targetExpression?: ExecutableExpression }
   | { kind: "binary_add"; left: ExecutableExpression; right: ExecutableExpression }
   | {
       kind: "read_property";
@@ -55,15 +55,23 @@ export type CompiledOnEventTask = {
 };
 
 /**
- * シミュレーション用の 1 ショット ramp 定義（責務: 束縛・下げた animator の不変部分）
+ * シミュレーション用 ramp 定義（責務: 束縛・下げた animator の不変部分）
  */
-export type CompiledAnimatorDefinition = {
-  animatorName: string;
-  fromPercent: number;
-  toPercent: number;
-  durationMilliseconds: number;
-  ease: "linear" | "ease_in_out";
-};
+export type CompiledAnimatorDefinition =
+  | {
+      animatorName: string;
+      rampKind: "from_to";
+      fromPercent: number;
+      toPercent: number;
+      durationMilliseconds: number;
+      ease: "linear" | "ease_in_out";
+    }
+  | {
+      animatorName: string;
+      rampKind: "over_only";
+      durationMilliseconds: number;
+      ease: "linear" | "ease_in_out";
+    };
 
 export type CompiledProgram = {
   stateInitializers: { stateName: string; expression: ExecutableExpression }[];

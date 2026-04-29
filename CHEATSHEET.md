@@ -124,6 +124,8 @@ task dim every 1000ms {
 - `dt` はその `task every <N>ms` の **名目間隔 N**（ミリ秒）。
 - `task on` の本体や `state` の初期値では `dt` / `step` は使えない。
 
+### 固定端点（`ramp from … to …`）
+
 ```text
 ref led = pwm#0
 state led_level = 0%
@@ -131,6 +133,40 @@ animator fade_in = ramp from 0% to 100% over 1200ms ease ease_in_out
 
 task fade every 16ms {
   set led_level = step fade_in with dt
+  do led.level(led_level)
+}
+```
+
+### 目標値ドリブン（`ramp over …` + `step … with <target> dt`）
+
+`animator` に端点を書かず、**`step` の引数で目標パーセント**を渡す。イベント側は `state` の目標だけ更新し、**`task every` だけが `step`** する（`draft.md` の方針）。
+
+```text
+ref led = pwm#0
+ref button = button#0
+
+state led_level = 0%
+state led_target = 0%
+state next_target = "on"
+
+animator fade = ramp over 1200ms ease ease_in_out
+
+task toggle on button.pressed {
+  match next_target {
+    "on" => {
+      set led_target = 100%
+      set next_target = "off"
+    }
+    "off" => {
+      set led_target = 0%
+      set next_target = "on"
+    }
+    else => { set next_target = "on" }
+  }
+}
+
+task apply every 16ms {
+  set led_level = step fade with led_target dt
   do led.level(led_level)
 }
 ```

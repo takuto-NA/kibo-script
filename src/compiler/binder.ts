@@ -114,19 +114,37 @@ export function bindProgram(ast: ProgramAst, sourceFileName: string): BindProgra
       continue;
     }
 
-    const boundAnimator: BoundAnimatorSymbol = {
-      animatorName: declaration.animatorName,
-      fromPercent: declaration.fromPercent,
-      toPercent: declaration.toPercent,
-      fromPercentRange: declaration.fromPercentRange,
-      toPercentRange: declaration.toPercentRange,
-      durationValue: declaration.durationValue,
-      durationUnit: declaration.durationUnit,
-      durationRange: declaration.durationRange,
-      easeName: declaration.easeName,
-      easeRange: declaration.easeRange,
-      range: declaration.range,
-    };
+    const ramp = declaration.ramp;
+    const boundAnimator: BoundAnimatorSymbol =
+      ramp.kind === "ramp_from_to"
+        ? {
+            animatorName: declaration.animatorName,
+            rampKind: "from_to",
+            fromPercent: ramp.fromPercent,
+            toPercent: ramp.toPercent,
+            fromPercentRange: ramp.fromPercentRange,
+            toPercentRange: ramp.toPercentRange,
+            durationValue: declaration.durationValue,
+            durationUnit: declaration.durationUnit,
+            durationRange: declaration.durationRange,
+            easeName: declaration.easeName,
+            easeRange: declaration.easeRange,
+            range: declaration.range,
+          }
+        : {
+            animatorName: declaration.animatorName,
+            rampKind: "over_only",
+            fromPercent: 0,
+            toPercent: 0,
+            fromPercentRange: declaration.range,
+            toPercentRange: declaration.range,
+            durationValue: declaration.durationValue,
+            durationUnit: declaration.durationUnit,
+            durationRange: declaration.durationRange,
+            easeName: declaration.easeName,
+            easeRange: declaration.easeRange,
+            range: declaration.range,
+          };
     animatorSymbols.set(declaration.animatorName, boundAnimator);
     animatorSymbolsInSourceOrder.push(boundAnimator);
   }
@@ -645,6 +663,28 @@ function bindMethodArgumentExpression(params: {
         ]),
       };
     }
+
+    if (params.expression.targetExpression !== undefined) {
+      const targetBindResult = bindMethodArgumentExpression({
+        expression: params.expression.targetExpression,
+        refSymbolTable: params.refSymbolTable,
+        stateSymbols: params.stateSymbols,
+        animatorSymbols: params.animatorSymbols,
+      });
+      if (targetBindResult.ok === false) {
+        return targetBindResult;
+      }
+      return {
+        ok: true,
+        expression: {
+          kind: "step_animator",
+          animatorName: params.expression.animatorName,
+          range: params.expression.range,
+          targetExpression: targetBindResult.expression,
+        },
+      };
+    }
+
     return {
       ok: true,
       expression: {

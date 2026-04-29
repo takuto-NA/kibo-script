@@ -7,6 +7,7 @@ import {
 } from "./executable-statement-to-device-effects";
 import type { CompiledAnimatorDefinition, CompiledProgram } from "./executable-task";
 import type { ExecutableStatement } from "./executable-task";
+import { createInitialAnimatorRuntimeState, type AnimatorRuntimeState } from "./animator-runtime-state";
 import {
   evaluateExecutableExpression,
   scriptValueToPrintableText,
@@ -33,7 +34,7 @@ export class SimulationRuntime {
   private totalSimulationMilliseconds = 0;
   private readonly scriptStateValues = new Map<string, number | string>();
   private compiledAnimatorDefinitionsByName = new Map<string, CompiledAnimatorDefinition>();
-  private readonly animatorElapsedMillisecondsByName = new Map<string, number>();
+  private readonly animatorRuntimeStatesByName = new Map<string, AnimatorRuntimeState>();
 
   public constructor(params: {
     deviceBus?: DeviceBus;
@@ -71,9 +72,9 @@ export class SimulationRuntime {
     this.compiledAnimatorDefinitionsByName = new Map(
       compiledProgram.animatorDefinitions.map((definition) => [definition.animatorName, definition]),
     );
-    this.animatorElapsedMillisecondsByName.clear();
+    this.animatorRuntimeStatesByName.clear();
     for (const definition of compiledProgram.animatorDefinitions) {
-      this.animatorElapsedMillisecondsByName.set(definition.animatorName, 0);
+      this.animatorRuntimeStatesByName.set(definition.animatorName, createInitialAnimatorRuntimeState(definition));
     }
     this.tasks.clearAllTasks();
     this.initializeScriptStateFromCompiledProgram(compiledProgram);
@@ -166,7 +167,7 @@ export class SimulationRuntime {
         nominalIntervalMilliseconds: task.intervalMilliseconds,
       },
       animatorDefinitionsByName: this.compiledAnimatorDefinitionsByName,
-      animatorElapsedMillisecondsByName: this.animatorElapsedMillisecondsByName,
+      animatorRuntimeStatesByName: this.animatorRuntimeStatesByName,
     };
   }
 

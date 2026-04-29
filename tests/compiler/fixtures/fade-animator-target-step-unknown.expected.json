@@ -1,0 +1,23 @@
+{
+  "ok": false,
+  "diagnostics": [
+    {
+      "id": "name.unknown_reference",
+      "phase": "bind",
+      "message": "Unknown reference \"missing_anim\".",
+      "location": {
+        "file": "fade-animator-target-step-unknown.sc",
+        "start": {
+          "line": 8,
+          "column": 19,
+          "offset": 144
+        },
+        "end": {
+          "line": 8,
+          "column": 55,
+          "offset": 180
+        }
+      }
+    }
+  ]
+}

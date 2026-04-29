@@ -4,9 +4,10 @@
 
 import type { DeviceBus } from "./device-bus";
 import type { CompiledAnimatorDefinition, ExecutableExpression } from "./executable-task";
+import type { AnimatorRuntimeState } from "./animator-runtime-state";
 import type { ScriptValue } from "./value";
 import { integerValue, stringValue } from "./value";
-import { interpolateAnimatorRampPercent } from "./animator-ramp";
+import { clampPercentToPwmRange, interpolateAnimatorRampPercent } from "./animator-ramp";
 
 export type EvaluateExecutableExpressionContext = {
   readonly deviceBus: DeviceBus;
@@ -17,8 +18,8 @@ export type EvaluateExecutableExpressionContext = {
     readonly nominalIntervalMilliseconds?: number;
   };
   readonly animatorDefinitionsByName?: ReadonlyMap<string, CompiledAnimatorDefinition>;
-  /** step 評価で経過時間を更新する（SimulationRuntime が保持）。 */
-  readonly animatorElapsedMillisecondsByName?: Map<string, number>;
+  /** step 評価で animator 状態を更新する（SimulationRuntime が保持）。 */
+  readonly animatorRuntimeStatesByName?: Map<string, AnimatorRuntimeState>;
 };
 
 export function evaluateExecutableExpression(
@@ -71,7 +72,7 @@ export function evaluateExecutableExpression(
   }
 
   if (expression.kind === "step_animator") {
-    return evaluateStepAnimatorExpression(expression.animatorName, context);
+    return evaluateStepAnimatorExpression(expression, context);
   }
 
   return undefined;
@@ -87,7 +88,7 @@ function evaluateDtIntervalMilliseconds(context: EvaluateExecutableExpressionCon
 }
 
 function evaluateStepAnimatorExpression(
-  animatorName: string,
+  expression: ExecutableExpression & { kind: "step_animator" },
   context: EvaluateExecutableExpressionContext,
 ): ScriptValue | undefined {
   const nominalIntervalMilliseconds = context.taskExecution?.nominalIntervalMilliseconds;
@@ -97,29 +98,120 @@ function evaluateStepAnimatorExpression(
   }
 
   const definitions = context.animatorDefinitionsByName;
-  const elapsedMap = context.animatorElapsedMillisecondsByName;
-  if (definitions === undefined || elapsedMap === undefined) {
+  const runtimeStates = context.animatorRuntimeStatesByName;
+  if (definitions === undefined || runtimeStates === undefined) {
     return undefined;
   }
 
-  const definition = definitions.get(animatorName);
+  const definition = definitions.get(expression.animatorName);
   if (definition === undefined) {
     return undefined;
   }
 
-  const previousElapsedMilliseconds = elapsedMap.get(animatorName) ?? 0;
-  const nextElapsedMilliseconds = previousElapsedMilliseconds + nominalIntervalMilliseconds;
-  elapsedMap.set(animatorName, nextElapsedMilliseconds);
+  if (definition.rampKind === "from_to") {
+    return evaluateFixedEndpointsAnimatorStep({
+      definition,
+      animatorName: expression.animatorName,
+      nominalIntervalMilliseconds,
+      runtimeStates,
+    });
+  }
+
+  return evaluateTargetDrivenAnimatorStep({
+    definition,
+    expression,
+    context,
+    nominalIntervalMilliseconds,
+    runtimeStates,
+  });
+}
+
+function evaluateFixedEndpointsAnimatorStep(params: {
+  definition: Extract<CompiledAnimatorDefinition, { rampKind: "from_to" }>;
+  animatorName: string;
+  nominalIntervalMilliseconds: number;
+  runtimeStates: Map<string, AnimatorRuntimeState>;
+}): ScriptValue | undefined {
+  const existingState = params.runtimeStates.get(params.animatorName);
+  if (existingState === undefined || existingState.kind !== "fixed_endpoints") {
+    return undefined;
+  }
+
+  const nextElapsedMilliseconds = existingState.elapsedMilliseconds + params.nominalIntervalMilliseconds;
+  existingState.elapsedMilliseconds = nextElapsedMilliseconds;
 
   const rampPercent = interpolateAnimatorRampPercent({
-    fromPercent: definition.fromPercent,
-    toPercent: definition.toPercent,
-    durationMilliseconds: definition.durationMilliseconds,
+    fromPercent: params.definition.fromPercent,
+    toPercent: params.definition.toPercent,
+    durationMilliseconds: params.definition.durationMilliseconds,
     elapsedMilliseconds: nextElapsedMilliseconds,
-    ease: definition.ease,
+    ease: params.definition.ease,
   });
 
   return integerValue(rampPercent);
+}
+
+function evaluateTargetDrivenAnimatorStep(params: {
+  definition: Extract<CompiledAnimatorDefinition, { rampKind: "over_only" }>;
+  expression: ExecutableExpression & { kind: "step_animator" };
+  context: EvaluateExecutableExpressionContext;
+  nominalIntervalMilliseconds: number;
+  runtimeStates: Map<string, AnimatorRuntimeState>;
+}): ScriptValue | undefined {
+  if (params.expression.targetExpression === undefined) {
+    return undefined;
+  }
+
+  const targetScriptValue = evaluateExecutableExpression(params.expression.targetExpression, params.context);
+  if (targetScriptValue === undefined) {
+    return undefined;
+  }
+  const rawTargetPercent = scriptValueToIntegerOrUndefined(targetScriptValue);
+  if (rawTargetPercent === undefined) {
+    return undefined;
+  }
+
+  const clampedTargetPercent = clampPercentToPwmRange(rawTargetPercent);
+
+  const existingState = params.runtimeStates.get(params.expression.animatorName);
+  if (existingState === undefined || existingState.kind !== "target_driven") {
+    return undefined;
+  }
+
+  const targetChanged =
+    existingState.lastTargetPercent === undefined || existingState.lastTargetPercent !== clampedTargetPercent;
+
+  if (targetChanged) {
+    existingState.rampFromPercent = existingState.currentOutputPercent;
+    existingState.rampToPercent = clampedTargetPercent;
+    existingState.elapsedMilliseconds = 0;
+    existingState.isRampRunning = existingState.rampFromPercent !== existingState.rampToPercent;
+    existingState.lastTargetPercent = clampedTargetPercent;
+  }
+
+  if (!existingState.isRampRunning) {
+    return integerValue(existingState.currentOutputPercent);
+  }
+
+  const nextElapsedMilliseconds = existingState.elapsedMilliseconds + params.nominalIntervalMilliseconds;
+  existingState.elapsedMilliseconds = nextElapsedMilliseconds;
+
+  const interpolatedPercent = interpolateAnimatorRampPercent({
+    fromPercent: existingState.rampFromPercent,
+    toPercent: existingState.rampToPercent,
+    durationMilliseconds: params.definition.durationMilliseconds,
+    elapsedMilliseconds: nextElapsedMilliseconds,
+    ease: params.definition.ease,
+  });
+
+  existingState.currentOutputPercent = interpolatedPercent;
+
+  const durationMilliseconds = params.definition.durationMilliseconds;
+  if (durationMilliseconds <= 0 || nextElapsedMilliseconds >= durationMilliseconds) {
+    existingState.isRampRunning = false;
+  }
+
+  return integerValue(existingState.currentOutputPercent);
 }
 
 export function scriptValueToPrintableText(value: ScriptValue): string {

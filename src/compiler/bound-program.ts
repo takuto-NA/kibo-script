@@ -35,6 +35,8 @@ export type BoundStateSymbol = {
  */
 export type BoundAnimatorSymbol = {
   animatorName: string;
+  /** `ramp from ... to ...` か `ramp over ...`（目標は step の引数） */
+  rampKind: "from_to" | "over_only";
   fromPercent: number;
   toPercent: number;
   fromPercentRange: AstRange;
@@ -106,7 +108,7 @@ export type BoundExpression =
   | { kind: "identifier"; name: string }
   | { kind: "percent"; value: number; range: AstRange }
   | { kind: "dt_reference"; range: AstRange }
-  | { kind: "step_animator"; animatorName: string; range: AstRange }
+  | { kind: "step_animator"; animatorName: string; targetExpression?: BoundExpression; range: AstRange }
   | { kind: "binary_add"; left: BoundExpression; right: BoundExpression }
   | {
       kind: "read_property";

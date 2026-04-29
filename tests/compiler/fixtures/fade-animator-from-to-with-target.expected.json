@@ -1,0 +1,23 @@
+{
+  "ok": false,
+  "diagnostics": [
+    {
+      "id": "type.animator_step_forbids_target",
+      "phase": "type_check",
+      "message": "\"ramp from ... to ...\" animator must use `step <name> with dt` without a target expression between `with` and `dt`.",
+      "location": {
+        "file": "fade-animator-from-to-with-target.sc",
+        "start": {
+          "line": 8,
+          "column": 19,
+          "offset": 152
+        },
+        "end": {
+          "line": 8,
+          "column": 35,
+          "offset": 168
+        }
+      }
+    }
+  ]
+}

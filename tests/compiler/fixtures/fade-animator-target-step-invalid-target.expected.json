@@ -1,0 +1,31 @@
+{
+  "ok": false,
+  "diagnostics": [
+    {
+      "id": "type.argument_type_mismatch",
+      "phase": "type_check",
+      "message": "Animator step target must be an integer percent expression.",
+      "location": {
+        "file": "fade-animator-target-step-invalid-target.sc",
+        "start": {
+          "line": 8,
+          "column": 19,
+          "offset": 138
+        },
+        "end": {
+          "line": 8,
+          "column": 37,
+          "offset": 156
+        }
+      },
+      "expected": {
+        "kind": "string",
+        "value": "integer"
+      },
+      "actual": {
+        "kind": "string",
+        "value": "string"
+      }
+    }
+  ]
+}

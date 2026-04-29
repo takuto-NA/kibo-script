@@ -19,6 +19,8 @@ import type { DiagnosticReport } from "../diagnostics/diagnostic";
 import { createDiagnosticReport } from "../diagnostics/diagnostic";
 import {
   buildAnimatorEaseUnsupported,
+  buildAnimatorStepForbidsTargetExpression,
+  buildAnimatorStepRequiresTargetExpression,
   buildAnimatorTimeExpressionInvalidContext,
   buildMatchBranchUnsupportedStatement,
   buildMatchTargetRequiresString,
@@ -85,6 +87,25 @@ export function typeCheckBoundProgram(boundProgram: BoundProgram): DiagnosticRep
         stateValueKinds,
         taskExecutionKind: "on_event_task",
       });
+    }
+  }
+
+  const visitAnimatorStepDiagnostics = (expression: BoundExpression): void => {
+    collectStepAnimatorRampKindConsistencyDiagnostics(expression, boundProgram, diagnostics);
+    collectStepAnimatorTargetIntegerDiagnostics(expression, stateValueKinds, diagnostics);
+  };
+
+  for (const stateSymbol of boundProgram.stateSymbolsInSourceOrder) {
+    walkBoundExpressionTree(stateSymbol.initialValue, visitAnimatorStepDiagnostics);
+  }
+  for (const task of boundProgram.tasks) {
+    for (const statement of task.statements) {
+      walkStatementBoundExpressions(statement, visitAnimatorStepDiagnostics);
+    }
+  }
+  for (const task of boundProgram.onEventTasks) {
+    for (const statement of task.statements) {
+      walkStatementBoundExpressions(statement, visitAnimatorStepDiagnostics);
     }
   }
 
@@ -424,22 +445,24 @@ function collectAnimatorDeclarationTypeDiagnostics(
   animator: BoundAnimatorSymbol,
   diagnostics: DiagnosticReport["diagnostics"],
 ): void {
-  if (animator.fromPercent < MIN_PWM_PERCENT || animator.fromPercent > MAX_PWM_PERCENT) {
-    diagnostics.push(
-      buildPercentLiteralOutOfRange({
-        range: convertAstRangeToSourceRange(animator.fromPercentRange),
-        actualPercent: animator.fromPercent,
-      }),
-    );
-  }
+  if (animator.rampKind === "from_to") {
+    if (animator.fromPercent < MIN_PWM_PERCENT || animator.fromPercent > MAX_PWM_PERCENT) {
+      diagnostics.push(
+        buildPercentLiteralOutOfRange({
+          range: convertAstRangeToSourceRange(animator.fromPercentRange),
+          actualPercent: animator.fromPercent,
+        }),
+      );
+    }
 
-  if (animator.toPercent < MIN_PWM_PERCENT || animator.toPercent > MAX_PWM_PERCENT) {
-    diagnostics.push(
-      buildPercentLiteralOutOfRange({
-        range: convertAstRangeToSourceRange(animator.toPercentRange),
-        actualPercent: animator.toPercent,
-      }),
-    );
+    if (animator.toPercent < MIN_PWM_PERCENT || animator.toPercent > MAX_PWM_PERCENT) {
+      diagnostics.push(
+        buildPercentLiteralOutOfRange({
+          range: convertAstRangeToSourceRange(animator.toPercentRange),
+          actualPercent: animator.toPercent,
+        }),
+      );
+    }
   }
 
   if (animator.durationUnit !== "ms") {
@@ -483,6 +506,11 @@ function collectPercentLiteralDiagnostics(
   if (expression.kind === "binary_add") {
     collectPercentLiteralDiagnostics(expression.left, diagnostics);
     collectPercentLiteralDiagnostics(expression.right, diagnostics);
+    return;
+  }
+
+  if (expression.kind === "step_animator" && expression.targetExpression !== undefined) {
+    collectPercentLiteralDiagnostics(expression.targetExpression, diagnostics);
   }
 }
 
@@ -497,7 +525,19 @@ function collectAnimatorTimeExpressionsInvalidForNonEveryTask(
   expression: BoundExpression,
   diagnostics: DiagnosticReport["diagnostics"],
 ): void {
-  if (expression.kind === "dt_reference" || expression.kind === "step_animator") {
+  if (expression.kind === "step_animator") {
+    if (expression.targetExpression !== undefined) {
+      collectAnimatorTimeExpressionsInvalidForNonEveryTask(expression.targetExpression, diagnostics);
+    }
+    diagnostics.push(
+      buildAnimatorTimeExpressionInvalidContext({
+        range: convertAstRangeToSourceRange(expression.range),
+      }),
+    );
+    return;
+  }
+
+  if (expression.kind === "dt_reference") {
     diagnostics.push(
       buildAnimatorTimeExpressionInvalidContext({
         range: convertAstRangeToSourceRange(expression.range),
@@ -509,5 +549,104 @@ function collectAnimatorTimeExpressionsInvalidForNonEveryTask(
   if (expression.kind === "binary_add") {
     collectAnimatorTimeExpressionsInvalidForNonEveryTask(expression.left, diagnostics);
     collectAnimatorTimeExpressionsInvalidForNonEveryTask(expression.right, diagnostics);
+  }
+}
+
+function walkBoundExpressionTree(
+  expression: BoundExpression,
+  visit: (expression: BoundExpression) => void,
+): void {
+  visit(expression);
+  if (expression.kind === "binary_add") {
+    walkBoundExpressionTree(expression.left, visit);
+    walkBoundExpressionTree(expression.right, visit);
+    return;
+  }
+  if (expression.kind === "step_animator" && expression.targetExpression !== undefined) {
+    walkBoundExpressionTree(expression.targetExpression, visit);
+  }
+}
+
+function walkStatementBoundExpressions(
+  statement: BoundStatement,
+  visit: (expression: BoundExpression) => void,
+): void {
+  if (statement.kind === "set_statement") {
+    walkBoundExpressionTree(statement.valueExpression, visit);
+    return;
+  }
+  if (statement.kind === "do_statement") {
+    for (const argumentExpression of statement.arguments) {
+      walkBoundExpressionTree(argumentExpression, visit);
+    }
+    return;
+  }
+  if (statement.kind === "match_statement") {
+    walkBoundExpressionTree(statement.matchExpression, visit);
+    for (const stringCase of statement.stringCases) {
+      for (const branchStatement of stringCase.statements) {
+        walkStatementBoundExpressions(branchStatement, visit);
+      }
+    }
+    for (const branchStatement of statement.elseStatements) {
+      walkStatementBoundExpressions(branchStatement, visit);
+    }
+  }
+}
+
+function collectStepAnimatorRampKindConsistencyDiagnostics(
+  expression: BoundExpression,
+  boundProgram: BoundProgram,
+  diagnostics: DiagnosticReport["diagnostics"],
+): void {
+  if (expression.kind !== "step_animator") {
+    return;
+  }
+
+  const animatorSymbol = boundProgram.animatorSymbols.get(expression.animatorName);
+  if (animatorSymbol === undefined) {
+    return;
+  }
+
+  if (animatorSymbol.rampKind === "over_only" && expression.targetExpression === undefined) {
+    diagnostics.push(
+      buildAnimatorStepRequiresTargetExpression({
+        range: convertAstRangeToSourceRange(expression.range),
+      }),
+    );
+    return;
+  }
+
+  if (animatorSymbol.rampKind === "from_to" && expression.targetExpression !== undefined) {
+    diagnostics.push(
+      buildAnimatorStepForbidsTargetExpression({
+        range: convertAstRangeToSourceRange(expression.range),
+      }),
+    );
+  }
+}
+
+function collectStepAnimatorTargetIntegerDiagnostics(
+  expression: BoundExpression,
+  stateValueKinds: Map<string, ExpressionValueKind>,
+  diagnostics: DiagnosticReport["diagnostics"],
+): void {
+  if (expression.kind !== "step_animator") {
+    return;
+  }
+  if (expression.targetExpression === undefined) {
+    return;
+  }
+
+  const targetKind = inferBoundExpressionValueKind(expression.targetExpression, stateValueKinds);
+  if (targetKind !== "integer") {
+    diagnostics.push(
+      buildTypeArgumentTypeMismatch({
+        message: "Animator step target must be an integer percent expression.",
+        range: convertAstRangeToSourceRange(expression.range),
+        expected: { kind: "string", value: "integer" },
+        actual: { kind: "string", value: targetKind ?? "unknown" },
+      }),
+    );
   }
 }

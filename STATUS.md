@@ -32,9 +32,9 @@ npm audit --audit-level=moderate
 直近確認:
 
 - `npm run typecheck`: 成功
-- `npm test`: 成功（30 files / 73 tests）
+- `npm test`: 成功（30 files / 84 tests）
 - `npm run build`: 成功
-- `npm run test:e2e`: 成功（3 tests）
+- `npm run test:e2e`: 成功（4 tests）
 
 ## ブラウザ UI
 
@@ -251,6 +251,7 @@ Playwright E2E で次を確認している。
 - `tests/e2e/script-runner-led.spec.ts`
 - `tests/e2e/script-runner-button.spec.ts`
 - `tests/e2e/script-runner-pwm.spec.ts`
+- `tests/e2e/script-runner-fade-toggle.spec.ts`
 
 ## `draft.md` との差分と現在の制限
 
@@ -263,7 +264,7 @@ Playwright E2E で次を確認している。
 - 文字列 `match` の最小形
 - `led#0` の on / off / toggle
 - `pwm#0.level(number)` による PWM 出力値の変更
-- **animator v1**: `animator ... = ramp from A% to B% over Nms ease linear|ease_in_out`、**`dt`**（`task every` の名目間隔 ms）、**`step <name> with dt`** による 1 ショット ramp（`task on` や state 初期化では `dt` / `step` 不可）
+- **animator**: **`animator ... = ramp from A% to B% over Nms ease linear|ease_in_out`** と **`step <name> with dt`**（固定端点の one-shot ramp）、および **`animator ... = ramp over Nms ease linear|ease_in_out`** と **`step <name> with <target_expr> dt`**（目標値ドリブン。`task on` は目標 `state` の更新のみ、`task every` が `step`）（いずれも `task on` や state 初期化では `dt` / `step` 不可）
 - **パーセントリテラル** `0%`…`100%`（v1 では整数パーセントに下ろす）
 - `display#0` の基本図形描画（clear / pixel / line / circle / present）
 
@@ -272,7 +273,7 @@ Playwright E2E で次を確認している。
 - `const` / `temp` / `range`
 - `%` を独立した型としての完全実装（角度や別単位との混合など）
 - `filter` / `estimator` / `controller`
-- **animator の restart / pause / reverse、`do animator.start()` 等のメソッド**
+- **animator の pause / reverse、`do animator.start()` 等のメソッド**
 - `match` の範囲 pattern、式としての `match`、nested `match`
 - `loop`、`wait until`、`else return`
 - `IMU` / `motor` / `servo`
@@ -280,9 +281,11 @@ Playwright E2E で次を確認している。
 - ownership / single-writer checker 本実装
 - OLED の text API や SSD1306 物理互換
 
-### フェードイン・フェードアウト（animator v1）
+### フェードイン・フェードアウト（animator）
 
-**`task every` 内**で `animator ramp` + `step ... with dt` + `pwm#0.level` により滑らかなフェードが書ける。ブラウザ右パネルで **pwm#0** のレベルバーを確認できる。
+**`task every` 内**で `animator ramp` + `step` + `pwm#0.level` により滑らかなフェードが書ける。ブラウザ右パネルで **pwm#0** のレベルバーを確認できる。
+
+**固定端点**（`ramp from … to …`）では **`step <name> with dt`** のみ。経過時間は内部で積算され、宣言した端点へ向かう **one-shot ramp**。
 
 ```text
 ref led = pwm#0
@@ -295,7 +298,19 @@ task fade every 16ms {
 }
 ```
 
-**v1 の制限**: program load 時に animator は初期化される **one-shot ramp**。`task on` や state 初期値では `dt` / `step ... with dt` は使用できない。ボタンから同一 animator を繰り返し再起動する API は未実装。
+**目標値ドリブン**（`ramp over …` のみ）では **`step <name> with <target> dt`**。`target` は整数パーセント式（`state` や `+` など）。目標が変わると **現在値から新目標へ** ramp が再始動する。目標が変わらない tick では完了後は値が揺れない。実行時に **0–100 外の整数** は `pwm.level` と同様に clamp。`task on` や state 初期値では引き続き `dt` / `step` は使えない（イベント側は `set led_target = …` のみ、周期 task が `step`）。
+
+```text
+ref led = pwm#0
+state led_target = 100%
+state led_level = 0%
+animator fade = ramp over 1200ms ease ease_in_out
+
+task apply every 16ms {
+  set led_level = step fade with led_target dt
+  do led.level(led_level)
+}
+```
 
 従来どおり、`wait` と固定値の `pwm#0.level` を並べる書き方も引き続き有効。
 
@@ -316,7 +331,8 @@ task fade_out on button.pressed {
 }
 ```
 
-未対応なのは、`draft.md` が想定する **`animator` の高度なライフサイクル**、負の `%`、および **`ease` の追加種類** など。
+未対応なのは、`draft.md` が想定する **`animator` の高度なライフサイクル API**、負の `%`、および **`ease` の追加種類** など。
+
 ### その他の重要な未対応:
 - `match` の拡張（範囲 pattern、nested `match`、branch 内 `wait`）。
 - single-writer / ownership checker の本実装。

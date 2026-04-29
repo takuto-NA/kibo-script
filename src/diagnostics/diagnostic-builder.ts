@@ -342,6 +342,34 @@ export function buildAnimatorTimeExpressionInvalidContext(params: {
   };
 }
 
+export function buildAnimatorStepRequiresTargetExpression(params: {
+  range?: SourceRange;
+}): StructuredDiagnostic {
+  return {
+    id: "type.animator_step_requires_target",
+    severity: "error",
+    phase: "type_check",
+    message:
+      '"ramp over ..." animator requires `step <name> with <target> dt` (target expression between `with` and `dt`).',
+    location: params.range,
+    explanation: "Target-driven ramps take their destination percent from the step expression.",
+  };
+}
+
+export function buildAnimatorStepForbidsTargetExpression(params: {
+  range?: SourceRange;
+}): StructuredDiagnostic {
+  return {
+    id: "type.animator_step_forbids_target",
+    severity: "error",
+    phase: "type_check",
+    message:
+      '"ramp from ... to ..." animator must use `step <name> with dt` without a target expression between `with` and `dt`.',
+    location: params.range,
+    explanation: "Fixed-endpoint ramps use the animator declaration for from/to percent.",
+  };
+}
+
 const MIN_PERCENT_LITERAL_BOUND = 0;
 const MAX_PERCENT_LITERAL_BOUND = 100;
 

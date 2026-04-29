@@ -21,13 +21,25 @@ export function lowerBoundProgramToCompiledProgram(boundProgram: BoundProgram): 
     expression: lowerBoundExpression(symbol.initialValue),
   }));
 
-  const animatorDefinitions = boundProgram.animatorSymbolsInSourceOrder.map((symbol) => ({
-    animatorName: symbol.animatorName,
-    fromPercent: symbol.fromPercent,
-    toPercent: symbol.toPercent,
-    durationMilliseconds: symbol.durationValue,
-    ease: symbol.easeName === "linear" ? ("linear" as const) : ("ease_in_out" as const),
-  }));
+  const animatorDefinitions = boundProgram.animatorSymbolsInSourceOrder.map((symbol) => {
+    const ease = symbol.easeName === "linear" ? ("linear" as const) : ("ease_in_out" as const);
+    if (symbol.rampKind === "from_to") {
+      return {
+        animatorName: symbol.animatorName,
+        rampKind: "from_to" as const,
+        fromPercent: symbol.fromPercent,
+        toPercent: symbol.toPercent,
+        durationMilliseconds: symbol.durationValue,
+        ease,
+      };
+    }
+    return {
+      animatorName: symbol.animatorName,
+      rampKind: "over_only" as const,
+      durationMilliseconds: symbol.durationValue,
+      ease,
+    };
+  });
 
   const everyTasks: CompiledEveryTask[] = boundProgram.tasks.map((task) => ({
     taskName: task.taskName,
@@ -100,7 +112,12 @@ function lowerBoundExpression(expression: BoundExpression): ExecutableExpression
   }
 
   if (expression.kind === "step_animator") {
-    return { kind: "step_animator", animatorName: expression.animatorName };
+    return {
+      kind: "step_animator",
+      animatorName: expression.animatorName,
+      targetExpression:
+        expression.targetExpression !== undefined ? lowerBoundExpression(expression.targetExpression) : undefined,
+    };
   }
 
   if (expression.kind === "string") {
