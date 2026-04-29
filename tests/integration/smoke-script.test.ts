@@ -31,6 +31,12 @@ describe("smoke script", () => {
     );
     expect(enabledPixelCount).toBeGreaterThan(40);
 
+    const ledInfoEntry = session.submitLine("led#0.info");
+    expect(ledInfoEntry.outputs[0]).toContain("kind: led");
+
+    session.submitLine("do led#0.toggle()");
+    expect(runtime.getDefaultDevices().led0.isOn()).toBe(true);
+
     const invalidPixelEntry = session.submitLine("do display#0.pixel(999, 0)");
     expect(invalidPixelEntry.diagnosticReport?.diagnostics[0]?.id).toBe(
       "runtime.out_of_range",

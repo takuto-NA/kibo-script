@@ -37,6 +37,11 @@ export type InteractiveCommand =
       kind: "do_display_present";
     }
   | {
+      kind: "do_led_effect";
+      ledId: number;
+      ledEffect: "on" | "off" | "toggle";
+    }
+  | {
       kind: "list_tasks";
     }
   | {

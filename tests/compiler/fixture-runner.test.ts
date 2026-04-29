@@ -29,4 +29,15 @@ describe("compiler fixture golden tests", () => {
     const actual = serializeCompileScriptResultForGoldenTest(result);
     expect(actual).toEqual(expected);
   });
+
+  it("compiles serial-print-task.sc without diagnostics", () => {
+    const fixturePath = join(testsCompilerDirectory, "fixtures", "serial-print-task.sc");
+    const sourceText = readFileSync(fixturePath, "utf-8").replace(/\r\n/g, "\n");
+    const result = compileScript(sourceText, "serial-print-task.sc");
+    const expectedPath = join(testsCompilerDirectory, "fixtures", "serial-print-task.expected.json");
+    const expectedText = readFileSync(expectedPath, "utf-8");
+    const expected = JSON.parse(expectedText) as unknown;
+    const actual = serializeCompileScriptResultForGoldenTest(result);
+    expect(actual).toEqual(expected);
+  });
 });

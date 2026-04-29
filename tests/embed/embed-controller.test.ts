@@ -20,6 +20,46 @@ describe("EmbedController", () => {
     }
   });
 
+  it("returns adc and led fields in getSnapshot", () => {
+    const tasks = new TaskRegistry();
+    const runtime = new SimulationRuntime({ tasks });
+    const embed = new EmbedController(runtime);
+    const result = embed.handleMessage({
+      source: "kibo-simulator-parent",
+      type: "simulator.getSnapshot",
+      requestId: "rSnap",
+    });
+    expect(result?.ok).toBe(true);
+    if (result?.ok) {
+      expect(result.outputs[0]).toMatch(/adc0.raw=/);
+      expect(result.outputs[1]).toMatch(/led0.on=/);
+    }
+  });
+
+  it("loads script from embed message", () => {
+    const tasks = new TaskRegistry();
+    const runtime = new SimulationRuntime({ tasks });
+    const embed = new EmbedController(runtime);
+    const sourceText = `ref led = led#0
+
+task blink every 1000ms {
+  do led.toggle()
+}
+`;
+    const result = embed.handleMessage({
+      source: "kibo-simulator-parent",
+      type: "simulator.loadScript",
+      requestId: "rLoad",
+      sourceText,
+      sourceFileName: "embed.sc",
+    });
+    expect(result?.ok).toBe(true);
+    if (result?.ok) {
+      expect(result.outputs[0]).toContain("registeredTasks=blink");
+    }
+    expect(runtime.tasks.getTask("blink")?.compiledStatements?.length).toBeGreaterThan(0);
+  });
+
   it("sets adc value", () => {
     const tasks = new TaskRegistry();
     const runtime = new SimulationRuntime({ tasks });

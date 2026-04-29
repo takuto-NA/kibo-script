@@ -40,6 +40,36 @@ body {
   color: #8b949e;
 }
 
+.simulator-led-indicator {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.simulator-led-label {
+  font-size: 12px;
+  color: #8b949e;
+}
+
+.simulator-led-lamp {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  border: 2px solid #30363d;
+  background: #161b22;
+  box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.6);
+}
+
+.simulator-led-lamp--on {
+  background: #238636;
+  border-color: #3fb950;
+  box-shadow:
+    0 0 12px rgba(63, 185, 80, 0.55),
+    inset 0 0 6px rgba(255, 255, 255, 0.15);
+}
+
 .simulator-oled-canvas {
   image-rendering: pixelated;
   image-rendering: crisp-edges;
@@ -58,6 +88,61 @@ body {
   border: 1px solid #30363d;
   border-radius: 6px;
   min-height: 360px;
+}
+
+.script-runner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-bottom: 1px solid #30363d;
+}
+
+.script-runner-title {
+  font-size: 12px;
+  color: #8b949e;
+}
+
+.script-runner-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 140px;
+  resize: vertical;
+  background: #161b22;
+  color: var(--terminal-fg);
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  padding: 8px;
+  font: inherit;
+}
+
+.script-runner-button {
+  align-self: flex-start;
+  background: #238636;
+  color: #ffffff;
+  border: 1px solid #2ea043;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.script-runner-button:hover {
+  background: #2ea043;
+}
+
+.script-runner-result {
+  margin: 0;
+  padding: 8px;
+  border-radius: 4px;
+  border-left: 3px solid var(--terminal-accent);
+  background: #161b22;
+  color: #c9d1d9;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 30vh;
+  overflow: auto;
 }
 
 .terminal-output {

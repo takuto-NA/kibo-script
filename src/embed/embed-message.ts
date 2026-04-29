@@ -35,12 +35,21 @@ export type EmbedSimulatorSetAdcValueMessage = {
   raw: number;
 };
 
+export type EmbedSimulatorLoadScriptMessage = {
+  source: EmbedMessageSource;
+  type: "simulator.loadScript";
+  requestId: string;
+  sourceText: string;
+  sourceFileName?: string;
+};
+
 export type EmbedIncomingMessage =
   | EmbedSimulatorCommandMessage
   | EmbedSimulatorTickMessage
   | EmbedSimulatorGetSnapshotMessage
   | EmbedSimulatorGetDisplayFrameMessage
-  | EmbedSimulatorSetAdcValueMessage;
+  | EmbedSimulatorSetAdcValueMessage
+  | EmbedSimulatorLoadScriptMessage;
 
 export type EmbedOkResponse = {
   source: EmbedMessageSource;

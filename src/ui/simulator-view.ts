@@ -3,6 +3,8 @@ import { SimulationRuntime } from "../core/simulation-runtime";
 import { EmbedController } from "../embed/embed-controller";
 import { TerminalSession } from "../interactive/terminal-session";
 import { renderDisplayFrameToCanvas } from "./canvas-display-renderer";
+import { createLedIndicatorView } from "./led-view";
+import { createScriptRunnerPanel } from "./script-runner-view";
 import { createTerminalView } from "./terminal-view";
 
 import "./styles.css";
@@ -31,6 +33,14 @@ export function createSimulatorView(params: CreateSimulatorViewParams): void {
   const terminalHost = document.createElement("div");
   terminalHost.className = "simulator-terminal-host";
 
+  const scriptRunnerPanel = createScriptRunnerPanel({
+    simulationRuntime: runtime,
+    onAfterScriptLoaded: () => {
+      refreshSimulatorOutputs();
+    },
+  });
+  terminalHost.appendChild(scriptRunnerPanel.rootElement);
+
   const displayHost = document.createElement("div");
   displayHost.className = "simulator-display-host";
   const displayTitle = document.createElement("div");
@@ -41,26 +51,32 @@ export function createSimulatorView(params: CreateSimulatorViewParams): void {
   displayHost.appendChild(displayTitle);
   displayHost.appendChild(canvas);
 
+  const ledIndicatorView = createLedIndicatorView({ labelText: "led#0" });
+  displayHost.appendChild(ledIndicatorView.rootElement);
+
   layout.appendChild(terminalHost);
   layout.appendChild(displayHost);
   root.appendChild(layout);
 
   const terminalView = createTerminalView(terminalHost, session);
   terminalView.setOnSubmitLine(() => {
-    refreshCanvas();
+    refreshSimulatorOutputs();
   });
   terminalView.focusInput();
 
-  function refreshCanvas(): void {
+  function refreshSimulatorOutputs(): void {
     const frame = runtime.getDefaultDevices().display0.getPresentedFrameBytes();
     renderDisplayFrameToCanvas(canvas, frame);
+    ledIndicatorView.setLightOn(runtime.getDefaultDevices().led0.isOn());
   }
 
-  refreshCanvas();
+  refreshSimulatorOutputs();
 
+  const simulatorTickIntervalMilliseconds = 100;
   window.setInterval(() => {
-    runtime.tick(100);
-  }, 100);
+    runtime.tick(simulatorTickIntervalMilliseconds);
+    refreshSimulatorOutputs();
+  }, simulatorTickIntervalMilliseconds);
 
   window.addEventListener("message", (event: MessageEvent) => {
     const result = embedController.handleMessage(event.data);
@@ -74,6 +90,6 @@ export function createSimulatorView(params: CreateSimulatorViewParams): void {
     if (event.source instanceof Window) {
       event.source.postMessage(result, targetOrigin);
     }
-    refreshCanvas();
+    refreshSimulatorOutputs();
   });
 }

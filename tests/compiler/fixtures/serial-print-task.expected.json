@@ -1,0 +1,27 @@
+{
+  "ok": true,
+  "program": {
+    "everyTasks": [
+      {
+        "taskName": "talk",
+        "intervalMilliseconds": 500,
+        "statements": [
+          {
+            "kind": "do_method_call",
+            "deviceAddress": {
+              "kind": "serial",
+              "id": 0
+            },
+            "methodName": "println",
+            "arguments": [
+              {
+                "kind": "string",
+                "value": "hi"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

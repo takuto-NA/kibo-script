@@ -15,6 +15,7 @@ import {
   DISPLAY_WIDTH_PIXELS,
 } from "../devices/display/display-constants";
 import { isCoordinateInDisplayRange } from "../devices/display/display-device";
+import { compileInteractiveEveryTaskBodyToExecutableStatements } from "./compile-interactive-task-body";
 import type { InteractiveCommand } from "./interactive-command";
 
 export type EvaluateSuccess = {
@@ -36,6 +37,10 @@ function displayAddress() {
 
 function serialAddress() {
   return { kind: "serial" as const, id: 0 };
+}
+
+function ledAddress(ledId: number) {
+  return { kind: "led" as const, id: ledId };
 }
 
 /**
@@ -60,6 +65,8 @@ export function evaluateInteractiveCommand(
         "  do display#0.line(x0,y0,x1,y1)",
         "  do display#0.circle(cx,cy,r)",
         "  do display#0.present()",
+        "  do led#0.on() | do led#0.off() | do led#0.toggle()",
+        "  led#0.info",
         "  list tasks",
         "  show task <name>",
         "  start task <name> | stop task <name> | drop task <name>",
@@ -212,6 +219,19 @@ export function evaluateInteractiveCommand(
     return { ok: true, lines: ["ok"] };
   }
 
+  if (command.kind === "do_led_effect") {
+    const address = ledAddress(command.ledId);
+    const deviceEffect =
+      command.ledEffect === "on"
+        ? ({ kind: "led.on" as const, address })
+        : command.ledEffect === "off"
+          ? ({ kind: "led.off" as const, address })
+          : ({ kind: "led.toggle" as const, address });
+    runtime.queueEffect(deviceEffect);
+    runtime.tick(0);
+    return { ok: true, lines: ["ok"] };
+  }
+
   if (command.kind === "list_tasks") {
     const tasks = runtime.tasks.listTasks();
     if (tasks.length === 0) {
@@ -270,6 +290,11 @@ export function evaluateInteractiveCommand(
   }
 
   if (command.kind === "register_task_every") {
+    const bodyCompileResult = compileInteractiveEveryTaskBodyToExecutableStatements(command.body);
+    if (bodyCompileResult.ok === false) {
+      return { ok: false, report: bodyCompileResult.report };
+    }
+
     runtime.tasks.registerTask({
       name: command.name,
       runMode: "every",
@@ -278,6 +303,7 @@ export function evaluateInteractiveCommand(
       accumulatedMilliseconds: 0,
       body: command.body.trim(),
       eventExpression: undefined,
+      compiledStatements: bodyCompileResult.executableStatements,
     });
     lines.push(`registered task ${command.name}`);
     return { ok: true, lines };

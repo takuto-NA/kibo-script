@@ -1,3 +1,4 @@
+import { compileSourceAndRegisterSimulationTasks } from "../core/compile-and-register-simulation-script";
 import { createDiagnosticReport } from "../diagnostics/diagnostic";
 import type { SimulationRuntime } from "../core/simulation-runtime";
 import { evaluateInteractiveCommand } from "../interactive/evaluate-interactive-command";
@@ -60,12 +61,36 @@ export class EmbedController {
     }
     if (message.type === "simulator.getSnapshot") {
       const adc = this.runtime.getDefaultDevices().adc0.getSimulatedRawValue();
+      const ledOn = this.runtime.getDefaultDevices().led0.isOn();
       return {
         source: "kibo-simulator-parent",
         type: "simulator.response",
         requestId: message.requestId,
         ok: true,
-        outputs: [`adc0.raw=${adc}`],
+        outputs: [`adc0.raw=${adc}`, `led0.on=${ledOn}`],
+      };
+    }
+    if (message.type === "simulator.loadScript") {
+      const loadResult = compileSourceAndRegisterSimulationTasks({
+        sourceText: message.sourceText,
+        sourceFileName: message.sourceFileName ?? "embed.sc",
+        simulationRuntime: this.runtime,
+      });
+      if (loadResult.ok === false) {
+        return {
+          source: "kibo-simulator-parent",
+          type: "simulator.response",
+          requestId: message.requestId,
+          ok: false,
+          report: loadResult.report,
+        };
+      }
+      return {
+        source: "kibo-simulator-parent",
+        type: "simulator.response",
+        requestId: message.requestId,
+        ok: true,
+        outputs: [`registeredTasks=${loadResult.registeredTaskNames.join(",")}`],
       };
     }
     return undefined;

@@ -13,6 +13,7 @@ const DO_DISPLAY_LINE_PATTERN =
 const DO_DISPLAY_CIRCLE_PATTERN =
   /^do\s+display#0\.circle\(\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*\)\s*$/;
 const DO_DISPLAY_PRESENT_PATTERN = /^do\s+display#0\.present\(\)\s*$/;
+const DO_LED_EFFECT_PATTERN = /^do\s+led#(\d+)\.(on|off|toggle)\(\)\s*$/;
 const LIST_TASKS_PATTERN = /^list\s+tasks\s*$/;
 const SHOW_TASK_PATTERN = /^show\s+task\s+(\S+)\s*$/;
 const STOP_TASK_PATTERN = /^stop\s+task\s+(\S+)\s*$/;
@@ -121,6 +122,22 @@ export function parseInteractiveCommandLine(line: string): ParseInteractiveComma
 
   if (DO_DISPLAY_PRESENT_PATTERN.test(trimmed)) {
     return { ok: true, command: { kind: "do_display_present" } };
+  }
+
+  const ledEffectMatch = DO_LED_EFFECT_PATTERN.exec(trimmed);
+  if (ledEffectMatch !== null) {
+    const ledId = Number.parseInt(ledEffectMatch[1] ?? "0", 10);
+    const effectToken = ledEffectMatch[2] ?? "toggle";
+    const ledEffect =
+      effectToken === "on" ? ("on" as const) : effectToken === "off" ? ("off" as const) : ("toggle" as const);
+    return {
+      ok: true,
+      command: {
+        kind: "do_led_effect",
+        ledId,
+        ledEffect,
+      },
+    };
   }
 
   if (LIST_TASKS_PATTERN.test(trimmed)) {
