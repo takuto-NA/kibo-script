@@ -3,7 +3,7 @@
  */
 
 import type { DeviceBus } from "./device-bus";
-import type { CompiledAnimatorDefinition, ExecutableExpression } from "./executable-task";
+import type { CompiledAnimatorDefinition, ExecutableExpression, ExecutableMatchPattern } from "./executable-task";
 import type { AnimatorRuntimeState } from "./animator-runtime-state";
 import type { ScriptValue } from "./value";
 import { integerValue, stringValue } from "./value";
@@ -12,6 +12,10 @@ import { clampPercentToPwmRange, interpolateAnimatorRampPercent } from "./animat
 export type EvaluateExecutableExpressionContext = {
   readonly deviceBus: DeviceBus;
   readonly stateValues: Map<string, number | string>;
+  /** プログラム定数（読み取り専用）。 */
+  readonly constValues?: ReadonlyMap<string, number | string>;
+  /** 現在の task の `temp`（SimulationRuntime が TaskRecord から渡す）。 */
+  readonly tempValues?: Map<string, number | string>;
   /** `every` タスク実行中のみ nominal dt が入る。 */
   readonly taskExecution?: {
     readonly runMode: "every" | "on_event";
@@ -45,6 +49,36 @@ export function evaluateExecutableExpression(
     return stringValue(storedValue);
   }
 
+  if (expression.kind === "const_reference") {
+    const constValues = context.constValues;
+    if (constValues === undefined) {
+      return undefined;
+    }
+    const storedValue = constValues.get(expression.constName);
+    if (storedValue === undefined) {
+      return undefined;
+    }
+    if (typeof storedValue === "number") {
+      return integerValue(storedValue);
+    }
+    return stringValue(storedValue);
+  }
+
+  if (expression.kind === "temp_reference") {
+    const tempValues = context.tempValues;
+    if (tempValues === undefined) {
+      return undefined;
+    }
+    const storedValue = tempValues.get(expression.tempName);
+    if (storedValue === undefined) {
+      return undefined;
+    }
+    if (typeof storedValue === "number") {
+      return integerValue(storedValue);
+    }
+    return stringValue(storedValue);
+  }
+
   if (expression.kind === "binary_add") {
     const leftValue = evaluateExecutableExpression(expression.left, context);
     const rightValue = evaluateExecutableExpression(expression.right, context);
@@ -57,6 +91,39 @@ export function evaluateExecutableExpression(
       return undefined;
     }
     return integerValue(leftValue.value + rightValue.value);
+  }
+
+  if (expression.kind === "binary_sub") {
+    return evaluateIntegerBinaryOp(expression.left, expression.right, context, (a, b) => a - b);
+  }
+
+  if (expression.kind === "binary_mul") {
+    return evaluateIntegerBinaryOp(expression.left, expression.right, context, (a, b) => a * b);
+  }
+
+  if (expression.kind === "binary_div") {
+    return evaluateIntegerBinaryOp(expression.left, expression.right, context, (a, b) => {
+      if (b === 0) {
+        return undefined;
+      }
+      return Math.trunc(a / b);
+    });
+  }
+
+  if (expression.kind === "unary_minus") {
+    const operand = evaluateExecutableExpression(expression.operand, context);
+    if (operand === undefined || operand.tag !== "integer") {
+      return undefined;
+    }
+    return integerValue(-operand.value);
+  }
+
+  if (expression.kind === "comparison") {
+    return evaluateComparisonExpression(expression, context);
+  }
+
+  if (expression.kind === "match_numeric_expression") {
+    return evaluateMatchNumericExpression(expression, context);
   }
 
   if (expression.kind === "read_property") {
@@ -76,6 +143,186 @@ export function evaluateExecutableExpression(
   }
 
   return undefined;
+}
+
+const INTEGER_TRUTHY = 1;
+const INTEGER_FALSY = 0;
+
+function evaluateIntegerBinaryOp(
+  left: ExecutableExpression,
+  right: ExecutableExpression,
+  context: EvaluateExecutableExpressionContext,
+  combine: (left: number, right: number) => number | undefined,
+): ScriptValue | undefined {
+  const leftValue = evaluateExecutableExpression(left, context);
+  const rightValue = evaluateExecutableExpression(right, context);
+  if (
+    leftValue === undefined ||
+    rightValue === undefined ||
+    leftValue.tag !== "integer" ||
+    rightValue.tag !== "integer"
+  ) {
+    return undefined;
+  }
+  const next = combine(leftValue.value, rightValue.value);
+  if (next === undefined) {
+    return undefined;
+  }
+  return integerValue(next);
+}
+
+function evaluateComparisonExpression(
+  expression: ExecutableExpression & { kind: "comparison" },
+  context: EvaluateExecutableExpressionContext,
+): ScriptValue | undefined {
+  const leftValue = evaluateExecutableExpression(expression.left, context);
+  const rightValue = evaluateExecutableExpression(expression.right, context);
+  if (leftValue === undefined || rightValue === undefined) {
+    return undefined;
+  }
+  if (leftValue.tag === "integer" && rightValue.tag === "integer") {
+    return booleanToIntegerValue(compareIntegers(leftValue.value, rightValue.value, expression.operator));
+  }
+  if (leftValue.tag === "string" && rightValue.tag === "string") {
+    return booleanToIntegerValue(compareStrings(leftValue.value, rightValue.value, expression.operator));
+  }
+  return undefined;
+}
+
+function compareIntegers(
+  left: number,
+  right: number,
+  operator: "==" | "!=" | "<" | "<=" | ">" | ">=",
+): boolean {
+  if (operator === "==") {
+    return left === right;
+  }
+  if (operator === "!=") {
+    return left !== right;
+  }
+  if (operator === "<") {
+    return left < right;
+  }
+  if (operator === "<=") {
+    return left <= right;
+  }
+  if (operator === ">") {
+    return left > right;
+  }
+  return left >= right;
+}
+
+function compareStrings(
+  left: string,
+  right: string,
+  operator: "==" | "!=" | "<" | "<=" | ">" | ">=",
+): boolean {
+  if (operator === "==" || operator === "!=") {
+    const eq = left === right;
+    return operator === "==" ? eq : !eq;
+  }
+  return false;
+}
+
+function booleanToIntegerValue(testResult: boolean): ScriptValue {
+  return integerValue(testResult ? INTEGER_TRUTHY : INTEGER_FALSY);
+}
+
+function evaluateMatchNumericExpression(
+  expression: ExecutableExpression & { kind: "match_numeric_expression" },
+  context: EvaluateExecutableExpressionContext,
+): ScriptValue | undefined {
+  const scrutineeValue = evaluateExecutableExpression(expression.scrutinee, context);
+  if (scrutineeValue === undefined) {
+    return undefined;
+  }
+
+  if (scrutineeValue.tag === "string") {
+    const matchedText = scrutineeValue.value;
+    for (const arm of expression.arms) {
+      if (arm.pattern.kind !== "equality_pattern") {
+        continue;
+      }
+      const compareValue = evaluateExecutableExpression(arm.pattern.compareExpression, context);
+      if (compareValue !== undefined && compareValue.tag === "string" && compareValue.value === matchedText) {
+        return evaluateExecutableExpression(arm.resultExpression, context);
+      }
+    }
+    if (expression.elseResultExpression !== undefined) {
+      return evaluateExecutableExpression(expression.elseResultExpression, context);
+    }
+    return undefined;
+  }
+
+  if (scrutineeValue.tag !== "integer") {
+    return undefined;
+  }
+  const scrutineeInteger = scrutineeValue.value;
+
+  for (const arm of expression.arms) {
+    if (arm.pattern.kind === "equality_pattern") {
+      const compareValue = evaluateExecutableExpression(arm.pattern.compareExpression, context);
+      if (compareValue === undefined || compareValue.tag !== "integer") {
+        continue;
+      }
+      if (compareValue.value === scrutineeInteger) {
+        return evaluateExecutableExpression(arm.resultExpression, context);
+      }
+      continue;
+    }
+
+    const inRange = evaluateRangePatternMatchInteger({
+      pattern: arm.pattern,
+      scrutinee: scrutineeInteger,
+      context,
+    });
+    if (inRange) {
+      return evaluateExecutableExpression(arm.resultExpression, context);
+    }
+  }
+
+  if (expression.elseResultExpression !== undefined) {
+    return evaluateExecutableExpression(expression.elseResultExpression, context);
+  }
+  return undefined;
+}
+
+function evaluateRangePatternMatchInteger(params: {
+  pattern: ExecutableMatchPattern;
+  scrutinee: number;
+  context: EvaluateExecutableExpressionContext;
+}): boolean {
+  const pattern = params.pattern;
+  if (pattern.kind !== "range_pattern") {
+    return false;
+  }
+
+  let startInclusive: number | undefined;
+  if (pattern.startInclusive !== undefined) {
+    const startValue = evaluateExecutableExpression(pattern.startInclusive, params.context);
+    if (startValue === undefined || startValue.tag !== "integer") {
+      return false;
+    }
+    startInclusive = startValue.value;
+  }
+
+  let endExclusive: number | undefined;
+  if (pattern.endExclusive !== undefined) {
+    const endValue = evaluateExecutableExpression(pattern.endExclusive, params.context);
+    if (endValue === undefined || endValue.tag !== "integer") {
+      return false;
+    }
+    endExclusive = endValue.value;
+  }
+
+  const scr = params.scrutinee;
+  if (startInclusive !== undefined && scr < startInclusive) {
+    return false;
+  }
+  if (endExclusive !== undefined && scr >= endExclusive) {
+    return false;
+  }
+  return true;
 }
 
 function evaluateDtIntervalMilliseconds(context: EvaluateExecutableExpressionContext): ScriptValue | undefined {

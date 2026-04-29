@@ -156,6 +156,20 @@ export function buildNameDuplicateDeclaration(params: {
   };
 }
 
+export function buildBindCannotAssignToConst(params: {
+  name: string;
+  range?: SourceRange;
+}): StructuredDiagnostic {
+  return {
+    id: "bind.cannot_assign_to_const",
+    severity: "error",
+    phase: "bind",
+    message: `Cannot assign to const "${params.name}".`,
+    location: params.range,
+    rangeText: params.name,
+  };
+}
+
 export function buildSemanticDuplicateTaskName(params: {
   name: string;
   range?: SourceRange;

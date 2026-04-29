@@ -12,7 +12,7 @@ MVP として、ブラウザ UI・仮想デバイス・task runtime・full compi
 
 - ブラウザで端末、script runner、OLED 風 canvas、LED ランプ、**pwm#0 レベル（バー + テキスト）**、`button#0` の Press UI を表示できる。
 - `compileScript()` で複数行 script を parse / bind / type check / semantic check し、runtime IR に下げられる。
-- `state` / `set`、式、`read`、`wait`、`task on`、`match` 最小形まで実装済み。
+- `state` / `set`、式（`+` `-` `*` `/` 単項 `-`、比較）、`read`、`wait`、`const` / `temp`、`match` 文（文字列）/ `match` 式（数値・範囲）、最小 `if`、`task on` まで実装済み。
 - `task on` は `button#0.pressed` 直書きと `ref button = button#0` 経由の `button.pressed` の両方に対応している。
 - Embed API から command / tick / snapshot / display frame / ADC 設定 / script load を呼べる。
 - structured diagnostics を JSON 互換形式で返せる。
@@ -35,6 +35,7 @@ npm audit --audit-level=moderate
 - `npm test`: 成功（30 files / 87 tests）
 - `npm run build`: 成功
 - `npm run test:e2e`: 成功（4 tests）
+- Script ergonomics: `const` / `temp`、算術・比較、`match` 式（数値・範囲）、`if` を追加済み。
 
 ## ブラウザ UI
 

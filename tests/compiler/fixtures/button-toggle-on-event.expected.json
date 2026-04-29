@@ -2,6 +2,7 @@
   "ok": true,
   "program": {
     "stateInitializers": [],
+    "constInitializers": [],
     "animatorDefinitions": [],
     "everyTasks": [],
     "onEventTasks": [

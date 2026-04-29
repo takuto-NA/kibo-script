@@ -4,6 +4,7 @@
 
 import type {
   BoundExpression,
+  BoundMatchPattern,
   BoundProgram,
   BoundStatement,
 } from "./bound-program";
@@ -54,8 +55,14 @@ export function lowerBoundProgramToCompiledProgram(boundProgram: BoundProgram): 
     statements: task.statements.map(lowerBoundStatementToExecutableStatement),
   }));
 
+  const constInitializers = boundProgram.constSymbolsInSourceOrder.map((symbol) => ({
+    constName: symbol.constName,
+    expression: lowerBoundExpression(symbol.initialValue),
+  }));
+
   return {
     stateInitializers,
+    constInitializers,
     animatorDefinitions,
     everyTasks,
     onEventTasks,
@@ -80,6 +87,30 @@ export function lowerBoundStatementToExecutableStatement(statement: BoundStateme
     };
   }
 
+  if (statement.kind === "temp_statement") {
+    return {
+      kind: "assign_temp",
+      tempName: statement.tempName,
+      valueExpression: lowerBoundExpression(statement.valueExpression),
+    };
+  }
+
+  if (statement.kind === "wait_statement") {
+    return {
+      kind: "wait_milliseconds",
+      waitMilliseconds: statement.waitMilliseconds,
+    };
+  }
+
+  if (statement.kind === "if_statement") {
+    return {
+      kind: "if_comparison",
+      conditionExpression: lowerBoundExpression(statement.conditionExpression),
+      thenBranchStatements: statement.thenStatements.map(lowerBoundStatementToExecutableStatement),
+      elseBranchStatements: statement.elseStatements.map(lowerBoundStatementToExecutableStatement),
+    };
+  }
+
   if (statement.kind === "match_statement") {
     return {
       kind: "match_string",
@@ -92,9 +123,24 @@ export function lowerBoundStatementToExecutableStatement(statement: BoundStateme
     };
   }
 
+  const exhaustiveStatement: never = statement;
+  throw new Error(`Unhandled statement kind: ${JSON.stringify(exhaustiveStatement)}`);
+}
+
+function lowerBoundMatchPattern(pattern: BoundMatchPattern): import("../core/executable-task").ExecutableMatchPattern {
+  if (pattern.kind === "equality_pattern") {
+    return {
+      kind: "equality_pattern",
+      compareExpression: lowerBoundExpression(pattern.compareExpression),
+    };
+  }
+
   return {
-    kind: "wait_milliseconds",
-    waitMilliseconds: statement.waitMilliseconds,
+    kind: "range_pattern",
+    startInclusive:
+      pattern.startInclusive !== undefined ? lowerBoundExpression(pattern.startInclusive) : undefined,
+    endExclusive:
+      pattern.endExclusive !== undefined ? lowerBoundExpression(pattern.endExclusive) : undefined,
   };
 }
 
@@ -128,6 +174,14 @@ function lowerBoundExpression(expression: BoundExpression): ExecutableExpression
     return { kind: "state_reference", stateName: expression.name };
   }
 
+  if (expression.kind === "const_reference") {
+    return { kind: "const_reference", constName: expression.constName };
+  }
+
+  if (expression.kind === "temp_reference") {
+    return { kind: "temp_reference", tempName: expression.tempName };
+  }
+
   if (expression.kind === "binary_add") {
     return {
       kind: "binary_add",
@@ -136,9 +190,69 @@ function lowerBoundExpression(expression: BoundExpression): ExecutableExpression
     };
   }
 
-  return {
-    kind: "read_property",
-    deviceAddress: expression.deviceAddress,
-    propertyName: expression.propertyName,
-  };
+  if (expression.kind === "binary_sub") {
+    return {
+      kind: "binary_sub",
+      left: lowerBoundExpression(expression.left),
+      right: lowerBoundExpression(expression.right),
+    };
+  }
+
+  if (expression.kind === "binary_mul") {
+    return {
+      kind: "binary_mul",
+      left: lowerBoundExpression(expression.left),
+      right: lowerBoundExpression(expression.right),
+    };
+  }
+
+  if (expression.kind === "binary_div") {
+    return {
+      kind: "binary_div",
+      left: lowerBoundExpression(expression.left),
+      right: lowerBoundExpression(expression.right),
+    };
+  }
+
+  if (expression.kind === "unary_minus") {
+    return {
+      kind: "unary_minus",
+      operand: lowerBoundExpression(expression.operand),
+    };
+  }
+
+  if (expression.kind === "comparison") {
+    return {
+      kind: "comparison",
+      operator: expression.operator,
+      left: lowerBoundExpression(expression.left),
+      right: lowerBoundExpression(expression.right),
+    };
+  }
+
+  if (expression.kind === "match_expression") {
+    return {
+      kind: "match_numeric_expression",
+      scrutinee: lowerBoundExpression(expression.scrutinee),
+      arms: expression.arms.map((arm) => ({
+        pattern: lowerBoundMatchPattern(arm.pattern),
+        resultExpression: lowerBoundExpression(arm.resultExpression),
+      })),
+      elseResultExpression:
+        expression.elseResultExpression !== undefined
+          ? lowerBoundExpression(expression.elseResultExpression)
+          : undefined,
+    };
+  }
+
+  if (expression.kind === "read_property") {
+    return {
+      kind: "read_property",
+      deviceAddress: expression.deviceAddress,
+      propertyName: expression.propertyName,
+    };
+  }
+
+  const exhaustiveExpression: never = expression;
+  throw new Error(`Unhandled expression kind: ${JSON.stringify(exhaustiveExpression)}`);
 }

@@ -10,6 +10,7 @@ import type { ExecutableStatement } from "./executable-task";
 import { createInitialAnimatorRuntimeState, type AnimatorRuntimeState } from "./animator-runtime-state";
 import {
   evaluateExecutableExpression,
+  scriptValueToIntegerOrUndefined,
   scriptValueToPrintableText,
   type EvaluateExecutableExpressionContext,
 } from "./evaluate-executable-expression";
@@ -35,6 +36,7 @@ export class SimulationRuntime {
   public readonly tasks: TaskRegistry;
   private totalSimulationMilliseconds = 0;
   private readonly scriptStateValues = new Map<string, number | string>();
+  private readonly scriptConstValues = new Map<string, number | string>();
   private compiledAnimatorDefinitionsByName = new Map<string, CompiledAnimatorDefinition>();
   private readonly animatorRuntimeStatesByName = new Map<string, AnimatorRuntimeState>();
   private readonly onAfterDeviceEffectApplied?: DeviceEffectAppliedListener;
@@ -91,9 +93,10 @@ export class SimulationRuntime {
 
   private initializeScriptStateFromCompiledProgram(compiledProgram: CompiledProgram): void {
     this.scriptStateValues.clear();
-    const evaluationContext = this.createEvaluationContextForStateInitialization();
+    this.scriptConstValues.clear();
+    const evaluationContextBase = this.createEvaluationContextForStateInitialization();
     for (const initializer of compiledProgram.stateInitializers) {
-      const scriptValue = evaluateExecutableExpression(initializer.expression, evaluationContext);
+      const scriptValue = evaluateExecutableExpression(initializer.expression, evaluationContextBase);
       if (scriptValue === undefined) {
         continue;
       }
@@ -103,6 +106,21 @@ export class SimulationRuntime {
       }
       if (scriptValue.tag === "string") {
         this.scriptStateValues.set(initializer.stateName, scriptValue.value);
+      }
+    }
+
+    const evaluationContextWithConsts = this.createEvaluationContextForStateInitialization();
+    for (const initializer of compiledProgram.constInitializers) {
+      const scriptValue = evaluateExecutableExpression(initializer.expression, evaluationContextWithConsts);
+      if (scriptValue === undefined) {
+        continue;
+      }
+      if (scriptValue.tag === "integer") {
+        this.scriptConstValues.set(initializer.constName, scriptValue.value);
+        continue;
+      }
+      if (scriptValue.tag === "string") {
+        this.scriptConstValues.set(initializer.constName, scriptValue.value);
       }
     }
   }
@@ -160,13 +178,19 @@ export class SimulationRuntime {
     return {
       deviceBus: this.deviceBus,
       stateValues: this.scriptStateValues,
+      constValues: this.scriptConstValues,
     };
   }
 
   private createEvaluationContextForTask(task: TaskRecord): EvaluateExecutableExpressionContext {
+    if (task.taskLocalValues === undefined) {
+      task.taskLocalValues = new Map();
+    }
     return {
       deviceBus: this.deviceBus,
       stateValues: this.scriptStateValues,
+      constValues: this.scriptConstValues,
+      tempValues: task.taskLocalValues,
       taskExecution: {
         runMode: task.runMode,
         nominalIntervalMilliseconds: task.intervalMilliseconds,
@@ -247,7 +271,22 @@ export class SimulationRuntime {
 
     while (task.executionProgress.programCounter < statements.length) {
       const programCounter = task.executionProgress.programCounter;
+      if (programCounter === 0) {
+        task.taskLocalValues = new Map();
+      }
       const statement = statements[programCounter];
+
+      if (statement.kind === "assign_temp") {
+        this.executeAssignTempStatement(statement, task);
+        task.executionProgress.programCounter = programCounter + 1;
+        continue;
+      }
+
+      if (statement.kind === "if_comparison") {
+        this.executeIfComparisonStatement(statement, task);
+        task.executionProgress.programCounter = programCounter + 1;
+        continue;
+      }
 
       if (statement.kind === "wait_milliseconds") {
         task.executionProgress.resumeAtTotalMilliseconds =
@@ -324,11 +363,55 @@ export class SimulationRuntime {
         continue;
       }
 
+      if (innerStatement.kind === "assign_temp") {
+        this.executeAssignTempStatement(innerStatement, task);
+        continue;
+      }
+
+      if (innerStatement.kind === "if_comparison") {
+        this.executeIfComparisonStatement(innerStatement, task);
+        continue;
+      }
+
       // ガード: match 分岐に wait が混入した場合はここへ来る。型検査で禁止済みのため noop でよい。
       if (innerStatement.kind === "wait_milliseconds") {
         return;
       }
     }
+  }
+
+  private executeAssignTempStatement(
+    statement: ExecutableStatement & { kind: "assign_temp" },
+    task: TaskRecord,
+  ): void {
+    const evaluationContext = this.createEvaluationContextForTask(task);
+    const scriptValue = evaluateExecutableExpression(statement.valueExpression, evaluationContext);
+    if (scriptValue === undefined) {
+      return;
+    }
+    if (task.taskLocalValues === undefined) {
+      task.taskLocalValues = new Map();
+    }
+    if (scriptValue.tag === "integer") {
+      task.taskLocalValues.set(statement.tempName, scriptValue.value);
+      return;
+    }
+    if (scriptValue.tag === "string") {
+      task.taskLocalValues.set(statement.tempName, scriptValue.value);
+    }
+  }
+
+  private executeIfComparisonStatement(
+    statement: ExecutableStatement & { kind: "if_comparison" },
+    task: TaskRecord,
+  ): void {
+    const evaluationContext = this.createEvaluationContextForTask(task);
+    const conditionValue = evaluateExecutableExpression(statement.conditionExpression, evaluationContext);
+    const conditionInteger =
+      conditionValue === undefined ? undefined : scriptValueToIntegerOrUndefined(conditionValue);
+    const conditionIsTruthy = conditionInteger !== undefined && conditionInteger !== 0;
+    const branchStatements = conditionIsTruthy ? statement.thenBranchStatements : statement.elseBranchStatements;
+    this.executeExecutableStatementsWithoutWaiting(branchStatements, task);
   }
 
   private executeAssignStateStatement(

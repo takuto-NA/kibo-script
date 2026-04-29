@@ -24,6 +24,8 @@ export type TaskRecord = {
   body: string;
   /** Compiler が生成したタスク本体（full compiler 経路）。未設定なら every tick で実行しない。 */
   compiledStatements?: ExecutableStatement[];
+  /** Task 実行内の `temp`（wait をまたぐ実行でも同一マップを維持）。PC==0 でクリア。 */
+  taskLocalValues?: Map<string, number | string>;
   /** every task の wait 再開用。 */
   executionProgress?: TaskExecutionProgress;
   /** runMode === on_event のときのフィルタ。 */

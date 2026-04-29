@@ -16,8 +16,17 @@ export type TopLevelDeclarationAst =
   | RefDeclarationAst
   | TaskDeclarationAst
   | StateDeclarationAst
+  | ConstDeclarationAst
   | TaskOnDeclarationAst
   | AnimatorDeclarationAst;
+
+/** `const name = <expr>` — program 全体で不変 */
+export type ConstDeclarationAst = {
+  kind: "const_declaration";
+  range: AstRange;
+  constName: string;
+  initialValueExpression: MethodArgumentExpressionAst;
+};
 
 export type StateDeclarationAst = {
   kind: "state_declaration";
@@ -96,7 +105,17 @@ export type StatementAst =
   | DoStatementAst
   | SetStatementAst
   | WaitStatementAst
-  | MatchStatementAst;
+  | MatchStatementAst
+  | TempStatementAst
+  | IfStatementAst;
+
+/** `temp name = <expr>` — task 実行内の局所一時（宣言順にのみ参照可） */
+export type TempStatementAst = {
+  kind: "temp_statement";
+  range: AstRange;
+  tempName: string;
+  valueExpression: MethodArgumentExpressionAst;
+};
 
 export type MatchStatementAst = {
   kind: "match_statement";
@@ -134,6 +153,15 @@ export type WaitStatementAst = {
   waitRange: AstRange;
 };
 
+/** `if <comparison> { ... } else { ... }` — 条件は比較式のみ（Phase 1） */
+export type IfStatementAst = {
+  kind: "if_statement";
+  range: AstRange;
+  conditionExpression: MethodArgumentExpressionAst;
+  thenBodyStatements: StatementAst[];
+  elseBodyStatements: StatementAst[];
+};
+
 /**
  * Call の受信側: `led`（ref）または `led#0`（直接アドレス）。
  */
@@ -168,7 +196,49 @@ export type MethodArgumentExpressionAst =
       targetExpression?: MethodArgumentExpressionAst;
     }
   | { kind: "binary_add"; range: AstRange; left: MethodArgumentExpressionAst; right: MethodArgumentExpressionAst }
+  | { kind: "binary_sub"; range: AstRange; left: MethodArgumentExpressionAst; right: MethodArgumentExpressionAst }
+  | { kind: "binary_mul"; range: AstRange; left: MethodArgumentExpressionAst; right: MethodArgumentExpressionAst }
+  | { kind: "binary_div"; range: AstRange; left: MethodArgumentExpressionAst; right: MethodArgumentExpressionAst }
+  | { kind: "unary_minus"; range: AstRange; operand: MethodArgumentExpressionAst }
+  | {
+      kind: "comparison";
+      range: AstRange;
+      operator: "==" | "!=" | "<" | "<=" | ">" | ">=";
+      left: MethodArgumentExpressionAst;
+      right: MethodArgumentExpressionAst;
+    }
+  | {
+      kind: "match_expression";
+      range: AstRange;
+      scrutinee: MethodArgumentExpressionAst;
+      arms: MatchExpressionArmAst[];
+      /** 省略時は arms が網羅的である必要がある（実装で診断） */
+      elseResultExpression?: MethodArgumentExpressionAst;
+    }
   | { kind: "read_expression"; range: AstRange; readTarget: ReadTargetAst };
+
+export type MatchExpressionArmAst = {
+  range: AstRange;
+  pattern: MatchNumericPatternAst;
+  resultExpression: MethodArgumentExpressionAst;
+};
+
+/** range は左閉右開。`..b` は start なし、`a..` は end なし */
+export type MatchNumericPatternAst =
+  | {
+      kind: "equality_pattern";
+      range: AstRange;
+      /** 単一値との一致（literal / identifier / 簡単な式） */
+      compareExpression: MethodArgumentExpressionAst;
+    }
+  | {
+      kind: "range_pattern";
+      range: AstRange;
+      /** 省略時は無限下限（integer のみを型チェックで許可） */
+      startInclusive?: MethodArgumentExpressionAst;
+      /** 省略時は無限上限 */
+      endExclusive?: MethodArgumentExpressionAst;
+    };
 
 export type ReadTargetAst =
   | { kind: "device_read"; range: AstRange; deviceKind: string; deviceId: number; propertyName: string | undefined };

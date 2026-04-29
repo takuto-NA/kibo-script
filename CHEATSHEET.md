@@ -59,7 +59,7 @@ task react on button.pressed {
 
 ## `match`（文字列の最小形）
 
-`task` 本体で、`match <文字列式> { "ケース" => { ... } ... else => { ... } }` が使える。分岐の本体は `do` / `set` のみ（分岐内の `wait` は compile エラー）。
+`task` 本体で、`match <文字列式> { "ケース" => { ... } ... else => { ... } }` が使える。分岐の本体は `do` / `set` / `temp` / `if`（分岐内の `wait` と nested `match` は compile エラー）。
 
 ```text
 state mode = "on"
@@ -80,7 +80,55 @@ task apply on button#0.pressed {
 - target は string 式のみ
 - pattern は string literal と `else` のみ
 - `else` は必須
-- branch 内は `do` / `set` のみ（`wait` と nested `match` は未対応）
+- branch 内は `do` / `set` / `temp` / `if`（`wait` と nested `match` は未対応）
+
+## `const` / `temp`（名前付き値）
+
+マジックナンバーを避けるために、`const`（プログラム全体で不変）と `temp`（同一 task 実行内のみ）が使える。
+
+```text
+const max_x = 127
+state x = 64
+
+task move every 20ms {
+  temp next_x = x + 1
+  if next_x > max_x {
+    set x = 0
+  } else {
+    set x = next_x
+  }
+}
+```
+
+- `set` で const を書き換えようとすると compile エラー
+- `temp` は宣言より前の行では参照できない
+
+## 式（算術・比較・`match` 式）
+
+`+` `-` `*` `/`（除算は `trunc` 方向）、単項 `-`、`==` `!=` `<` `<=` `>` `>=` が式で使える。`*` `/` は `+` `-` より強く結合する。
+
+数値の分岐には `match <式> { pattern => 式, ... }` の **式** 形がある。範囲は draft どおり **左閉右開**（`a..b`、`..b`、`a..`）。必要なら `else => 式` でフォールバック。
+
+```text
+temp lane =
+  match x {
+    0 => 0
+    10..20 => 1
+    else => 2
+  }
+```
+
+## 最小 `if` 文
+
+条件は比較式から。
+
+```text
+if score > 3 {
+  do led#0.on()
+} else {
+  do led#0.off()
+}
+```
 
 ## `wait` で task を一時停止する
 

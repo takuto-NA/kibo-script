@@ -10,6 +10,7 @@
         }
       }
     ],
+    "constInitializers": [],
     "animatorDefinitions": [
       {
         "animatorName": "fade_in",

@@ -5,7 +5,11 @@
   AnimatorRampOverOnlyAst,
   CallExpressionAst,
   CallReceiverAst,
+  ConstDeclarationAst,
   DoStatementAst,
+  IfStatementAst,
+  MatchExpressionArmAst,
+  MatchNumericPatternAst,
   MatchStatementAst,
   MethodArgumentExpressionAst,
   ProgramAst,
@@ -76,6 +80,15 @@ export function parseProgram(tokens: Token[], fileName: string): ParseProgramRes
         return refDecl;
       }
       declarations.push(refDecl.declaration);
+      continue;
+    }
+
+    if (current.lexeme === "const") {
+      const constDecl = parseConstDeclaration(cursor);
+      if (constDecl.ok === false) {
+        return constDecl;
+      }
+      declarations.push(constDecl.declaration);
       continue;
     }
 
@@ -249,7 +262,7 @@ function parseStateDeclaration(
   }
   cursor.advance();
 
-  const initResult = parseAdditiveExpression(cursor);
+  const initResult = parseExpression(cursor);
   if (initResult.ok === false) {
     return initResult;
   }
@@ -266,6 +279,67 @@ function parseStateDeclaration(
       kind: "state_declaration",
       range: declarationRange,
       stateName: nameToken.lexeme,
+      initialValueExpression: initResult.expression,
+    },
+  };
+}
+
+function parseConstDeclaration(
+  cursor: ParserCursor,
+): { ok: true; declaration: ConstDeclarationAst } | { ok: false; report: DiagnosticReport } {
+  const fileName = cursor.getSourceFileName();
+  const constKeyword = cursor.current();
+  cursor.advance();
+
+  const nameToken = cursor.current();
+  if (nameToken.kind !== "identifier") {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildParseUnexpectedToken({
+          file: fileName,
+          range: tokenToDiagnosticRange(fileName, nameToken),
+          rangeText: nameToken.lexeme,
+          message: "Expected const name after const.",
+        }),
+      ]),
+    };
+  }
+  cursor.advance();
+
+  const equalsToken = cursor.current();
+  if (equalsToken.kind !== "equals") {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildParseUnexpectedToken({
+          file: fileName,
+          range: tokenToDiagnosticRange(fileName, equalsToken),
+          rangeText: equalsToken.lexeme,
+          message: "Expected '=' in const declaration.",
+        }),
+      ]),
+    };
+  }
+  cursor.advance();
+
+  const initResult = parseExpression(cursor);
+  if (initResult.ok === false) {
+    return initResult;
+  }
+
+  const declarationRange: AstRange = {
+    fileName,
+    start: constKeyword.start,
+    end: initResult.expression.range.end,
+  };
+
+  return {
+    ok: true,
+    declaration: {
+      kind: "const_declaration",
+      range: declarationRange,
+      constName: nameToken.lexeme,
       initialValueExpression: initResult.expression,
     },
   };
@@ -980,7 +1054,7 @@ function parseMatchStatement(
   const matchKeyword = cursor.current();
   cursor.advance();
 
-  const targetResult = parseAdditiveExpression(cursor);
+  const targetResult = parseExpression(cursor);
   if (targetResult.ok === false) {
     return targetResult;
   }
@@ -1249,6 +1323,14 @@ function parseStatement(
     return parseMatchStatement(cursor);
   }
 
+  if (leading.kind === "identifier" && leading.lexeme === "temp") {
+    return parseTempStatement(cursor);
+  }
+
+  if (leading.kind === "identifier" && leading.lexeme === "if") {
+    return parseIfStatement(cursor);
+  }
+
   return {
     ok: false,
     report: createDiagnosticReport([
@@ -1256,9 +1338,189 @@ function parseStatement(
         file: fileName,
         range: tokenToDiagnosticRange(fileName, leading),
         rangeText: leading.lexeme,
-        message: "Unsupported statement: expected do, set, wait, or match.",
+        message: "Unsupported statement: expected do, set, wait, match, temp, or if.",
       }),
     ]),
+  };
+}
+
+function parseTempStatement(
+  cursor: ParserCursor,
+): { ok: true; statement: StatementAst } | { ok: false; report: DiagnosticReport } {
+  const fileName = cursor.getSourceFileName();
+  const tempKeyword = cursor.current();
+  cursor.advance();
+
+  const nameToken = cursor.current();
+  if (nameToken.kind !== "identifier") {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildParseUnexpectedToken({
+          file: fileName,
+          range: tokenToDiagnosticRange(fileName, nameToken),
+          rangeText: nameToken.lexeme,
+          message: "Expected temp variable name after temp.",
+        }),
+      ]),
+    };
+  }
+  cursor.advance();
+
+  const equalsToken = cursor.current();
+  if (equalsToken.kind !== "equals") {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildParseUnexpectedToken({
+          file: fileName,
+          range: tokenToDiagnosticRange(fileName, equalsToken),
+          rangeText: equalsToken.lexeme,
+          message: "Expected '=' in temp statement.",
+        }),
+      ]),
+    };
+  }
+  cursor.advance();
+
+  const valueResult = parseExpression(cursor);
+  if (valueResult.ok === false) {
+    return valueResult;
+  }
+
+  const statementRange: AstRange = {
+    fileName,
+    start: tempKeyword.start,
+    end: valueResult.expression.range.end,
+  };
+
+  return {
+    ok: true,
+    statement: {
+      kind: "temp_statement",
+      range: statementRange,
+      tempName: nameToken.lexeme,
+      valueExpression: valueResult.expression,
+    },
+  };
+}
+
+function parseIfStatement(
+  cursor: ParserCursor,
+): { ok: true; statement: StatementAst } | { ok: false; report: DiagnosticReport } {
+  const fileName = cursor.getSourceFileName();
+  const ifKeyword = cursor.current();
+  cursor.advance();
+
+  const conditionResult = parseExpression(cursor);
+  if (conditionResult.ok === false) {
+    return conditionResult;
+  }
+
+  const thenOpen = cursor.current();
+  if (thenOpen.kind !== "left_brace") {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildParseUnexpectedToken({
+          file: fileName,
+          range: tokenToDiagnosticRange(fileName, thenOpen),
+          rangeText: thenOpen.lexeme,
+          message: "Expected '{' before if body.",
+        }),
+      ]),
+    };
+  }
+  cursor.advance();
+
+  const thenBodyStatements: StatementAst[] = [];
+  while (cursor.current().kind !== "right_brace" && !cursor.isAtEndOfFile()) {
+    const statementResult = parseStatement(cursor);
+    if (statementResult.ok === false) {
+      return statementResult;
+    }
+    thenBodyStatements.push(statementResult.statement);
+  }
+
+  const thenClose = cursor.current();
+  if (thenClose.kind !== "right_brace") {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildParseUnexpectedToken({
+          file: fileName,
+          range: tokenToDiagnosticRange(fileName, thenClose),
+          rangeText: thenClose.lexeme,
+          message: "Expected '}' after if body.",
+        }),
+      ]),
+    };
+  }
+  cursor.advance();
+
+  let elseBodyStatements: StatementAst[] = [];
+  let statementRangeEnd = thenClose.end;
+
+  const maybeElse = cursor.current();
+  if (maybeElse.kind === "identifier" && maybeElse.lexeme === "else") {
+    cursor.advance();
+    const elseOpen = cursor.current();
+    if (elseOpen.kind !== "left_brace") {
+      return {
+        ok: false,
+        report: createDiagnosticReport([
+          buildParseUnexpectedToken({
+            file: fileName,
+            range: tokenToDiagnosticRange(fileName, elseOpen),
+            rangeText: elseOpen.lexeme,
+            message: "Expected '{' before else body.",
+          }),
+        ]),
+      };
+    }
+    cursor.advance();
+
+    while (cursor.current().kind !== "right_brace" && !cursor.isAtEndOfFile()) {
+      const statementResult = parseStatement(cursor);
+      if (statementResult.ok === false) {
+        return statementResult;
+      }
+      elseBodyStatements.push(statementResult.statement);
+    }
+
+    const elseClose = cursor.current();
+    if (elseClose.kind !== "right_brace") {
+      return {
+        ok: false,
+        report: createDiagnosticReport([
+          buildParseUnexpectedToken({
+            file: fileName,
+            range: tokenToDiagnosticRange(fileName, elseClose),
+            rangeText: elseClose.lexeme,
+            message: "Expected '}' after else body.",
+          }),
+        ]),
+      };
+    }
+    cursor.advance();
+    statementRangeEnd = elseClose.end;
+  }
+
+  const statementRange: AstRange = {
+    fileName,
+    start: ifKeyword.start,
+    end: statementRangeEnd,
+  };
+
+  return {
+    ok: true,
+    statement: {
+      kind: "if_statement",
+      range: statementRange,
+      conditionExpression: conditionResult.expression,
+      thenBodyStatements,
+      elseBodyStatements,
+    },
   };
 }
 
@@ -1301,7 +1563,7 @@ function parseSetStatement(
   }
   cursor.advance();
 
-  const valueResult = parseAdditiveExpression(cursor);
+  const valueResult = parseExpression(cursor);
   if (valueResult.ok === false) {
     return valueResult;
   }
@@ -1449,7 +1711,7 @@ function parseCallExpression(
     cursor.advance();
   } else {
     while (true) {
-      const argumentResult = parseAdditiveExpression(cursor);
+      const argumentResult = parseExpression(cursor);
       if (argumentResult.ok === false) {
         return argumentResult;
       }
@@ -1558,37 +1820,188 @@ function parseCallReceiver(
   return { ok: true, receiver: refReceiver };
 }
 
+function parseExpression(
+  cursor: ParserCursor,
+): { ok: true; expression: MethodArgumentExpressionAst } | { ok: false; report: DiagnosticReport } {
+  return parseComparisonExpression(cursor);
+}
+
+function parseComparisonExpression(
+  cursor: ParserCursor,
+): { ok: true; expression: MethodArgumentExpressionAst } | { ok: false; report: DiagnosticReport } {
+  const fileName = cursor.getSourceFileName();
+  const leftResult = parseAdditiveExpression(cursor);
+  if (leftResult.ok === false) {
+    return leftResult;
+  }
+
+  const comparisonOperator = mapTokenKindToComparisonOperator(cursor.current().kind);
+  if (comparisonOperator === undefined) {
+    return leftResult;
+  }
+  cursor.advance();
+
+  const rightResult = parseAdditiveExpression(cursor);
+  if (rightResult.ok === false) {
+    return rightResult;
+  }
+
+  return {
+    ok: true,
+    expression: {
+      kind: "comparison",
+      range: {
+        fileName,
+        start: leftResult.expression.range.start,
+        end: rightResult.expression.range.end,
+      },
+      operator: comparisonOperator,
+      left: leftResult.expression,
+      right: rightResult.expression,
+    },
+  };
+}
+
+function mapTokenKindToComparisonOperator(
+  kind: Token["kind"],
+): "==" | "!=" | "<" | "<=" | ">" | ">=" | undefined {
+  if (kind === "equals_equals") {
+    return "==";
+  }
+  if (kind === "bang_equals") {
+    return "!=";
+  }
+  if (kind === "less") {
+    return "<";
+  }
+  if (kind === "less_equal") {
+    return "<=";
+  }
+  if (kind === "greater") {
+    return ">";
+  }
+  if (kind === "greater_equal") {
+    return ">=";
+  }
+  return undefined;
+}
+
 function parseAdditiveExpression(
   cursor: ParserCursor,
 ): { ok: true; expression: MethodArgumentExpressionAst } | { ok: false; report: DiagnosticReport } {
-  const firstPrimary = parsePrimaryExpression(cursor);
-  if (firstPrimary.ok === false) {
-    return firstPrimary;
+  const fileName = cursor.getSourceFileName();
+  const firstMultiplicative = parseMultiplicativeExpression(cursor);
+  if (firstMultiplicative.ok === false) {
+    return firstMultiplicative;
   }
 
-  let accumulated: MethodArgumentExpressionAst = firstPrimary.expression;
-  const fileName = cursor.getSourceFileName();
+  let accumulated: MethodArgumentExpressionAst = firstMultiplicative.expression;
 
-  while (cursor.current().kind === "plus") {
-    const plusToken = cursor.current();
+  while (cursor.current().kind === "plus" || cursor.current().kind === "minus") {
+    const operatorToken = cursor.current();
+    const isPlus = operatorToken.kind === "plus";
     cursor.advance();
-    const nextPrimary = parsePrimaryExpression(cursor);
-    if (nextPrimary.ok === false) {
-      return nextPrimary;
+    const nextMultiplicative = parseMultiplicativeExpression(cursor);
+    if (nextMultiplicative.ok === false) {
+      return nextMultiplicative;
     }
-    accumulated = {
-      kind: "binary_add",
-      range: {
-        fileName,
-        start: accumulated.range.start,
-        end: nextPrimary.expression.range.end,
-      },
-      left: accumulated,
-      right: nextPrimary.expression,
-    };
+    accumulated = isPlus
+      ? {
+          kind: "binary_add",
+          range: {
+            fileName,
+            start: accumulated.range.start,
+            end: nextMultiplicative.expression.range.end,
+          },
+          left: accumulated,
+          right: nextMultiplicative.expression,
+        }
+      : {
+          kind: "binary_sub",
+          range: {
+            fileName,
+            start: accumulated.range.start,
+            end: nextMultiplicative.expression.range.end,
+          },
+          left: accumulated,
+          right: nextMultiplicative.expression,
+        };
   }
 
   return { ok: true, expression: accumulated };
+}
+
+function parseMultiplicativeExpression(
+  cursor: ParserCursor,
+): { ok: true; expression: MethodArgumentExpressionAst } | { ok: false; report: DiagnosticReport } {
+  const fileName = cursor.getSourceFileName();
+  const firstUnary = parseUnaryExpression(cursor);
+  if (firstUnary.ok === false) {
+    return firstUnary;
+  }
+
+  let accumulated: MethodArgumentExpressionAst = firstUnary.expression;
+
+  while (cursor.current().kind === "star" || cursor.current().kind === "slash") {
+    const operatorToken = cursor.current();
+    const isMultiply = operatorToken.kind === "star";
+    cursor.advance();
+    const nextUnary = parseUnaryExpression(cursor);
+    if (nextUnary.ok === false) {
+      return nextUnary;
+    }
+    accumulated = isMultiply
+      ? {
+          kind: "binary_mul",
+          range: {
+            fileName,
+            start: accumulated.range.start,
+            end: nextUnary.expression.range.end,
+          },
+          left: accumulated,
+          right: nextUnary.expression,
+        }
+      : {
+          kind: "binary_div",
+          range: {
+            fileName,
+            start: accumulated.range.start,
+            end: nextUnary.expression.range.end,
+          },
+          left: accumulated,
+          right: nextUnary.expression,
+        };
+  }
+
+  return { ok: true, expression: accumulated };
+}
+
+function parseUnaryExpression(
+  cursor: ParserCursor,
+): { ok: true; expression: MethodArgumentExpressionAst } | { ok: false; report: DiagnosticReport } {
+  const fileName = cursor.getSourceFileName();
+  if (cursor.current().kind === "minus") {
+    const minusToken = cursor.current();
+    cursor.advance();
+    const operandResult = parseUnaryExpression(cursor);
+    if (operandResult.ok === false) {
+      return operandResult;
+    }
+    return {
+      ok: true,
+      expression: {
+        kind: "unary_minus",
+        range: {
+          fileName,
+          start: minusToken.start,
+          end: operandResult.expression.range.end,
+        },
+        operand: operandResult.expression,
+      },
+    };
+  }
+
+  return parsePrimaryExpression(cursor);
 }
 
 function parsePrimaryExpression(
@@ -1596,6 +2009,31 @@ function parsePrimaryExpression(
 ): { ok: true; expression: MethodArgumentExpressionAst } | { ok: false; report: DiagnosticReport } {
   const fileName = cursor.getSourceFileName();
   const token = cursor.current();
+
+  if (token.kind === "left_paren") {
+    const openParen = token;
+    cursor.advance();
+    const innerResult = parseExpression(cursor);
+    if (innerResult.ok === false) {
+      return innerResult;
+    }
+    const closeParen = cursor.current();
+    if (closeParen.kind !== "right_paren") {
+      return {
+        ok: false,
+        report: createDiagnosticReport([
+          buildParseUnexpectedToken({
+            file: fileName,
+            range: tokenToDiagnosticRange(fileName, closeParen),
+            rangeText: closeParen.lexeme,
+            message: "Expected ')' after parenthesized expression.",
+          }),
+        ]),
+      };
+    }
+    cursor.advance();
+    return innerResult;
+  }
 
   if (token.kind === "number_literal") {
     const numberToken = token;
@@ -1636,6 +2074,10 @@ function parsePrimaryExpression(
 
   if (token.kind === "identifier" && token.lexeme === "read") {
     return parseReadExpression(cursor);
+  }
+
+  if (token.kind === "identifier" && token.lexeme === "match") {
+    return parseMatchExpressionPrimary(cursor);
   }
 
   if (token.kind === "identifier" && token.lexeme === "step") {
@@ -1685,7 +2127,7 @@ function parsePrimaryExpression(
       };
     }
 
-    const targetResult = parseAdditiveExpression(cursor);
+    const targetResult = parseExpression(cursor);
     if (targetResult.ok === false) {
       return targetResult;
     }
@@ -1750,6 +2192,232 @@ function parsePrimaryExpression(
         message: "Expected expression.",
       }),
     ]),
+  };
+}
+
+function parseMatchExpressionPrimary(
+  cursor: ParserCursor,
+): { ok: true; expression: MethodArgumentExpressionAst } | { ok: false; report: DiagnosticReport } {
+  const fileName = cursor.getSourceFileName();
+  const matchKeyword = cursor.current();
+  cursor.advance();
+
+  const scrutineeResult = parseExpression(cursor);
+  if (scrutineeResult.ok === false) {
+    return scrutineeResult;
+  }
+
+  const openBrace = cursor.current();
+  if (openBrace.kind !== "left_brace") {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildParseUnexpectedToken({
+          file: fileName,
+          range: tokenToDiagnosticRange(fileName, openBrace),
+          rangeText: openBrace.lexeme,
+          message: "Expected '{' after match scrutinee expression.",
+        }),
+      ]),
+    };
+  }
+  cursor.advance();
+
+  const arms: MatchExpressionArmAst[] = [];
+  let elseResultExpression: MethodArgumentExpressionAst | undefined;
+
+  while (cursor.current().kind !== "right_brace" && !cursor.isAtEndOfFile()) {
+    const nextTok = cursor.current();
+    if (nextTok.kind === "identifier" && nextTok.lexeme === "else") {
+      cursor.advance();
+      const elseArrow = cursor.current();
+      if (elseArrow.kind !== "fat_arrow") {
+        return {
+          ok: false,
+          report: createDiagnosticReport([
+            buildParseUnexpectedToken({
+              file: fileName,
+              range: tokenToDiagnosticRange(fileName, elseArrow),
+              rangeText: elseArrow.lexeme,
+              message: "Expected '=>' after else in match expression.",
+            }),
+          ]),
+        };
+      }
+      cursor.advance();
+      const elseExprResult = parseExpression(cursor);
+      if (elseExprResult.ok === false) {
+        return elseExprResult;
+      }
+      elseResultExpression = elseExprResult.expression;
+      const maybeComma = cursor.current();
+      if (maybeComma.kind === "comma") {
+        cursor.advance();
+      }
+      break;
+    }
+
+    const patternResult = parseMatchNumericPattern(cursor);
+    if (patternResult.ok === false) {
+      return patternResult;
+    }
+
+    const arrowToken = cursor.current();
+    if (arrowToken.kind !== "fat_arrow") {
+      return {
+        ok: false,
+        report: createDiagnosticReport([
+          buildParseUnexpectedToken({
+            file: fileName,
+            range: tokenToDiagnosticRange(fileName, arrowToken),
+            rangeText: arrowToken.lexeme,
+            message: "Expected '=>' after match pattern.",
+          }),
+        ]),
+      };
+    }
+    cursor.advance();
+
+    const resultResult = parseExpression(cursor);
+    if (resultResult.ok === false) {
+      return resultResult;
+    }
+
+    arms.push({
+      range: patternResult.pattern.range,
+      pattern: patternResult.pattern,
+      resultExpression: resultResult.expression,
+    });
+
+    const separator = cursor.current();
+    if (separator.kind === "comma") {
+      cursor.advance();
+    }
+  }
+
+  const closeBrace = cursor.current();
+  if (closeBrace.kind !== "right_brace") {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildParseUnexpectedToken({
+          file: fileName,
+          range: tokenToDiagnosticRange(fileName, closeBrace),
+          rangeText: closeBrace.lexeme,
+          message: "Expected '}' to close match expression.",
+        }),
+      ]),
+    };
+  }
+  cursor.advance();
+
+  return {
+    ok: true,
+    expression: {
+      kind: "match_expression",
+      range: {
+        fileName,
+        start: matchKeyword.start,
+        end: closeBrace.end,
+      },
+      scrutinee: scrutineeResult.expression,
+      arms,
+      elseResultExpression,
+    },
+  };
+}
+
+function parseMatchNumericPattern(
+  cursor: ParserCursor,
+):
+  | { ok: true; pattern: MatchNumericPatternAst }
+  | { ok: false; report: DiagnosticReport } {
+  const fileName = cursor.getSourceFileName();
+  const patternStartToken = cursor.current();
+
+  if (patternStartToken.kind === "dot_dot") {
+    const rangeStart = patternStartToken.start;
+    cursor.advance();
+    const afterDots = cursor.current();
+    if (afterDots.kind === "fat_arrow") {
+      return {
+        ok: false,
+        report: createDiagnosticReport([
+          buildParseUnexpectedToken({
+            file: fileName,
+            range: tokenToDiagnosticRange(fileName, afterDots),
+            rangeText: afterDots.lexeme,
+            message: "Expected range bound after '..'.",
+          }),
+        ]),
+      };
+    }
+    const endResult = parseAdditiveExpression(cursor);
+    if (endResult.ok === false) {
+      return endResult;
+    }
+    return {
+      ok: true,
+      pattern: {
+        kind: "range_pattern",
+        range: {
+          fileName,
+          start: patternStartToken.start,
+          end: endResult.expression.range.end,
+        },
+        endExclusive: endResult.expression,
+      },
+    };
+  }
+
+  const firstBound = parseAdditiveExpression(cursor);
+  if (firstBound.ok === false) {
+    return firstBound;
+  }
+
+  if (cursor.current().kind === "dot_dot") {
+    cursor.advance();
+    const afterRangeDots = cursor.current();
+    if (afterRangeDots.kind === "fat_arrow") {
+      return {
+        ok: true,
+        pattern: {
+          kind: "range_pattern",
+          range: {
+            fileName,
+            start: patternStartToken.start,
+            end: firstBound.expression.range.end,
+          },
+          startInclusive: firstBound.expression,
+        },
+      };
+    }
+    const endBound = parseAdditiveExpression(cursor);
+    if (endBound.ok === false) {
+      return endBound;
+    }
+    return {
+      ok: true,
+      pattern: {
+        kind: "range_pattern",
+        range: {
+          fileName,
+          start: patternStartToken.start,
+          end: endBound.expression.range.end,
+        },
+        startInclusive: firstBound.expression,
+        endExclusive: endBound.expression,
+      },
+    };
+  }
+
+  return {
+    ok: true,
+    pattern: {
+      kind: "equality_pattern",
+      range: firstBound.expression.range,
+      compareExpression: firstBound.expression,
+    },
   };
 }
 

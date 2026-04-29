@@ -4,6 +4,7 @@
 
 import type {
   MethodArgumentExpressionAst,
+  MatchNumericPatternAst,
   ProgramAst,
   ReadTargetAst,
   TaskOnEventTargetAst,
@@ -17,11 +18,15 @@ import { createDiagnosticReport } from "../diagnostics/diagnostic";
 import {
   buildNameDuplicateDeclaration,
   buildNameUnknownReference,
+  buildBindCannotAssignToConst,
 } from "../diagnostics/diagnostic-builder";
 import type {
+  BoundConstSymbol,
   BoundDoStatement,
   BoundAnimatorSymbol,
   BoundExpression,
+  BoundIfStatement,
+  BoundMatchPattern,
   BoundMatchStatement,
   BoundOnEventTask,
   BoundProgram,
@@ -30,6 +35,8 @@ import type {
   BoundStatement,
   BoundStateSymbol,
   BoundTask,
+  BoundTempStatement,
+  BoundValueSymbolInSourceOrderRow,
   BoundWaitStatement,
 } from "./bound-program";
 import { RefSymbolTable } from "./symbol-table";
@@ -153,58 +160,115 @@ export function bindProgram(ast: ProgramAst, sourceFileName: string): BindProgra
     return { ok: false, report: createDiagnosticReport(diagnostics) };
   }
 
-  const stateDeclarations = ast.declarations.flatMap((declaration) =>
-    declaration.kind === "state_declaration" ? [declaration] : [],
-  );
+  const constSymbols = new Map<string, BoundConstSymbol>();
+  const constSymbolsInSourceOrder: BoundConstSymbol[] = [];
+  const valueSymbolsInSourceOrder: BoundValueSymbolInSourceOrderRow[] = [];
 
-  const successfulStateDeclarations: typeof stateDeclarations = [];
+  for (const declaration of ast.declarations) {
+    if (declaration.kind === "state_declaration") {
+      if (constSymbols.has(declaration.stateName)) {
+        const existingConst = constSymbols.get(declaration.stateName)!;
+        diagnostics.push(
+          buildNameDuplicateDeclaration({
+            name: declaration.stateName,
+            range: astRangeToSourceRange(declaration.range),
+            secondaryRange: astRangeToSourceRange(existingConst.range),
+          }),
+        );
+        continue;
+      }
+      const existingState = stateSymbols.get(declaration.stateName);
+      if (existingState !== undefined) {
+        diagnostics.push(
+          buildNameDuplicateDeclaration({
+            name: declaration.stateName,
+            range: astRangeToSourceRange(declaration.range),
+            secondaryRange: astRangeToSourceRange(existingState.range),
+          }),
+        );
+        continue;
+      }
 
-  for (const declaration of stateDeclarations) {
-    const existingState = stateSymbols.get(declaration.stateName);
-    if (existingState !== undefined) {
-      diagnostics.push(
-        buildNameDuplicateDeclaration({
-          name: declaration.stateName,
-          range: astRangeToSourceRange(declaration.range),
-          secondaryRange: astRangeToSourceRange(existingState.range),
-        }),
-      );
+      const bindExpressionResult = bindMethodArgumentExpression({
+        expression: declaration.initialValueExpression,
+        refSymbolTable,
+        stateSymbols,
+        constSymbols,
+        animatorSymbols,
+        tempNamesInScope: new Set(),
+      });
+      if (bindExpressionResult.ok === false) {
+        return bindExpressionResult;
+      }
+
+      stateSymbols.set(declaration.stateName, {
+        stateName: declaration.stateName,
+        initialValue: bindExpressionResult.expression,
+        range: declaration.range,
+      });
+      valueSymbolsInSourceOrder.push({
+        kind: "state",
+        name: declaration.stateName,
+        initialValue: bindExpressionResult.expression,
+        range: declaration.range,
+      });
       continue;
     }
 
-    stateSymbols.set(declaration.stateName, {
-      stateName: declaration.stateName,
-      initialValue: { kind: "integer", value: 0 },
-      range: declaration.range,
-    });
-    successfulStateDeclarations.push(declaration);
+    if (declaration.kind === "const_declaration") {
+      if (stateSymbols.has(declaration.constName)) {
+        const existingState = stateSymbols.get(declaration.constName)!;
+        diagnostics.push(
+          buildNameDuplicateDeclaration({
+            name: declaration.constName,
+            range: astRangeToSourceRange(declaration.range),
+            secondaryRange: astRangeToSourceRange(existingState.range),
+          }),
+        );
+        continue;
+      }
+      const existingConst = constSymbols.get(declaration.constName);
+      if (existingConst !== undefined) {
+        diagnostics.push(
+          buildNameDuplicateDeclaration({
+            name: declaration.constName,
+            range: astRangeToSourceRange(declaration.range),
+            secondaryRange: astRangeToSourceRange(existingConst.range),
+          }),
+        );
+        continue;
+      }
+
+      const bindExpressionResult = bindMethodArgumentExpression({
+        expression: declaration.initialValueExpression,
+        refSymbolTable,
+        stateSymbols,
+        constSymbols,
+        animatorSymbols,
+        tempNamesInScope: new Set(),
+      });
+      if (bindExpressionResult.ok === false) {
+        return bindExpressionResult;
+      }
+
+      const constSymbol: BoundConstSymbol = {
+        constName: declaration.constName,
+        initialValue: bindExpressionResult.expression,
+        range: declaration.range,
+      };
+      constSymbols.set(declaration.constName, constSymbol);
+      constSymbolsInSourceOrder.push(constSymbol);
+      valueSymbolsInSourceOrder.push({
+        kind: "const",
+        name: declaration.constName,
+        initialValue: bindExpressionResult.expression,
+        range: declaration.range,
+      });
+    }
   }
 
   if (diagnostics.length > 0) {
     return { ok: false, report: createDiagnosticReport(diagnostics) };
-  }
-
-  for (const declaration of successfulStateDeclarations) {
-    const bindExpressionResult = bindMethodArgumentExpression({
-      expression: declaration.initialValueExpression,
-      refSymbolTable,
-      stateSymbols,
-      animatorSymbols,
-    });
-    if (bindExpressionResult.ok === false) {
-      return bindExpressionResult;
-    }
-
-    const existingEntry = stateSymbols.get(declaration.stateName);
-    if (existingEntry === undefined) {
-      continue;
-    }
-
-    stateSymbols.set(declaration.stateName, {
-      stateName: declaration.stateName,
-      initialValue: bindExpressionResult.expression,
-      range: existingEntry.range,
-    });
   }
 
   const boundTasks: BoundTask[] = [];
@@ -216,6 +280,7 @@ export function bindProgram(ast: ProgramAst, sourceFileName: string): BindProgra
         taskDeclaration: declaration,
         refSymbolTable,
         stateSymbols,
+        constSymbols,
         animatorSymbols,
       });
       if (bindTaskResult.ok === false) {
@@ -230,6 +295,7 @@ export function bindProgram(ast: ProgramAst, sourceFileName: string): BindProgra
         taskOnDeclaration: declaration,
         refSymbolTable,
         stateSymbols,
+        constSymbols,
         animatorSymbols,
       });
       if (bindOnResult.ok === false) {
@@ -252,11 +318,14 @@ export function bindProgram(ast: ProgramAst, sourceFileName: string): BindProgra
     sourceFileName,
     refSymbols,
     stateSymbols,
+    constSymbols,
+    constSymbolsInSourceOrder,
     stateSymbolsInSourceOrder: buildStateSymbolsInSourceOrder(ast, stateSymbols),
     animatorSymbols,
     animatorSymbolsInSourceOrder,
     tasks: boundTasks,
     onEventTasks: boundOnEventTasks,
+    valueSymbolsInSourceOrder,
   };
 
   return { ok: true, boundProgram };
@@ -283,8 +352,10 @@ function bindTaskDeclaration(params: {
   taskDeclaration: TaskDeclarationAst;
   refSymbolTable: RefSymbolTable;
   stateSymbols: Map<string, BoundStateSymbol>;
+  constSymbols: Map<string, BoundConstSymbol>;
   animatorSymbols: ReadonlyMap<string, BoundAnimatorSymbol>;
 }): { ok: true; boundTask: BoundTask } | { ok: false; report: DiagnosticReport } {
+  const linearTempScope = new Set<string>();
   const boundStatements: BoundStatement[] = [];
 
   for (const statement of params.taskDeclaration.bodyStatements) {
@@ -292,12 +363,17 @@ function bindTaskDeclaration(params: {
       statement,
       refSymbolTable: params.refSymbolTable,
       stateSymbols: params.stateSymbols,
+      constSymbols: params.constSymbols,
       animatorSymbols: params.animatorSymbols,
+      tempNamesInScope: linearTempScope,
     });
     if (bindStatementResult.ok === false) {
       return bindStatementResult;
     }
     boundStatements.push(bindStatementResult.boundStatement);
+    if (statement.kind === "temp_statement") {
+      linearTempScope.add(statement.tempName);
+    }
   }
 
   const boundTask: BoundTask = {
@@ -316,6 +392,7 @@ function bindTaskOnDeclaration(params: {
   taskOnDeclaration: TaskOnDeclarationAst;
   refSymbolTable: RefSymbolTable;
   stateSymbols: Map<string, BoundStateSymbol>;
+  constSymbols: Map<string, BoundConstSymbol>;
   animatorSymbols: ReadonlyMap<string, BoundAnimatorSymbol>;
 }): { ok: true; boundTask: BoundOnEventTask } | { ok: false; report: DiagnosticReport } {
   const resolveEventTargetResult = resolveTaskOnEventTargetToDeviceAddress({
@@ -326,6 +403,7 @@ function bindTaskOnDeclaration(params: {
     return resolveEventTargetResult;
   }
 
+  const linearTempScope = new Set<string>();
   const boundStatements: BoundStatement[] = [];
 
   for (const statement of params.taskOnDeclaration.bodyStatements) {
@@ -333,12 +411,17 @@ function bindTaskOnDeclaration(params: {
       statement,
       refSymbolTable: params.refSymbolTable,
       stateSymbols: params.stateSymbols,
+      constSymbols: params.constSymbols,
       animatorSymbols: params.animatorSymbols,
+      tempNamesInScope: linearTempScope,
     });
     if (bindStatementResult.ok === false) {
       return bindStatementResult;
     }
     boundStatements.push(bindStatementResult.boundStatement);
+    if (statement.kind === "temp_statement") {
+      linearTempScope.add(statement.tempName);
+    }
   }
 
   const boundTask: BoundOnEventTask = {
@@ -391,12 +474,54 @@ function resolveTaskOnEventTargetToDeviceAddress(params: {
   return { ok: true, deviceAddress: parseAddressResult.address };
 }
 
+function bindStatementSequence(params: {
+  statements: import("../ast/script-ast").StatementAst[];
+  refSymbolTable: RefSymbolTable;
+  stateSymbols: Map<string, BoundStateSymbol>;
+  constSymbols: Map<string, BoundConstSymbol>;
+  animatorSymbols: ReadonlyMap<string, BoundAnimatorSymbol>;
+  inheritedTempNames: Set<string>;
+}): { ok: true; boundStatements: BoundStatement[] } | { ok: false; report: DiagnosticReport } {
+  const linearTempScope = new Set(params.inheritedTempNames);
+  const boundStatements: BoundStatement[] = [];
+
+  for (const statement of params.statements) {
+    const bindStatementResult = bindStatement({
+      statement,
+      refSymbolTable: params.refSymbolTable,
+      stateSymbols: params.stateSymbols,
+      constSymbols: params.constSymbols,
+      animatorSymbols: params.animatorSymbols,
+      tempNamesInScope: linearTempScope,
+    });
+    if (bindStatementResult.ok === false) {
+      return bindStatementResult;
+    }
+    boundStatements.push(bindStatementResult.boundStatement);
+    if (statement.kind === "temp_statement") {
+      linearTempScope.add(statement.tempName);
+    }
+  }
+
+  return { ok: true, boundStatements };
+}
+
 function bindStatement(params: {
   statement: import("../ast/script-ast").StatementAst;
   refSymbolTable: RefSymbolTable;
   stateSymbols: Map<string, BoundStateSymbol>;
+  constSymbols: Map<string, BoundConstSymbol>;
   animatorSymbols: ReadonlyMap<string, BoundAnimatorSymbol>;
+  tempNamesInScope: Set<string>;
 }): { ok: true; boundStatement: BoundStatement } | { ok: false; report: DiagnosticReport } {
+  const expressionBindContext = {
+    refSymbolTable: params.refSymbolTable,
+    stateSymbols: params.stateSymbols,
+    constSymbols: params.constSymbols,
+    animatorSymbols: params.animatorSymbols,
+    tempNamesInScope: params.tempNamesInScope,
+  };
+
   if (params.statement.kind === "do_statement") {
     const receiver = params.statement.callExpression.receiver;
     const resolveReceiverResult = resolveCallReceiverToDeviceAddress({
@@ -411,9 +536,7 @@ function bindStatement(params: {
     for (const argument of params.statement.callExpression.arguments) {
       const bindArgumentResult = bindMethodArgumentExpression({
         expression: argument,
-        refSymbolTable: params.refSymbolTable,
-        stateSymbols: params.stateSymbols,
-        animatorSymbols: params.animatorSymbols,
+        ...expressionBindContext,
       });
       if (bindArgumentResult.ok === false) {
         return bindArgumentResult;
@@ -432,6 +555,18 @@ function bindStatement(params: {
   }
 
   if (params.statement.kind === "set_statement") {
+    if (params.constSymbols.has(params.statement.stateName)) {
+      return {
+        ok: false,
+        report: createDiagnosticReport([
+          buildBindCannotAssignToConst({
+            name: params.statement.stateName,
+            range: astRangeToSourceRange(params.statement.range),
+          }),
+        ]),
+      };
+    }
+
     const definedState = params.stateSymbols.get(params.statement.stateName);
     if (definedState === undefined) {
       return {
@@ -448,9 +583,7 @@ function bindStatement(params: {
 
     const bindValueResult = bindMethodArgumentExpression({
       expression: params.statement.valueExpression,
-      refSymbolTable: params.refSymbolTable,
-      stateSymbols: params.stateSymbols,
-      animatorSymbols: params.animatorSymbols,
+      ...expressionBindContext,
     });
     if (bindValueResult.ok === false) {
       return bindValueResult;
@@ -465,16 +598,89 @@ function bindStatement(params: {
     return { ok: true, boundStatement: boundSet };
   }
 
+  if (params.statement.kind === "wait_statement") {
+    const boundWait: BoundWaitStatement = {
+      kind: "wait_statement",
+      waitMilliseconds: params.statement.waitMilliseconds,
+      waitRange: params.statement.waitRange,
+      range: params.statement.range,
+    };
+    return { ok: true, boundStatement: boundWait };
+  }
+
+  if (params.statement.kind === "temp_statement") {
+    const bindValueResult = bindMethodArgumentExpression({
+      expression: params.statement.valueExpression,
+      ...expressionBindContext,
+    });
+    if (bindValueResult.ok === false) {
+      return bindValueResult;
+    }
+
+    const boundTemp: BoundTempStatement = {
+      kind: "temp_statement",
+      range: params.statement.range,
+      tempName: params.statement.tempName,
+      valueExpression: bindValueResult.expression,
+    };
+    return { ok: true, boundStatement: boundTemp };
+  }
+
+  if (params.statement.kind === "if_statement") {
+    const bindConditionResult = bindMethodArgumentExpression({
+      expression: params.statement.conditionExpression,
+      ...expressionBindContext,
+    });
+    if (bindConditionResult.ok === false) {
+      return bindConditionResult;
+    }
+
+    const inheritedScopeSnapshot = new Set(params.tempNamesInScope);
+
+    const thenSequenceResult = bindStatementSequence({
+      statements: params.statement.thenBodyStatements,
+      refSymbolTable: params.refSymbolTable,
+      stateSymbols: params.stateSymbols,
+      constSymbols: params.constSymbols,
+      animatorSymbols: params.animatorSymbols,
+      inheritedTempNames: inheritedScopeSnapshot,
+    });
+    if (thenSequenceResult.ok === false) {
+      return thenSequenceResult;
+    }
+
+    const elseSequenceResult = bindStatementSequence({
+      statements: params.statement.elseBodyStatements,
+      refSymbolTable: params.refSymbolTable,
+      stateSymbols: params.stateSymbols,
+      constSymbols: params.constSymbols,
+      animatorSymbols: params.animatorSymbols,
+      inheritedTempNames: inheritedScopeSnapshot,
+    });
+    if (elseSequenceResult.ok === false) {
+      return elseSequenceResult;
+    }
+
+    const boundIf: BoundIfStatement = {
+      kind: "if_statement",
+      range: params.statement.range,
+      conditionExpression: bindConditionResult.expression,
+      thenStatements: thenSequenceResult.boundStatements,
+      elseStatements: elseSequenceResult.boundStatements,
+    };
+    return { ok: true, boundStatement: boundIf };
+  }
+
   if (params.statement.kind === "match_statement") {
     const bindTargetResult = bindMethodArgumentExpression({
       expression: params.statement.matchTargetExpression,
-      refSymbolTable: params.refSymbolTable,
-      stateSymbols: params.stateSymbols,
-      animatorSymbols: params.animatorSymbols,
+      ...expressionBindContext,
     });
     if (bindTargetResult.ok === false) {
       return bindTargetResult;
     }
+
+    const scopeBeforeMatchArms = new Set(params.tempNamesInScope);
 
     const stringCases: {
       patternString: string;
@@ -482,37 +688,33 @@ function bindStatement(params: {
     }[] = [];
 
     for (const caseAst of params.statement.stringCases) {
-      const caseStatements: BoundStatement[] = [];
-      for (const branchStatement of caseAst.bodyStatements) {
-        const branchBindResult = bindStatement({
-          statement: branchStatement,
-          refSymbolTable: params.refSymbolTable,
-          stateSymbols: params.stateSymbols,
-          animatorSymbols: params.animatorSymbols,
-        });
-        if (branchBindResult.ok === false) {
-          return branchBindResult;
-        }
-        caseStatements.push(branchBindResult.boundStatement);
+      const branchSequenceResult = bindStatementSequence({
+        statements: caseAst.bodyStatements,
+        refSymbolTable: params.refSymbolTable,
+        stateSymbols: params.stateSymbols,
+        constSymbols: params.constSymbols,
+        animatorSymbols: params.animatorSymbols,
+        inheritedTempNames: scopeBeforeMatchArms,
+      });
+      if (branchSequenceResult.ok === false) {
+        return branchSequenceResult;
       }
       stringCases.push({
         patternString: caseAst.patternStringLiteral,
-        statements: caseStatements,
+        statements: branchSequenceResult.boundStatements,
       });
     }
 
-    const elseStatements: BoundStatement[] = [];
-    for (const branchStatement of params.statement.elseBodyStatements) {
-      const branchBindResult = bindStatement({
-        statement: branchStatement,
-        refSymbolTable: params.refSymbolTable,
-        stateSymbols: params.stateSymbols,
-        animatorSymbols: params.animatorSymbols,
-      });
-      if (branchBindResult.ok === false) {
-        return branchBindResult;
-      }
-      elseStatements.push(branchBindResult.boundStatement);
+    const elseSequenceResult = bindStatementSequence({
+      statements: params.statement.elseBodyStatements,
+      refSymbolTable: params.refSymbolTable,
+      stateSymbols: params.stateSymbols,
+      constSymbols: params.constSymbols,
+      animatorSymbols: params.animatorSymbols,
+      inheritedTempNames: scopeBeforeMatchArms,
+    });
+    if (elseSequenceResult.ok === false) {
+      return elseSequenceResult;
     }
 
     const boundMatch: BoundMatchStatement = {
@@ -520,19 +722,23 @@ function bindStatement(params: {
       range: params.statement.range,
       matchExpression: bindTargetResult.expression,
       stringCases,
-      elseStatements,
+      elseStatements: elseSequenceResult.boundStatements,
     };
 
     return { ok: true, boundStatement: boundMatch };
   }
 
-  const boundWait: BoundWaitStatement = {
-    kind: "wait_statement",
-    waitMilliseconds: params.statement.waitMilliseconds,
-    waitRange: params.statement.waitRange,
-    range: params.statement.range,
+  return {
+    ok: false,
+    report: createDiagnosticReport([
+      buildNameUnknownReference({
+        name: "<statement>",
+        range: astRangeToSourceRange(
+          (params.statement as import("../ast/script-ast").StatementAst).range,
+        ),
+      }),
+    ]),
   };
-  return { ok: true, boundStatement: boundWait };
 }
 
 function resolveCallReceiverToDeviceAddress(params: {
@@ -619,12 +825,99 @@ function bindReadTarget(params: {
   return { ok: true, expression: readExpression };
 }
 
+function bindMatchNumericPatternFromAst(params: {
+  pattern: MatchNumericPatternAst;
+  refSymbolTable: RefSymbolTable;
+  stateSymbols: Map<string, BoundStateSymbol>;
+  constSymbols: Map<string, BoundConstSymbol>;
+  animatorSymbols: ReadonlyMap<string, BoundAnimatorSymbol>;
+  tempNamesInScope: Set<string>;
+}): { ok: true; boundPattern: BoundMatchPattern } | { ok: false; report: DiagnosticReport } {
+  if (params.pattern.kind === "equality_pattern") {
+    const bindCompareResult = bindMethodArgumentExpression({
+      expression: params.pattern.compareExpression,
+      refSymbolTable: params.refSymbolTable,
+      stateSymbols: params.stateSymbols,
+      constSymbols: params.constSymbols,
+      animatorSymbols: params.animatorSymbols,
+      tempNamesInScope: params.tempNamesInScope,
+    });
+    if (bindCompareResult.ok === false) {
+      return bindCompareResult;
+    }
+    return {
+      ok: true,
+      boundPattern: {
+        kind: "equality_pattern",
+        range: params.pattern.range,
+        compareExpression: bindCompareResult.expression,
+      },
+    };
+  }
+
+  let startInclusive: BoundExpression | undefined;
+  if (params.pattern.startInclusive !== undefined) {
+    const bindStartResult = bindMethodArgumentExpression({
+      expression: params.pattern.startInclusive,
+      refSymbolTable: params.refSymbolTable,
+      stateSymbols: params.stateSymbols,
+      constSymbols: params.constSymbols,
+      animatorSymbols: params.animatorSymbols,
+      tempNamesInScope: params.tempNamesInScope,
+    });
+    if (bindStartResult.ok === false) {
+      return bindStartResult;
+    }
+    startInclusive = bindStartResult.expression;
+  }
+
+  let endExclusive: BoundExpression | undefined;
+  if (params.pattern.endExclusive !== undefined) {
+    const bindEndResult = bindMethodArgumentExpression({
+      expression: params.pattern.endExclusive,
+      refSymbolTable: params.refSymbolTable,
+      stateSymbols: params.stateSymbols,
+      constSymbols: params.constSymbols,
+      animatorSymbols: params.animatorSymbols,
+      tempNamesInScope: params.tempNamesInScope,
+    });
+    if (bindEndResult.ok === false) {
+      return bindEndResult;
+    }
+    endExclusive = bindEndResult.expression;
+  }
+
+  return {
+    ok: true,
+    boundPattern: {
+      kind: "range_pattern",
+      range: params.pattern.range,
+      startInclusive,
+      endExclusive,
+    },
+  };
+}
+
 function bindMethodArgumentExpression(params: {
   expression: MethodArgumentExpressionAst;
   refSymbolTable: RefSymbolTable;
   stateSymbols: Map<string, BoundStateSymbol>;
+  constSymbols: Map<string, BoundConstSymbol>;
   animatorSymbols: ReadonlyMap<string, BoundAnimatorSymbol>;
+  tempNamesInScope: Set<string>;
 }): { ok: true; expression: BoundExpression } | { ok: false; report: DiagnosticReport } {
+  const bindRecursive = (
+    expression: MethodArgumentExpressionAst,
+  ): { ok: true; expression: BoundExpression } | { ok: false; report: DiagnosticReport } =>
+    bindMethodArgumentExpression({
+      expression,
+      refSymbolTable: params.refSymbolTable,
+      stateSymbols: params.stateSymbols,
+      constSymbols: params.constSymbols,
+      animatorSymbols: params.animatorSymbols,
+      tempNamesInScope: params.tempNamesInScope,
+    });
+
   if (params.expression.kind === "integer_literal") {
     return {
       ok: true,
@@ -665,12 +958,7 @@ function bindMethodArgumentExpression(params: {
     }
 
     if (params.expression.targetExpression !== undefined) {
-      const targetBindResult = bindMethodArgumentExpression({
-        expression: params.expression.targetExpression,
-        refSymbolTable: params.refSymbolTable,
-        stateSymbols: params.stateSymbols,
-        animatorSymbols: params.animatorSymbols,
-      });
+      const targetBindResult = bindRecursive(params.expression.targetExpression);
       if (targetBindResult.ok === false) {
         return targetBindResult;
       }
@@ -703,41 +991,44 @@ function bindMethodArgumentExpression(params: {
   }
 
   if (params.expression.kind === "identifier_expression") {
-    const stateBinding = params.stateSymbols.get(params.expression.name);
+    const name = params.expression.name;
+    if (params.tempNamesInScope.has(name)) {
+      return {
+        ok: true,
+        expression: { kind: "temp_reference", tempName: name },
+      };
+    }
+    if (params.constSymbols.has(name)) {
+      return {
+        ok: true,
+        expression: { kind: "const_reference", constName: name },
+      };
+    }
+    const stateBinding = params.stateSymbols.get(name);
     if (stateBinding === undefined) {
       return {
         ok: false,
         report: createDiagnosticReport([
           buildNameUnknownReference({
-            name: params.expression.name,
+            name,
             range: astRangeToSourceRange(params.expression.range),
-            rangeText: params.expression.name,
+            rangeText: name,
           }),
         ]),
       };
     }
     return {
       ok: true,
-      expression: { kind: "identifier", name: params.expression.name },
+      expression: { kind: "identifier", name },
     };
   }
 
   if (params.expression.kind === "binary_add") {
-    const leftResult = bindMethodArgumentExpression({
-      expression: params.expression.left,
-      refSymbolTable: params.refSymbolTable,
-      stateSymbols: params.stateSymbols,
-      animatorSymbols: params.animatorSymbols,
-    });
+    const leftResult = bindRecursive(params.expression.left);
     if (leftResult.ok === false) {
       return leftResult;
     }
-    const rightResult = bindMethodArgumentExpression({
-      expression: params.expression.right,
-      refSymbolTable: params.refSymbolTable,
-      stateSymbols: params.stateSymbols,
-      animatorSymbols: params.animatorSymbols,
-    });
+    const rightResult = bindRecursive(params.expression.right);
     if (rightResult.ok === false) {
       return rightResult;
     }
@@ -747,6 +1038,153 @@ function bindMethodArgumentExpression(params: {
         kind: "binary_add",
         left: leftResult.expression,
         right: rightResult.expression,
+      },
+    };
+  }
+
+  if (params.expression.kind === "binary_sub") {
+    const leftResult = bindRecursive(params.expression.left);
+    if (leftResult.ok === false) {
+      return leftResult;
+    }
+    const rightResult = bindRecursive(params.expression.right);
+    if (rightResult.ok === false) {
+      return rightResult;
+    }
+    return {
+      ok: true,
+      expression: {
+        kind: "binary_sub",
+        left: leftResult.expression,
+        right: rightResult.expression,
+      },
+    };
+  }
+
+  if (params.expression.kind === "binary_mul") {
+    const leftResult = bindRecursive(params.expression.left);
+    if (leftResult.ok === false) {
+      return leftResult;
+    }
+    const rightResult = bindRecursive(params.expression.right);
+    if (rightResult.ok === false) {
+      return rightResult;
+    }
+    return {
+      ok: true,
+      expression: {
+        kind: "binary_mul",
+        left: leftResult.expression,
+        right: rightResult.expression,
+      },
+    };
+  }
+
+  if (params.expression.kind === "binary_div") {
+    const leftResult = bindRecursive(params.expression.left);
+    if (leftResult.ok === false) {
+      return leftResult;
+    }
+    const rightResult = bindRecursive(params.expression.right);
+    if (rightResult.ok === false) {
+      return rightResult;
+    }
+    return {
+      ok: true,
+      expression: {
+        kind: "binary_div",
+        left: leftResult.expression,
+        right: rightResult.expression,
+      },
+    };
+  }
+
+  if (params.expression.kind === "unary_minus") {
+    const operandResult = bindRecursive(params.expression.operand);
+    if (operandResult.ok === false) {
+      return operandResult;
+    }
+    return {
+      ok: true,
+      expression: {
+        kind: "unary_minus",
+        operand: operandResult.expression,
+      },
+    };
+  }
+
+  if (params.expression.kind === "comparison") {
+    const leftResult = bindRecursive(params.expression.left);
+    if (leftResult.ok === false) {
+      return leftResult;
+    }
+    const rightResult = bindRecursive(params.expression.right);
+    if (rightResult.ok === false) {
+      return rightResult;
+    }
+    return {
+      ok: true,
+      expression: {
+        kind: "comparison",
+        operator: params.expression.operator,
+        left: leftResult.expression,
+        right: rightResult.expression,
+      },
+    };
+  }
+
+  if (params.expression.kind === "match_expression") {
+    const scrutineeResult = bindRecursive(params.expression.scrutinee);
+    if (scrutineeResult.ok === false) {
+      return scrutineeResult;
+    }
+
+    const boundArms: {
+      pattern: BoundMatchPattern;
+      resultExpression: BoundExpression;
+      range: import("../ast/script-ast").AstRange;
+    }[] = [];
+
+    for (const arm of params.expression.arms) {
+      const patternResult = bindMatchNumericPatternFromAst({
+        pattern: arm.pattern,
+        refSymbolTable: params.refSymbolTable,
+        stateSymbols: params.stateSymbols,
+        constSymbols: params.constSymbols,
+        animatorSymbols: params.animatorSymbols,
+        tempNamesInScope: params.tempNamesInScope,
+      });
+      if (patternResult.ok === false) {
+        return patternResult;
+      }
+      const resultResult = bindRecursive(arm.resultExpression);
+      if (resultResult.ok === false) {
+        return resultResult;
+      }
+      boundArms.push({
+        pattern: patternResult.boundPattern,
+        resultExpression: resultResult.expression,
+        range: arm.range,
+      });
+    }
+
+    let elseResultExpression: BoundExpression | undefined;
+    if (params.expression.elseResultExpression !== undefined) {
+      const elseBind = bindRecursive(params.expression.elseResultExpression);
+      if (elseBind.ok === false) {
+        return elseBind;
+      }
+      elseResultExpression = elseBind.expression;
+    }
+
+    return {
+      ok: true,
+      expression: {
+        kind: "match_expression",
+        range: params.expression.range,
+        scrutinee: scrutineeResult.expression,
+        arms: boundArms,
+        elseResultExpression,
       },
     };
   }

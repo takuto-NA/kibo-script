@@ -2,6 +2,7 @@
   "ok": true,
   "program": {
     "stateInitializers": [],
+    "constInitializers": [],
     "animatorDefinitions": [],
     "everyTasks": [
       {
@@ -10,12 +11,18 @@
         "statements": [
           {
             "kind": "do_method_call",
-            "deviceAddress": { "kind": "serial", "id": 0 },
+            "deviceAddress": {
+              "kind": "serial",
+              "id": 0
+            },
             "methodName": "println",
             "arguments": [
               {
                 "kind": "read_property",
-                "deviceAddress": { "kind": "adc", "id": 0 },
+                "deviceAddress": {
+                  "kind": "adc",
+                  "id": 0
+                },
                 "propertyName": "raw"
               }
             ]

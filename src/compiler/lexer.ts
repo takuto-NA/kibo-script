@@ -66,6 +66,17 @@ export function lexSourceText(sourceText: string, fileName: string): LexResult {
     const tokenStartOffset = offset;
     const tokenStartPosition = positionAt(tokenStartOffset);
 
+    if (character === "/") {
+      offset += 1;
+      tokens.push({
+        kind: "slash",
+        lexeme: "/",
+        start: tokenStartPosition,
+        end: positionAt(offset),
+      });
+      continue;
+    }
+
     if (character === "{") {
       offset += 1;
       tokens.push({
@@ -107,6 +118,16 @@ export function lexSourceText(sourceText: string, fileName: string): LexResult {
       continue;
     }
     if (character === ".") {
+      if (sourceText[offset + 1] === ".") {
+        offset += 2;
+        tokens.push({
+          kind: "dot_dot",
+          lexeme: "..",
+          start: tokenStartPosition,
+          end: positionAt(offset),
+        });
+        continue;
+      }
       offset += 1;
       tokens.push({
         kind: "dot",
@@ -137,6 +158,16 @@ export function lexSourceText(sourceText: string, fileName: string): LexResult {
       continue;
     }
     if (character === "=") {
+      if (sourceText[offset + 1] === "=") {
+        offset += 2;
+        tokens.push({
+          kind: "equals_equals",
+          lexeme: "==",
+          start: tokenStartPosition,
+          end: positionAt(offset),
+        });
+        continue;
+      }
       if (sourceText[offset + 1] === ">") {
         offset += 2;
         tokens.push({
@@ -151,6 +182,95 @@ export function lexSourceText(sourceText: string, fileName: string): LexResult {
       tokens.push({
         kind: "equals",
         lexeme: "=",
+        start: tokenStartPosition,
+        end: positionAt(offset),
+      });
+      continue;
+    }
+    if (character === "!") {
+      if (sourceText[offset + 1] === "=") {
+        offset += 2;
+        tokens.push({
+          kind: "bang_equals",
+          lexeme: "!=",
+          start: tokenStartPosition,
+          end: positionAt(offset),
+        });
+        continue;
+      }
+      const unexpectedBangEnd = offset + 1;
+      const diagnosticRange = makeRange(tokenStartOffset, unexpectedBangEnd);
+      return {
+        ok: false,
+        report: createDiagnosticReport([
+          buildParseUnexpectedToken({
+            file: fileName,
+            range: {
+              file: fileName,
+              start: diagnosticRange.start,
+              end: diagnosticRange.end,
+            },
+            rangeText: "!",
+            message: "Unexpected '!'; expected '!='.",
+          }),
+        ]),
+      };
+    }
+    if (character === "<") {
+      if (sourceText[offset + 1] === "=") {
+        offset += 2;
+        tokens.push({
+          kind: "less_equal",
+          lexeme: "<=",
+          start: tokenStartPosition,
+          end: positionAt(offset),
+        });
+        continue;
+      }
+      offset += 1;
+      tokens.push({
+        kind: "less",
+        lexeme: "<",
+        start: tokenStartPosition,
+        end: positionAt(offset),
+      });
+      continue;
+    }
+    if (character === ">") {
+      if (sourceText[offset + 1] === "=") {
+        offset += 2;
+        tokens.push({
+          kind: "greater_equal",
+          lexeme: ">=",
+          start: tokenStartPosition,
+          end: positionAt(offset),
+        });
+        continue;
+      }
+      offset += 1;
+      tokens.push({
+        kind: "greater",
+        lexeme: ">",
+        start: tokenStartPosition,
+        end: positionAt(offset),
+      });
+      continue;
+    }
+    if (character === "-") {
+      offset += 1;
+      tokens.push({
+        kind: "minus",
+        lexeme: "-",
+        start: tokenStartPosition,
+        end: positionAt(offset),
+      });
+      continue;
+    }
+    if (character === "*") {
+      offset += 1;
+      tokens.push({
+        kind: "star",
+        lexeme: "*",
         start: tokenStartPosition,
         end: positionAt(offset),
       });
