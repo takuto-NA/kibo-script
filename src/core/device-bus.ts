@@ -89,11 +89,12 @@ export class DeviceBus {
     return device.readProperty(request);
   }
 
-  public applyEffect(effect: DeviceEffect): void {
+  public applyEffect(effect: DeviceEffect): boolean {
     const device = this.getDevice(effect.address);
     if (device === undefined) {
-      return;
+      return false;
     }
     device.applyEffect(effect);
+    return true;
   }
 }

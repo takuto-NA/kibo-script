@@ -5,6 +5,26 @@ import { SimulationRuntime } from "../../src/core/simulation-runtime";
 import { TaskRegistry } from "../../src/core/task-registry";
 
 describe("parseInteractiveCommandLine", () => {
+  it("accepts one-line interactive commands for all implemented device methods", () => {
+    const supportedDeviceMethodCommands = [
+      "do serial#0.println(\"hello\")",
+      "do display#0.clear()",
+      "do display#0.pixel(10, 20)",
+      "do display#0.line(0, 0, 127, 63)",
+      "do display#0.circle(64, 32, 8)",
+      "do display#0.present()",
+      "do led#0.on()",
+      "do led#0.off()",
+      "do led#0.toggle()",
+      "do pwm#0.level(20)",
+    ];
+
+    for (const commandText of supportedDeviceMethodCommands) {
+      const parsed = parseInteractiveCommandLine(commandText);
+      expect(parsed.ok, commandText).toBe(true);
+    }
+  });
+
   it("parses read and do display", () => {
     const read = parseInteractiveCommandLine("read adc#0");
     expect(read.ok).toBe(true);
@@ -25,6 +45,25 @@ describe("parseInteractiveCommandLine", () => {
     if (led.ok) {
       expect(led.command.kind).toBe("do_led_effect");
     }
+  });
+
+  it("parses and evaluates do pwm#0.level(percent)", () => {
+    const parsed = parseInteractiveCommandLine("do pwm#0.level(20)");
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) {
+      return;
+    }
+    expect(parsed.command).toEqual({
+      kind: "do_pwm_level",
+      pwmId: 0,
+      levelPercent: 20,
+    });
+
+    const runtime = new SimulationRuntime({ tasks: new TaskRegistry() });
+    const evaluated = evaluateInteractiveCommand(runtime, parsed.command);
+
+    expect(evaluated.ok).toBe(true);
+    expect(runtime.getDefaultDevices().pwm0.getLevelPercent()).toBe(20);
   });
 
   it("returns unsupported for garbage", () => {

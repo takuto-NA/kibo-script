@@ -191,6 +191,7 @@ do serial#0.println("hello")
 do led#0.on()
 do led#0.off()
 do led#0.toggle()
+do pwm#0.level(20)
 ```
 
 ```text

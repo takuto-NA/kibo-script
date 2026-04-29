@@ -5,7 +5,7 @@ import { TerminalSession } from "../../src/interactive/terminal-session";
 
 /**
  * End-to-end smoke script for the browser simulator command surface.
- * Covers ADC read/info (multiline), display draw, LED toggle, diagnostics, and task registration.
+ * Covers ADC read/info (multiline), display draw, LED/PWM controls, diagnostics, and task registration.
  */
 describe("smoke script", () => {
   it("reads adc, draws to display, reports diagnostics, and registers a task", () => {
@@ -42,6 +42,9 @@ describe("smoke script", () => {
 
     session.submitLine("do led#0.toggle()");
     expect(runtime.getDefaultDevices().led0.isOn()).toBe(true);
+
+    session.submitLine("do pwm#0.level(20)");
+    expect(runtime.getDefaultDevices().pwm0.getLevelPercent()).toBe(20);
 
     const invalidPixelEntry = session.submitLine("do display#0.pixel(999, 0)");
     expect(invalidPixelEntry.diagnosticReport?.diagnostics[0]?.id).toBe(

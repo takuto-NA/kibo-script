@@ -42,6 +42,11 @@ export type InteractiveCommand =
       ledEffect: "on" | "off" | "toggle";
     }
   | {
+      kind: "do_pwm_level";
+      pwmId: number;
+      levelPercent: number;
+    }
+  | {
       kind: "list_tasks";
     }
   | {

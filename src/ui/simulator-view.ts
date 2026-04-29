@@ -11,6 +11,8 @@ import { createTerminalView } from "./terminal-view";
 
 import "./styles.css";
 
+const MAX_SIMULATION_FRAME_DELTA_MILLISECONDS = 100;
+
 export type CreateSimulatorViewParams = {
   rootElementId: string;
 };
@@ -25,7 +27,22 @@ export function createSimulatorView(params: CreateSimulatorViewParams): void {
   }
 
   const tasks = new TaskRegistry();
-  const runtime = new SimulationRuntime({ tasks });
+  const runtime = new SimulationRuntime({
+    tasks,
+    onAfterDeviceEffectApplied: (effect) => {
+      if (effect.kind === "display.present") {
+        refreshDisplayPreview();
+        return;
+      }
+      if (effect.kind === "pwm.level") {
+        refreshPwmPreview();
+        return;
+      }
+      if (effect.kind === "led.on" || effect.kind === "led.off" || effect.kind === "led.toggle") {
+        refreshLedPreview();
+      }
+    },
+  });
   const session = new TerminalSession(runtime);
   const embedController = new EmbedController(runtime);
 
@@ -78,19 +95,39 @@ export function createSimulatorView(params: CreateSimulatorViewParams): void {
   terminalView.focusInput();
 
   function refreshSimulatorOutputs(): void {
+    refreshDisplayPreview();
+    refreshLedPreview();
+    refreshPwmPreview();
+  }
+
+  function refreshDisplayPreview(): void {
     const frame = runtime.getDefaultDevices().display0.getPresentedFrameBytes();
     renderDisplayFrameToCanvas(canvas, frame);
+  }
+
+  function refreshLedPreview(): void {
     ledIndicatorView.setLightOn(runtime.getDefaultDevices().led0.isOn());
+  }
+
+  function refreshPwmPreview(): void {
     pwmLevelView.setLevelPercent(runtime.getDefaultDevices().pwm0.getLevelPercent());
   }
 
   refreshSimulatorOutputs();
 
-  const simulatorTickIntervalMilliseconds = 100;
-  window.setInterval(() => {
-    runtime.tick(simulatorTickIntervalMilliseconds);
-    refreshSimulatorOutputs();
-  }, simulatorTickIntervalMilliseconds);
+  let previousFrameTimestampMilliseconds: number | undefined;
+  function runSimulationFrame(timestampMilliseconds: number): void {
+    if (previousFrameTimestampMilliseconds !== undefined) {
+      const elapsedMilliseconds = Math.min(
+        timestampMilliseconds - previousFrameTimestampMilliseconds,
+        MAX_SIMULATION_FRAME_DELTA_MILLISECONDS,
+      );
+      runtime.tick(elapsedMilliseconds);
+    }
+    previousFrameTimestampMilliseconds = timestampMilliseconds;
+    window.requestAnimationFrame(runSimulationFrame);
+  }
+  window.requestAnimationFrame(runSimulationFrame);
 
   window.addEventListener("message", (event: MessageEvent) => {
     const result = embedController.handleMessage(event.data);

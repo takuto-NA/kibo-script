@@ -32,7 +32,7 @@ npm audit --audit-level=moderate
 直近確認:
 
 - `npm run typecheck`: 成功
-- `npm test`: 成功（30 files / 84 tests）
+- `npm test`: 成功（30 files / 87 tests）
 - `npm run build`: 成功
 - `npm run test:e2e`: 成功（4 tests）
 

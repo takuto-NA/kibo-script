@@ -23,6 +23,8 @@ export type SimulationTickResult = {
   appliedEffectCount: number;
 };
 
+export type DeviceEffectAppliedListener = (effect: DeviceEffect) => void;
+
 /**
  * cooperative every-task / on_event の時間とプログラムカウンタを進め、DeviceEffect をキューへ積む。
  */
@@ -35,15 +37,18 @@ export class SimulationRuntime {
   private readonly scriptStateValues = new Map<string, number | string>();
   private compiledAnimatorDefinitionsByName = new Map<string, CompiledAnimatorDefinition>();
   private readonly animatorRuntimeStatesByName = new Map<string, AnimatorRuntimeState>();
+  private readonly onAfterDeviceEffectApplied?: DeviceEffectAppliedListener;
 
   public constructor(params: {
     deviceBus?: DeviceBus;
     devices?: DefaultDevices;
     tasks: TaskRegistry;
+    onAfterDeviceEffectApplied?: DeviceEffectAppliedListener;
   }) {
     this.deviceBus = params.deviceBus ?? new DeviceBus();
     this.internalDevices = params.devices ?? createDefaultDevices();
     this.tasks = params.tasks;
+    this.onAfterDeviceEffectApplied = params.onAfterDeviceEffectApplied;
     registerDefaultDevices((address, device) => {
       this.deviceBus.registerDevice(address, device);
     }, this.internalDevices);
@@ -172,12 +177,17 @@ export class SimulationRuntime {
   }
 
   private flushPendingEffects(): number {
-    const count = this.pendingEffects.length;
+    let appliedEffectCount = 0;
     for (const effect of this.pendingEffects) {
-      this.deviceBus.applyEffect(effect);
+      const wasApplied = this.deviceBus.applyEffect(effect);
+      if (!wasApplied) {
+        continue;
+      }
+      appliedEffectCount += 1;
+      this.onAfterDeviceEffectApplied?.(effect);
     }
     this.pendingEffects.length = 0;
-    return count;
+    return appliedEffectCount;
   }
 
   private resumeWaitingEveryTasks(): void {

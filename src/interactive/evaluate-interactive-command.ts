@@ -43,6 +43,10 @@ function ledAddress(ledId: number) {
   return { kind: "led" as const, id: ledId };
 }
 
+function pwmAddress(pwmId: number) {
+  return { kind: "pwm" as const, id: pwmId };
+}
+
 /**
  * Evaluates one interactive command against the simulation runtime (queues effects, ticks).
  */
@@ -67,6 +71,8 @@ export function evaluateInteractiveCommand(
         "  do display#0.present()",
         "  do led#0.on() | do led#0.off() | do led#0.toggle()",
         "  led#0.info",
+        "  do pwm#0.level(percent)",
+        "  pwm#0.info",
         "  list tasks",
         "  show task <name>",
         "  start task <name> | stop task <name> | drop task <name>",
@@ -228,6 +234,16 @@ export function evaluateInteractiveCommand(
           ? ({ kind: "led.off" as const, address })
           : ({ kind: "led.toggle" as const, address });
     runtime.queueEffect(deviceEffect);
+    runtime.tick(0);
+    return { ok: true, lines: ["ok"] };
+  }
+
+  if (command.kind === "do_pwm_level") {
+    runtime.queueEffect({
+      kind: "pwm.level",
+      address: pwmAddress(command.pwmId),
+      levelPercent: command.levelPercent,
+    });
     runtime.tick(0);
     return { ok: true, lines: ["ok"] };
   }

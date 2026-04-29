@@ -18,6 +18,31 @@ describe("SimulationRuntime", () => {
     expect(out).toEqual(["ready"]);
   });
 
+  it("notifies after each successfully applied device effect", () => {
+    const tasks = new TaskRegistry();
+    const appliedEffectKinds: string[] = [];
+    const runtime = new SimulationRuntime({
+      tasks,
+      onAfterDeviceEffectApplied: (effect) => {
+        appliedEffectKinds.push(effect.kind);
+      },
+    });
+
+    runtime.queueEffect({
+      kind: "display.present",
+      address: { kind: "display", id: 0 },
+    });
+    runtime.queueEffect({
+      kind: "display.present",
+      address: { kind: "display", id: 99 },
+    });
+
+    const result = runtime.tick(0);
+
+    expect(result.appliedEffectCount).toBe(1);
+    expect(appliedEffectKinds).toEqual(["display.present"]);
+  });
+
   it("reads adc#0", () => {
     const tasks = new TaskRegistry();
     const runtime = new SimulationRuntime({ tasks });

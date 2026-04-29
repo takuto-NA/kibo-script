@@ -14,6 +14,7 @@ const DO_DISPLAY_CIRCLE_PATTERN =
   /^do\s+display#0\.circle\(\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*\)\s*$/;
 const DO_DISPLAY_PRESENT_PATTERN = /^do\s+display#0\.present\(\)\s*$/;
 const DO_LED_EFFECT_PATTERN = /^do\s+led#(\d+)\.(on|off|toggle)\(\)\s*$/;
+const DO_PWM_LEVEL_PATTERN = /^do\s+pwm#(\d+)\.level\(\s*(-?\d+)\s*\)\s*$/;
 const LIST_TASKS_PATTERN = /^list\s+tasks\s*$/;
 const SHOW_TASK_PATTERN = /^show\s+task\s+(\S+)\s*$/;
 const STOP_TASK_PATTERN = /^stop\s+task\s+(\S+)\s*$/;
@@ -136,6 +137,18 @@ export function parseInteractiveCommandLine(line: string): ParseInteractiveComma
         kind: "do_led_effect",
         ledId,
         ledEffect,
+      },
+    };
+  }
+
+  const pwmLevelMatch = DO_PWM_LEVEL_PATTERN.exec(trimmed);
+  if (pwmLevelMatch !== null) {
+    return {
+      ok: true,
+      command: {
+        kind: "do_pwm_level",
+        pwmId: Number.parseInt(pwmLevelMatch[1] ?? "0", 10),
+        levelPercent: Number.parseInt(pwmLevelMatch[2] ?? "0", 10),
       },
     };
   }
