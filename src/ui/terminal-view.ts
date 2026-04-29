@@ -5,7 +5,9 @@ const PROMPT_TEXT = ">";
 
 export type TerminalView = {
   rootElement: HTMLElement;
+  setOnBeforeSubmitLine(handler: (line: string) => void): void;
   setOnSubmitLine(handler: (line: string) => void): void;
+  appendOutputLine(line: string): void;
   appendHistoryEntry(entry: TerminalHistoryEntry): void;
   focusInput(): void;
 };
@@ -48,6 +50,9 @@ export function createTerminalView(
 
   let onSubmitLine: (line: string) => void = () => {
     // Optional hook for host (e.g. refresh canvas)
+  };
+  let onBeforeSubmitLine: (line: string) => void = () => {
+    // Optional hook for host (e.g. suppress auto-drain during interactive evaluation)
   };
   const submittedInputHistory: string[] = [];
   let historyCursorIndex = 0;
@@ -142,6 +147,7 @@ export function createTerminalView(
     const line = input.value;
     input.value = "";
     rememberSubmittedLine(line);
+    onBeforeSubmitLine(line);
     const entry = session.submitLine(line);
     appendHistoryEntry(entry);
     onSubmitLine(line);
@@ -149,8 +155,14 @@ export function createTerminalView(
 
   return {
     rootElement: container,
+    setOnBeforeSubmitLine(handler: (line: string) => void): void {
+      onBeforeSubmitLine = handler;
+    },
     setOnSubmitLine(handler: (line: string) => void): void {
       onSubmitLine = handler;
+    },
+    appendOutputLine(line: string): void {
+      appendLine(line, "terminal-line-output");
     },
     appendHistoryEntry,
     focusInput(): void {

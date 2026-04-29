@@ -7,7 +7,7 @@ import { createButton0PressView } from "./button-view";
 import { createLedIndicatorView } from "./led-view";
 import { createPwmLevelIndicatorView } from "./pwm-view";
 import { createScriptRunnerPanel } from "./script-runner-view";
-import { createTerminalView } from "./terminal-view";
+import { createTerminalView, type TerminalView } from "./terminal-view";
 
 import "./styles.css";
 
@@ -27,9 +27,18 @@ export function createSimulatorView(params: CreateSimulatorViewParams): void {
   }
 
   const tasks = new TaskRegistry();
+  let terminalView: TerminalView | undefined;
+  let isSubmittingInteractiveCommand = false;
+
   const runtime = new SimulationRuntime({
     tasks,
     onAfterDeviceEffectApplied: (effect) => {
+      if (effect.kind === "serial.println") {
+        if (!isSubmittingInteractiveCommand) {
+          flushSerialOutputToTerminal();
+        }
+        return;
+      }
       if (effect.kind === "display.present") {
         refreshDisplayPreview();
         return;
@@ -88,8 +97,12 @@ export function createSimulatorView(params: CreateSimulatorViewParams): void {
   layout.appendChild(displayHost);
   root.appendChild(layout);
 
-  const terminalView = createTerminalView(terminalHost, session);
+  terminalView = createTerminalView(terminalHost, session);
+  terminalView.setOnBeforeSubmitLine(() => {
+    isSubmittingInteractiveCommand = true;
+  });
   terminalView.setOnSubmitLine(() => {
+    isSubmittingInteractiveCommand = false;
     refreshSimulatorOutputs();
   });
   terminalView.focusInput();
@@ -111,6 +124,13 @@ export function createSimulatorView(params: CreateSimulatorViewParams): void {
 
   function refreshPwmPreview(): void {
     pwmLevelView.setLevelPercent(runtime.getDefaultDevices().pwm0.getLevelPercent());
+  }
+
+  function flushSerialOutputToTerminal(): void {
+    const serialLines = runtime.getDefaultDevices().serial0.takeOutputLines();
+    for (const line of serialLines) {
+      terminalView?.appendOutputLine(line);
+    }
   }
 
   refreshSimulatorOutputs();

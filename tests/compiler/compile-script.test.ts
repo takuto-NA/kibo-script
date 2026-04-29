@@ -53,4 +53,29 @@ task blink every 2000ms {
     }
     expect(result.report.diagnostics[0]?.id).toBe("semantic.duplicate_task_name");
   });
+
+  it("accepts printing temp values inferred from arithmetic and match expressions", () => {
+    const sourceText = `
+const max_score = 5
+state score = 0
+
+task count_press on button#0.pressed {
+  temp next_score = score + 1
+  temp clamped_score =
+    match next_score {
+      ..0 => 0
+      0..max_score => next_score
+      max_score.. => max_score
+      else => score
+    }
+
+  set score = clamped_score
+  do serial#0.println(clamped_score)
+}
+`;
+
+    const result = compileScript(sourceText, "println-temp.sc");
+
+    expect(result.ok).toBe(true);
+  });
 });

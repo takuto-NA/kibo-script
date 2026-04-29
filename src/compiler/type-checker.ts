@@ -38,7 +38,7 @@ export function typeCheckBoundProgram(boundProgram: BoundProgram): DiagnosticRep
   const stateValueKinds = new Map<string, "integer" | "string">();
 
   for (const row of boundProgram.valueSymbolsInSourceOrder) {
-    const inferredKind = inferBoundExpressionValueKind(row.initialValue, stateValueKinds, boundProgram);
+    const inferredKind = inferBoundExpressionValueKind(row.initialValue, stateValueKinds, new Map(), boundProgram);
     if (inferredKind === undefined) {
       diagnostics.push(
         buildTypeArgumentTypeMismatch({
@@ -70,27 +70,25 @@ export function typeCheckBoundProgram(boundProgram: BoundProgram): DiagnosticRep
       );
     }
 
-    for (const statement of task.statements) {
-      collectStatementTypeDiagnostics({
-        statement,
-        diagnostics,
-        stateValueKinds,
-        taskExecutionKind: "every_task",
-        boundProgram,
-      });
-    }
+    collectStatementSequenceTypeDiagnostics({
+      statements: task.statements,
+      diagnostics,
+      stateValueKinds,
+      tempValueKinds: new Map(),
+      taskExecutionKind: "every_task",
+      boundProgram,
+    });
   }
 
   for (const task of boundProgram.onEventTasks) {
-    for (const statement of task.statements) {
-      collectStatementTypeDiagnostics({
-        statement,
-        diagnostics,
-        stateValueKinds,
-        taskExecutionKind: "on_event_task",
-        boundProgram,
-      });
-    }
+    collectStatementSequenceTypeDiagnostics({
+      statements: task.statements,
+      diagnostics,
+      stateValueKinds,
+      tempValueKinds: new Map(),
+      taskExecutionKind: "on_event_task",
+      boundProgram,
+    });
   }
 
   const visitAnimatorStepDiagnostics = (expression: BoundExpression): void => {
@@ -125,6 +123,7 @@ type TaskExecutionKind = "every_task" | "on_event_task";
 function inferBoundExpressionValueKind(
   expression: BoundExpression,
   stateValueKinds: Map<string, ExpressionValueKind>,
+  tempValueKinds: Map<string, ExpressionValueKind>,
   boundProgram: BoundProgram,
 ): ExpressionValueKind | undefined {
   if (expression.kind === "integer") {
@@ -144,16 +143,16 @@ function inferBoundExpressionValueKind(
     if (symbol === undefined) {
       return undefined;
     }
-    return inferBoundExpressionValueKind(symbol.initialValue, stateValueKinds, boundProgram);
+    return inferBoundExpressionValueKind(symbol.initialValue, stateValueKinds, tempValueKinds, boundProgram);
   }
 
   if (expression.kind === "temp_reference") {
-    return undefined;
+    return tempValueKinds.get(expression.tempName);
   }
 
   if (expression.kind === "binary_add") {
-    const leftKind = inferBoundExpressionValueKind(expression.left, stateValueKinds, boundProgram);
-    const rightKind = inferBoundExpressionValueKind(expression.right, stateValueKinds, boundProgram);
+    const leftKind = inferBoundExpressionValueKind(expression.left, stateValueKinds, tempValueKinds, boundProgram);
+    const rightKind = inferBoundExpressionValueKind(expression.right, stateValueKinds, tempValueKinds, boundProgram);
     if (leftKind === "integer" && rightKind === "integer") {
       return "integer";
     }
@@ -161,8 +160,8 @@ function inferBoundExpressionValueKind(
   }
 
   if (expression.kind === "binary_sub" || expression.kind === "binary_mul" || expression.kind === "binary_div") {
-    const leftKind = inferBoundExpressionValueKind(expression.left, stateValueKinds, boundProgram);
-    const rightKind = inferBoundExpressionValueKind(expression.right, stateValueKinds, boundProgram);
+    const leftKind = inferBoundExpressionValueKind(expression.left, stateValueKinds, tempValueKinds, boundProgram);
+    const rightKind = inferBoundExpressionValueKind(expression.right, stateValueKinds, tempValueKinds, boundProgram);
     if (leftKind === "integer" && rightKind === "integer") {
       return "integer";
     }
@@ -170,15 +169,42 @@ function inferBoundExpressionValueKind(
   }
 
   if (expression.kind === "unary_minus") {
-    return inferBoundExpressionValueKind(expression.operand, stateValueKinds, boundProgram);
+    return inferBoundExpressionValueKind(expression.operand, stateValueKinds, tempValueKinds, boundProgram);
   }
 
   if (expression.kind === "comparison") {
-    return undefined;
+    return "integer";
   }
 
   if (expression.kind === "match_expression") {
-    return undefined;
+    const resultKinds: ExpressionValueKind[] = [];
+    for (const arm of expression.arms) {
+      const armKind = inferBoundExpressionValueKind(
+        arm.resultExpression,
+        stateValueKinds,
+        tempValueKinds,
+        boundProgram,
+      );
+      if (armKind !== undefined) {
+        resultKinds.push(armKind);
+      }
+    }
+    if (expression.elseResultExpression !== undefined) {
+      const elseKind = inferBoundExpressionValueKind(
+        expression.elseResultExpression,
+        stateValueKinds,
+        tempValueKinds,
+        boundProgram,
+      );
+      if (elseKind !== undefined) {
+        resultKinds.push(elseKind);
+      }
+    }
+    if (resultKinds.length === 0) {
+      return undefined;
+    }
+    const [firstKind] = resultKinds;
+    return resultKinds.every((kind) => kind === firstKind) ? firstKind : undefined;
   }
 
   if (expression.kind === "read_property") {
@@ -214,12 +240,14 @@ function collectMatchStatementTypeDiagnostics(params: {
   statement: BoundMatchStatement;
   diagnostics: DiagnosticReport["diagnostics"];
   stateValueKinds: Map<string, ExpressionValueKind>;
+  tempValueKinds: Map<string, ExpressionValueKind>;
   taskExecutionKind: TaskExecutionKind;
   boundProgram: BoundProgram;
 }): void {
   const matchTargetKind = inferBoundExpressionValueKind(
     params.statement.matchExpression,
     params.stateValueKinds,
+    params.tempValueKinds,
     params.boundProgram,
   );
   if (matchTargetKind !== "string") {
@@ -235,22 +263,40 @@ function collectMatchStatementTypeDiagnostics(params: {
   }
 
   for (const stringCase of params.statement.stringCases) {
-    for (const branchStatement of stringCase.statements) {
-      collectMatchBranchStatementTypeDiagnostics({
-        statement: branchStatement,
-        diagnostics: params.diagnostics,
-        stateValueKinds: params.stateValueKinds,
-        taskExecutionKind: params.taskExecutionKind,
-        boundProgram: params.boundProgram,
-      });
-    }
-  }
-
-  for (const branchStatement of params.statement.elseStatements) {
-    collectMatchBranchStatementTypeDiagnostics({
-      statement: branchStatement,
+    collectMatchBranchStatementSequenceTypeDiagnostics({
+      statements: stringCase.statements,
       diagnostics: params.diagnostics,
       stateValueKinds: params.stateValueKinds,
+      tempValueKinds: new Map(params.tempValueKinds),
+      taskExecutionKind: params.taskExecutionKind,
+      boundProgram: params.boundProgram,
+    });
+  }
+
+  collectMatchBranchStatementSequenceTypeDiagnostics({
+    statements: params.statement.elseStatements,
+    diagnostics: params.diagnostics,
+    stateValueKinds: params.stateValueKinds,
+    tempValueKinds: new Map(params.tempValueKinds),
+    taskExecutionKind: params.taskExecutionKind,
+    boundProgram: params.boundProgram,
+  });
+}
+
+function collectMatchBranchStatementSequenceTypeDiagnostics(params: {
+  statements: BoundStatement[];
+  diagnostics: DiagnosticReport["diagnostics"];
+  stateValueKinds: Map<string, ExpressionValueKind>;
+  tempValueKinds: Map<string, ExpressionValueKind>;
+  taskExecutionKind: TaskExecutionKind;
+  boundProgram: BoundProgram;
+}): void {
+  for (const statement of params.statements) {
+    collectMatchBranchStatementTypeDiagnostics({
+      statement,
+      diagnostics: params.diagnostics,
+      stateValueKinds: params.stateValueKinds,
+      tempValueKinds: params.tempValueKinds,
       taskExecutionKind: params.taskExecutionKind,
       boundProgram: params.boundProgram,
     });
@@ -261,6 +307,7 @@ function collectMatchBranchStatementTypeDiagnostics(params: {
   statement: BoundStatement;
   diagnostics: DiagnosticReport["diagnostics"];
   stateValueKinds: Map<string, ExpressionValueKind>;
+  tempValueKinds: Map<string, ExpressionValueKind>;
   taskExecutionKind: TaskExecutionKind;
   boundProgram: BoundProgram;
 }): void {
@@ -289,6 +336,7 @@ function collectMatchBranchStatementTypeDiagnostics(params: {
       statement: params.statement,
       diagnostics: params.diagnostics,
       stateValueKinds: params.stateValueKinds,
+      tempValueKinds: params.tempValueKinds,
       taskExecutionKind: params.taskExecutionKind,
       boundProgram: params.boundProgram,
     });
@@ -300,6 +348,7 @@ function collectMatchBranchStatementTypeDiagnostics(params: {
       statement: params.statement,
       diagnostics: params.diagnostics,
       stateValueKinds: params.stateValueKinds,
+      tempValueKinds: params.tempValueKinds,
       taskExecutionKind: params.taskExecutionKind,
       boundProgram: params.boundProgram,
     });
@@ -308,29 +357,36 @@ function collectMatchBranchStatementTypeDiagnostics(params: {
 
   if (params.statement.kind === "temp_statement") {
     collectAnimatorTimeExpressionsInvalidForNonEveryTask(params.statement.valueExpression, params.diagnostics);
+    const inferredKind = inferBoundExpressionValueKind(
+      params.statement.valueExpression,
+      params.stateValueKinds,
+      params.tempValueKinds,
+      params.boundProgram,
+    );
+    if (inferredKind !== undefined) {
+      params.tempValueKinds.set(params.statement.tempName, inferredKind);
+    }
     return;
   }
 
   if (params.statement.kind === "if_statement") {
     collectAnimatorTimeExpressionsInvalidForNonEveryTask(params.statement.conditionExpression, params.diagnostics);
-    for (const branchStatement of params.statement.thenStatements) {
-      collectMatchBranchStatementTypeDiagnostics({
-        statement: branchStatement,
-        diagnostics: params.diagnostics,
-        stateValueKinds: params.stateValueKinds,
-        taskExecutionKind: params.taskExecutionKind,
-        boundProgram: params.boundProgram,
-      });
-    }
-    for (const branchStatement of params.statement.elseStatements) {
-      collectMatchBranchStatementTypeDiagnostics({
-        statement: branchStatement,
-        diagnostics: params.diagnostics,
-        stateValueKinds: params.stateValueKinds,
-        taskExecutionKind: params.taskExecutionKind,
-        boundProgram: params.boundProgram,
-      });
-    }
+    collectMatchBranchStatementSequenceTypeDiagnostics({
+      statements: params.statement.thenStatements,
+      diagnostics: params.diagnostics,
+      stateValueKinds: params.stateValueKinds,
+      tempValueKinds: new Map(params.tempValueKinds),
+      taskExecutionKind: params.taskExecutionKind,
+      boundProgram: params.boundProgram,
+    });
+    collectMatchBranchStatementSequenceTypeDiagnostics({
+      statements: params.statement.elseStatements,
+      diagnostics: params.diagnostics,
+      stateValueKinds: params.stateValueKinds,
+      tempValueKinds: new Map(params.tempValueKinds),
+      taskExecutionKind: params.taskExecutionKind,
+      boundProgram: params.boundProgram,
+    });
     return;
   }
 
@@ -346,6 +402,7 @@ function collectStatementTypeDiagnostics(params: {
   statement: BoundStatement;
   diagnostics: DiagnosticReport["diagnostics"];
   stateValueKinds: Map<string, ExpressionValueKind>;
+  tempValueKinds: Map<string, ExpressionValueKind>;
   taskExecutionKind: TaskExecutionKind;
   boundProgram: BoundProgram;
 }): void {
@@ -356,6 +413,7 @@ function collectStatementTypeDiagnostics(params: {
       statement,
       diagnostics: params.diagnostics,
       stateValueKinds: params.stateValueKinds,
+      tempValueKinds: params.tempValueKinds,
       taskExecutionKind: params.taskExecutionKind,
       boundProgram: params.boundProgram,
     });
@@ -367,6 +425,7 @@ function collectStatementTypeDiagnostics(params: {
       statement,
       diagnostics: params.diagnostics,
       stateValueKinds: params.stateValueKinds,
+      tempValueKinds: params.tempValueKinds,
       taskExecutionKind: params.taskExecutionKind,
       boundProgram: params.boundProgram,
     });
@@ -378,6 +437,7 @@ function collectStatementTypeDiagnostics(params: {
       statement,
       diagnostics: params.diagnostics,
       stateValueKinds: params.stateValueKinds,
+      tempValueKinds: params.tempValueKinds,
       taskExecutionKind: params.taskExecutionKind,
       boundProgram: params.boundProgram,
     });
@@ -388,6 +448,15 @@ function collectStatementTypeDiagnostics(params: {
     if (params.taskExecutionKind === "on_event_task") {
       collectAnimatorTimeExpressionsInvalidForNonEveryTask(statement.valueExpression, params.diagnostics);
     }
+    const inferredKind = inferBoundExpressionValueKind(
+      statement.valueExpression,
+      params.stateValueKinds,
+      params.tempValueKinds,
+      params.boundProgram,
+    );
+    if (inferredKind !== undefined) {
+      params.tempValueKinds.set(statement.tempName, inferredKind);
+    }
     return;
   }
 
@@ -395,24 +464,22 @@ function collectStatementTypeDiagnostics(params: {
     if (params.taskExecutionKind === "on_event_task") {
       collectAnimatorTimeExpressionsInvalidForNonEveryTask(statement.conditionExpression, params.diagnostics);
     }
-    for (const branchStatement of statement.thenStatements) {
-      collectStatementTypeDiagnostics({
-        statement: branchStatement,
-        diagnostics: params.diagnostics,
-        stateValueKinds: params.stateValueKinds,
-        taskExecutionKind: params.taskExecutionKind,
-        boundProgram: params.boundProgram,
-      });
-    }
-    for (const branchStatement of statement.elseStatements) {
-      collectStatementTypeDiagnostics({
-        statement: branchStatement,
-        diagnostics: params.diagnostics,
-        stateValueKinds: params.stateValueKinds,
-        taskExecutionKind: params.taskExecutionKind,
-        boundProgram: params.boundProgram,
-      });
-    }
+    collectStatementSequenceTypeDiagnostics({
+      statements: statement.thenStatements,
+      diagnostics: params.diagnostics,
+      stateValueKinds: params.stateValueKinds,
+      tempValueKinds: new Map(params.tempValueKinds),
+      taskExecutionKind: params.taskExecutionKind,
+      boundProgram: params.boundProgram,
+    });
+    collectStatementSequenceTypeDiagnostics({
+      statements: statement.elseStatements,
+      diagnostics: params.diagnostics,
+      stateValueKinds: params.stateValueKinds,
+      tempValueKinds: new Map(params.tempValueKinds),
+      taskExecutionKind: params.taskExecutionKind,
+      boundProgram: params.boundProgram,
+    });
     return;
   }
 
@@ -424,10 +491,31 @@ function collectStatementTypeDiagnostics(params: {
   void exhaustiveStatement;
 }
 
+function collectStatementSequenceTypeDiagnostics(params: {
+  statements: BoundStatement[];
+  diagnostics: DiagnosticReport["diagnostics"];
+  stateValueKinds: Map<string, ExpressionValueKind>;
+  tempValueKinds: Map<string, ExpressionValueKind>;
+  taskExecutionKind: TaskExecutionKind;
+  boundProgram: BoundProgram;
+}): void {
+  for (const statement of params.statements) {
+    collectStatementTypeDiagnostics({
+      statement,
+      diagnostics: params.diagnostics,
+      stateValueKinds: params.stateValueKinds,
+      tempValueKinds: params.tempValueKinds,
+      taskExecutionKind: params.taskExecutionKind,
+      boundProgram: params.boundProgram,
+    });
+  }
+}
+
 function collectSetStatementTypeDiagnostics(params: {
   statement: BoundSetStatement;
   diagnostics: DiagnosticReport["diagnostics"];
   stateValueKinds: Map<string, ExpressionValueKind>;
+  tempValueKinds: Map<string, ExpressionValueKind>;
   taskExecutionKind: TaskExecutionKind;
   boundProgram: BoundProgram;
 }): void {
@@ -439,6 +527,7 @@ function collectSetStatementTypeDiagnostics(params: {
   const actualKind = inferBoundExpressionValueKind(
     params.statement.valueExpression,
     params.stateValueKinds,
+    params.tempValueKinds,
     params.boundProgram,
   );
   if (expectedKind !== undefined && actualKind !== undefined && expectedKind !== actualKind) {
@@ -457,6 +546,7 @@ function collectMethodCallTypeDiagnostics(params: {
   statement: BoundDoStatement;
   diagnostics: DiagnosticReport["diagnostics"];
   stateValueKinds: Map<string, ExpressionValueKind>;
+  tempValueKinds: Map<string, ExpressionValueKind>;
   taskExecutionKind: TaskExecutionKind;
   boundProgram: BoundProgram;
 }): void {
@@ -497,7 +587,12 @@ function collectMethodCallTypeDiagnostics(params: {
     if (firstArgument === undefined) {
       return;
     }
-    const printableKind = inferBoundExpressionValueKind(firstArgument, params.stateValueKinds, params.boundProgram);
+    const printableKind = inferBoundExpressionValueKind(
+      firstArgument,
+      params.stateValueKinds,
+      params.tempValueKinds,
+      params.boundProgram,
+    );
     if (printableKind === undefined) {
       params.diagnostics.push(
         buildTypeArgumentTypeMismatch({
@@ -533,7 +628,12 @@ function collectMethodCallTypeDiagnostics(params: {
       if (argumentExpression === undefined) {
         continue;
       }
-      const kind = inferBoundExpressionValueKind(argumentExpression, params.stateValueKinds, params.boundProgram);
+      const kind = inferBoundExpressionValueKind(
+        argumentExpression,
+        params.stateValueKinds,
+        params.tempValueKinds,
+        params.boundProgram,
+      );
       if (kind !== "integer") {
         params.diagnostics.push(
           buildTypeArgumentTypeMismatch({
@@ -554,7 +654,12 @@ function collectMethodCallTypeDiagnostics(params: {
     if (firstArgument === undefined) {
       return;
     }
-    const pwmArgumentKind = inferBoundExpressionValueKind(firstArgument, params.stateValueKinds, params.boundProgram);
+    const pwmArgumentKind = inferBoundExpressionValueKind(
+      firstArgument,
+      params.stateValueKinds,
+      params.tempValueKinds,
+      params.boundProgram,
+    );
     if (pwmArgumentKind !== "integer") {
       params.diagnostics.push(
         buildTypeArgumentTypeMismatch({
@@ -873,7 +978,7 @@ function collectStepAnimatorTargetIntegerDiagnostics(
     return;
   }
 
-  const targetKind = inferBoundExpressionValueKind(expression.targetExpression, stateValueKinds, boundProgram);
+  const targetKind = inferBoundExpressionValueKind(expression.targetExpression, stateValueKinds, new Map(), boundProgram);
   if (targetKind !== "integer") {
     diagnostics.push(
       buildTypeArgumentTypeMismatch({
