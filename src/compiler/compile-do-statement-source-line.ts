@@ -76,6 +76,7 @@ function wrapSingleDoStatementInMinimalProgram(doStatement: DoStatementAst, _fil
     kind: "task_declaration",
     range: doStatement.range,
     taskName: "__interactive_do_line",
+    stateMembership: { kind: "none" },
     schedule: {
       kind: "every",
       intervalValue: 1,

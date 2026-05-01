@@ -15,7 +15,8 @@ export type ProgramAst = {
 export type TopLevelDeclarationAst =
   | RefDeclarationAst
   | TaskDeclarationAst
-  | StateDeclarationAst
+  | VarDeclarationAst
+  | StateMachineDeclarationAst
   | ConstDeclarationAst
   | TaskOnDeclarationAst
   | AnimatorDeclarationAst;
@@ -28,14 +29,64 @@ export type ConstDeclarationAst = {
   initialValueExpression: MethodArgumentExpressionAst;
 };
 
-export type StateDeclarationAst = {
-  kind: "state_declaration";
+/** 永続ミュータブル値（v0.5） */
+export type VarDeclarationAst = {
+  kind: "var_declaration";
+  range: AstRange;
+  varName: string;
+  initialValueExpression: MethodArgumentExpressionAst;
+};
+
+/**
+ * 階層状態機械: `state <name> every <N>ms initial <path> { ... }`
+ */
+export type StateMachineDeclarationAst = {
+  kind: "state_machine_declaration";
+  range: AstRange;
+  machineName: string;
+  tickIntervalValue: number;
+  tickIntervalUnit: "ms" | "deg";
+  tickIntervalRange: AstRange;
+  /** 初期 leaf の絶対パス（例: rover.Idle） */
+  initialStatePathText: string;
+  initialStatePathRange: AstRange;
+  bodyItems: StateMachineBodyItemAst[];
+};
+
+export type StateMachineBodyItemAst =
+  | StateMachineGlobalTransitionAst
+  | StateMachineStateBlockAst;
+
+/** 状態機械直下の `on condition -> targetPath` */
+export type StateMachineGlobalTransitionAst = {
+  kind: "state_machine_global_transition";
+  range: AstRange;
+  conditionExpression: MethodArgumentExpressionAst;
+  targetStatePathText: string;
+  targetStatePathRange: AstRange;
+};
+
+/** `StateName { ... }` または `StateName initial path { ... }` */
+export type StateMachineStateBlockAst = {
+  kind: "state_machine_state_block";
   range: AstRange;
   stateName: string;
-  /**
-   * Initial value; Phase 1.1+ uses integer expression (literal or larger expression).
-   */
-  initialValueExpression: MethodArgumentExpressionAst;
+  /** 子を持つ状態のとき `initial rover.Manual.Stop` のターゲットパス */
+  initialChildStatePathText: string | undefined;
+  initialChildStatePathRange: AstRange | undefined;
+  items: StateMachineNestedItemAst[];
+};
+
+export type StateMachineNestedItemAst =
+  | StateMachineLocalTransitionAst
+  | StateMachineStateBlockAst;
+
+export type StateMachineLocalTransitionAst = {
+  kind: "state_machine_local_transition";
+  range: AstRange;
+  conditionExpression: MethodArgumentExpressionAst;
+  targetStatePathText: string;
+  targetStatePathRange: AstRange;
 };
 
 export type RefDeclarationAst = {
@@ -65,21 +116,35 @@ export type TaskScheduleAst =
       loopKeywordRange: AstRange;
     };
 
+/** `task ... in <path> ...` の所属（省略時は全状態で実行可能） */
+export type TaskStateMembershipAst =
+  | { kind: "none" }
+  | {
+      kind: "in_state_path";
+      /** 絶対 state path テキスト（例: rover.Manual.Forward） */
+      statePathText: string;
+      statePathRange: AstRange;
+    };
+
 export type TaskDeclarationAst = {
   kind: "task_declaration";
   range: AstRange;
   taskName: string;
+  stateMembership: TaskStateMembershipAst;
   schedule: TaskScheduleAst;
   bodyStatements: StatementAst[];
 };
+
+export type TaskOnTriggerAst =
+  | { kind: "device_event"; eventTarget: TaskOnEventTargetAst; eventName: string }
+  | { kind: "state_lifecycle"; lifecycle: "enter" | "exit" };
 
 export type TaskOnDeclarationAst = {
   kind: "task_on_declaration";
   range: AstRange;
   taskName: string;
-  /** 例: button#0.pressed または button.pressed のイベント元。 */
-  eventTarget: TaskOnEventTargetAst;
-  eventName: string;
+  stateMembership: TaskStateMembershipAst;
+  trigger: TaskOnTriggerAst;
   bodyStatements: StatementAst[];
 };
 
@@ -156,7 +221,8 @@ export type DoStatementAst = {
 export type SetStatementAst = {
   kind: "set_statement";
   range: AstRange;
-  stateName: string;
+  /** `set` の左辺は `var` 名（v0.5） */
+  varName: string;
   valueExpression: MethodArgumentExpressionAst;
 };
 

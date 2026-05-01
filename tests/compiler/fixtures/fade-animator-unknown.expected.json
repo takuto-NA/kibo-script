@@ -10,12 +10,12 @@
         "start": {
           "line": 5,
           "column": 19,
-          "offset": 132
+          "offset": 130
         },
         "end": {
           "line": 5,
           "column": 48,
-          "offset": 161
+          "offset": 159
         }
       }
     }

@@ -4,18 +4,18 @@
     {
       "id": "type.animator_time_expression_invalid_context",
       "phase": "type_check",
-      "message": "Expressions \"dt\" and \"step ... with dt\" are only valid inside a task declared with \"every\" (not in state initializers, \"task on\", or \"task loop\").",
+      "message": "Expressions \"dt\" and \"step ... with dt\" are only valid inside a task declared with \"every\" (not in var initializers, \"task on\", or \"task loop\").",
       "location": {
         "file": "fade-animator-target-step-in-event.sc",
         "start": {
           "line": 8,
           "column": 19,
-          "offset": 149
+          "offset": 145
         },
         "end": {
           "line": 8,
           "column": 44,
-          "offset": 174
+          "offset": 170
         }
       }
     }

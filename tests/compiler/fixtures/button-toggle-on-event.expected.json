@@ -1,13 +1,15 @@
 {
   "ok": true,
   "program": {
-    "stateInitializers": [],
+    "varInitializers": [],
     "constInitializers": [],
+    "stateMachines": [],
     "animatorDefinitions": [],
     "everyTasks": [],
     "onEventTasks": [
       {
         "taskName": "toggle_led",
+        "triggerKind": "device_event",
         "deviceAddress": {
           "kind": "button",
           "id": 0

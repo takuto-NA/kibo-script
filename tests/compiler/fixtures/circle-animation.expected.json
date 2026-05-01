@@ -1,9 +1,9 @@
 {
   "ok": true,
   "program": {
-    "stateInitializers": [
+    "varInitializers": [
       {
-        "stateName": "circle_x",
+        "varName": "circle_x",
         "expression": {
           "kind": "integer_literal",
           "value": 20
@@ -11,6 +11,7 @@
       }
     ],
     "constInitializers": [],
+    "stateMachines": [],
     "animatorDefinitions": [],
     "everyTasks": [
       {
@@ -35,8 +36,8 @@
             "methodName": "circle",
             "arguments": [
               {
-                "kind": "state_reference",
-                "stateName": "circle_x"
+                "kind": "var_reference",
+                "varName": "circle_x"
               },
               {
                 "kind": "integer_literal",
@@ -58,13 +59,13 @@
             "arguments": []
           },
           {
-            "kind": "assign_state",
-            "stateName": "circle_x",
+            "kind": "assign_var",
+            "varName": "circle_x",
             "valueExpression": {
               "kind": "binary_add",
               "left": {
-                "kind": "state_reference",
-                "stateName": "circle_x"
+                "kind": "var_reference",
+                "varName": "circle_x"
               },
               "right": {
                 "kind": "integer_literal",

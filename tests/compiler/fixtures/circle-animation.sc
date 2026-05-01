@@ -1,4 +1,4 @@
-state circle_x = 20
+var circle_x = 20
 
 task move_circle every 100ms {
   do display#0.clear()

@@ -1,4 +1,4 @@
-state n = 1
+var n = 1
 
 task t on button#0.pressed {
   match n {

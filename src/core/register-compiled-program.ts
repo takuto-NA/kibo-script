@@ -21,6 +21,8 @@ export function registerCompiledProgramOnTaskRegistry(params: {
       body: "",
       compiledStatements: everyTask.statements,
       executionProgress: undefined,
+      stateMembershipPath: everyTask.stateMembershipPath,
+      onEventTriggerKind: undefined,
       onEventFilter: undefined,
     });
   }
@@ -36,26 +38,53 @@ export function registerCompiledProgramOnTaskRegistry(params: {
       body: "",
       compiledStatements: loopTask.statements,
       executionProgress: undefined,
+      stateMembershipPath: loopTask.stateMembershipPath,
+      onEventTriggerKind: undefined,
       onEventFilter: undefined,
     });
   }
 
   for (const onTask of params.compiledProgram.onEventTasks) {
-    const addressKey = formatDeviceAddress(onTask.deviceAddress);
+    if (onTask.triggerKind === "device_event") {
+      const deviceAddress = onTask.deviceAddress;
+      const eventName = onTask.eventName;
+      if (deviceAddress === undefined || eventName === undefined) {
+        throw new Error('Invariant: device_event trigger requires deviceAddress and eventName.');
+      }
+      const addressKey = formatDeviceAddress(deviceAddress);
+      params.taskRegistry.registerTask({
+        name: onTask.taskName,
+        runMode: "on_event",
+        intervalMilliseconds: undefined,
+        eventExpression: `${addressKey}.${eventName}`,
+        running: true,
+        accumulatedMilliseconds: 0,
+        body: "",
+        compiledStatements: onTask.statements,
+        executionProgress: undefined,
+        stateMembershipPath: onTask.stateMembershipPath,
+        onEventTriggerKind: "device_event",
+        onEventFilter: {
+          deviceAddress,
+          eventName,
+        },
+      });
+      continue;
+    }
+
     params.taskRegistry.registerTask({
       name: onTask.taskName,
       runMode: "on_event",
       intervalMilliseconds: undefined,
-      eventExpression: `${addressKey}.${onTask.eventName}`,
+      eventExpression: undefined,
       running: true,
       accumulatedMilliseconds: 0,
       body: "",
       compiledStatements: onTask.statements,
       executionProgress: undefined,
-      onEventFilter: {
-        deviceAddress: onTask.deviceAddress,
-        eventName: onTask.eventName,
-      },
+      stateMembershipPath: onTask.stateMembershipPath,
+      onEventTriggerKind: onTask.triggerKind,
+      onEventFilter: undefined,
     });
   }
 }

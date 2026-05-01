@@ -1,6 +1,6 @@
 ref led = pwm#0
-state led_target = 0%
-state led_level = 0%
+var led_target = 0%
+var led_level = 0%
 
 animator fade = ramp over 500ms ease linear
 

@@ -14,7 +14,7 @@ describe("fade animator runtime integration", () => {
   it("linear fade-in reaches 100% pwm level after ramp duration at nominal dt", () => {
     const sourceText = `
 ref led = pwm#0
-state led_level = 0%
+var led_level = 0%
 animator fade_in = ramp from 0% to 100% over 1000ms ease linear
 
 task fade every ${TASK_INTERVAL_MS}ms {
@@ -46,7 +46,7 @@ task fade every ${TASK_INTERVAL_MS}ms {
     const rampDurationMs = 1000;
     const sourceText = `
 ref led = pwm#0
-state led_level = 0%
+var led_level = 0%
 animator fade_in = ramp from 0% to 100% over ${rampDurationMs}ms ease linear
 
 task fade every ${TASK_INTERVAL_MS}ms {
@@ -76,7 +76,7 @@ task fade every ${TASK_INTERVAL_MS}ms {
     const rampDurationMs = 1000;
     const sourceText = `
 ref led = pwm#0
-state led_level = 0%
+var led_level = 0%
 animator fade_out = ramp from 100% to 0% over ${rampDurationMs}ms ease linear
 
 task fade every ${TASK_INTERVAL_MS}ms {
@@ -105,7 +105,7 @@ task fade every ${TASK_INTERVAL_MS}ms {
   it("does not overshoot target after ramp completes", () => {
     const sourceText = `
 ref led = pwm#0
-state led_level = 0%
+var led_level = 0%
 animator fade_in = ramp from 0% to 100% over 300ms ease linear
 
 task fade every ${TASK_INTERVAL_MS}ms {

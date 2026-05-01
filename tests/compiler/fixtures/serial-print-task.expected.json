@@ -1,8 +1,9 @@
 {
   "ok": true,
   "program": {
-    "stateInitializers": [],
+    "varInitializers": [],
     "constInitializers": [],
+    "stateMachines": [],
     "animatorDefinitions": [],
     "everyTasks": [
       {

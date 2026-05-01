@@ -1,4 +1,4 @@
-state command = "on"
+var command = "on"
 
 task t on button#0.pressed {
   match command {

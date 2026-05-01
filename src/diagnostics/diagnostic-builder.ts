@@ -364,10 +364,10 @@ export function buildAnimatorTimeExpressionInvalidContext(params: {
     severity: "error",
     phase: "type_check",
     message:
-      'Expressions "dt" and "step ... with dt" are only valid inside a task declared with "every" (not in state initializers, "task on", or "task loop").',
+      'Expressions "dt" and "step ... with dt" are only valid inside a task declared with "every" (not in var initializers, "task on", or "task loop").',
     location: params.range,
     explanation:
-      "Event tasks, loop tasks, and state initializers have no stable nominal dt interval in this language version.",
+      "Event tasks, loop tasks, and var initializers have no stable nominal dt interval in this language version.",
   };
 }
 

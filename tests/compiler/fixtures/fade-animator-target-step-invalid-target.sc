@@ -1,6 +1,6 @@
 ref led = pwm#0
-state bad = "x"
-state led_level = 0%
+var bad = "x"
+var led_level = 0%
 
 animator f = ramp over 100ms ease linear
 

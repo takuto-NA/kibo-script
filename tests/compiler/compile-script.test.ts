@@ -57,7 +57,7 @@ task blink every 2000ms {
   it("accepts printing temp values inferred from arithmetic and match expressions", () => {
     const sourceText = `
 const max_score = 5
-state score = 0
+var score = 0
 
 task count_press on button#0.pressed {
   temp next_score = score + 1

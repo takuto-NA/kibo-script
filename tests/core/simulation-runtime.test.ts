@@ -57,8 +57,8 @@ describe("SimulationRuntime", () => {
     const tasks = new TaskRegistry();
     const runtime = new SimulationRuntime({ tasks });
     const sourceText = `ref led = pwm#0
-state led_target = 100%
-state led_level = 0%
+var led_target = 100%
+var led_level = 0%
 
 animator fade = ramp over 100ms ease linear
 
@@ -91,8 +91,8 @@ task apply every 10ms {
     const runtime = new SimulationRuntime({ tasks });
     const sourceText = `ref led = pwm#0
 ref b = button#0
-state led_target = 100%
-state led_level = 0%
+var led_target = 100%
+var led_level = 0%
 
 animator fade = ramp over 100ms ease linear
 
@@ -127,8 +127,8 @@ task flip on b.pressed {
     const tasks = new TaskRegistry();
     const runtime = new SimulationRuntime({ tasks });
     const sourceText = `ref led = pwm#0
-state led_hot = 999
-state led_level = 0%
+var led_hot = 999
+var led_level = 0%
 
 animator fade = ramp over 10ms ease linear
 
@@ -152,7 +152,7 @@ task apply every 10ms {
     const tasks = new TaskRegistry();
     const runtime = new SimulationRuntime({ tasks });
     const sourceText = `ref led = pwm#0
-state led_level = 0%
+var led_level = 0%
 animator fade_in = ramp from 0% to 100% over 100ms ease linear
 
 task fade every 10ms {

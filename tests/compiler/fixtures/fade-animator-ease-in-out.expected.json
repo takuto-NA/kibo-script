@@ -1,9 +1,9 @@
 {
   "ok": true,
   "program": {
-    "stateInitializers": [
+    "varInitializers": [
       {
-        "stateName": "led_level",
+        "varName": "led_level",
         "expression": {
           "kind": "integer_literal",
           "value": 0
@@ -11,6 +11,7 @@
       }
     ],
     "constInitializers": [],
+    "stateMachines": [],
     "animatorDefinitions": [
       {
         "animatorName": "fade_in",
@@ -27,8 +28,8 @@
         "intervalMilliseconds": 50,
         "statements": [
           {
-            "kind": "assign_state",
-            "stateName": "led_level",
+            "kind": "assign_var",
+            "varName": "led_level",
             "valueExpression": {
               "kind": "step_animator",
               "animatorName": "fade_in"
@@ -43,8 +44,8 @@
             "methodName": "level",
             "arguments": [
               {
-                "kind": "state_reference",
-                "stateName": "led_level"
+                "kind": "var_reference",
+                "varName": "led_level"
               }
             ]
           }

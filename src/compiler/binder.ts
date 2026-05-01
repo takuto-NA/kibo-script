@@ -1,5 +1,5 @@
 /**
- * AST を走査し ref / animator / state を解決し、task 本体の文をバインドする。
+ * AST を走査し ref / animator / var を解決し、task 本体の文をバインドする。
  */
 
 import type {
@@ -10,6 +10,8 @@ import type {
   TaskOnEventTargetAst,
   TaskOnDeclarationAst,
   TaskDeclarationAst,
+  StateMachineDeclarationAst,
+  TaskStateMembershipAst,
 } from "../ast/script-ast";
 import { parseDeviceAddress } from "../core/device-address";
 import type { DeviceAddress } from "../core/device-address";
@@ -35,10 +37,14 @@ import type {
   BoundRefSymbol,
   BoundSetStatement,
   BoundStatement,
-  BoundStateSymbol,
+  BoundVarSymbol,
   BoundTempStatement,
   BoundValueSymbolInSourceOrderRow,
   BoundWaitStatement,
+  BoundStateMachineDefinition,
+  BoundStateMachineNode,
+  BoundStateMachineTransition,
+  BoundTaskStateMembership,
 } from "./bound-program";
 import { RefSymbolTable } from "./symbol-table";
 
@@ -60,7 +66,7 @@ function astRangeToSourceRange(range: {
 
 export function bindProgram(ast: ProgramAst, sourceFileName: string): BindProgramResult {
   const refSymbolTable = new RefSymbolTable();
-  const stateSymbols = new Map<string, BoundStateSymbol>();
+  const varSymbols = new Map<string, BoundVarSymbol>();
   const diagnostics: DiagnosticReport["diagnostics"] = [];
 
   for (const declaration of ast.declarations) {
@@ -166,25 +172,25 @@ export function bindProgram(ast: ProgramAst, sourceFileName: string): BindProgra
   const valueSymbolsInSourceOrder: BoundValueSymbolInSourceOrderRow[] = [];
 
   for (const declaration of ast.declarations) {
-    if (declaration.kind === "state_declaration") {
-      if (constSymbols.has(declaration.stateName)) {
-        const existingConst = constSymbols.get(declaration.stateName)!;
+    if (declaration.kind === "var_declaration") {
+      if (constSymbols.has(declaration.varName)) {
+        const existingConst = constSymbols.get(declaration.varName)!;
         diagnostics.push(
           buildNameDuplicateDeclaration({
-            name: declaration.stateName,
+            name: declaration.varName,
             range: astRangeToSourceRange(declaration.range),
             secondaryRange: astRangeToSourceRange(existingConst.range),
           }),
         );
         continue;
       }
-      const existingState = stateSymbols.get(declaration.stateName);
-      if (existingState !== undefined) {
+      const existingVar = varSymbols.get(declaration.varName);
+      if (existingVar !== undefined) {
         diagnostics.push(
           buildNameDuplicateDeclaration({
-            name: declaration.stateName,
+            name: declaration.varName,
             range: astRangeToSourceRange(declaration.range),
-            secondaryRange: astRangeToSourceRange(existingState.range),
+            secondaryRange: astRangeToSourceRange(existingVar.range),
           }),
         );
         continue;
@@ -193,7 +199,7 @@ export function bindProgram(ast: ProgramAst, sourceFileName: string): BindProgra
       const bindExpressionResult = bindMethodArgumentExpression({
         expression: declaration.initialValueExpression,
         refSymbolTable,
-        stateSymbols,
+        varSymbols,
         constSymbols,
         animatorSymbols,
         tempNamesInScope: new Set(),
@@ -202,14 +208,14 @@ export function bindProgram(ast: ProgramAst, sourceFileName: string): BindProgra
         return bindExpressionResult;
       }
 
-      stateSymbols.set(declaration.stateName, {
-        stateName: declaration.stateName,
+      varSymbols.set(declaration.varName, {
+        varName: declaration.varName,
         initialValue: bindExpressionResult.expression,
         range: declaration.range,
       });
       valueSymbolsInSourceOrder.push({
-        kind: "state",
-        name: declaration.stateName,
+        kind: "var",
+        name: declaration.varName,
         initialValue: bindExpressionResult.expression,
         range: declaration.range,
       });
@@ -217,13 +223,13 @@ export function bindProgram(ast: ProgramAst, sourceFileName: string): BindProgra
     }
 
     if (declaration.kind === "const_declaration") {
-      if (stateSymbols.has(declaration.constName)) {
-        const existingState = stateSymbols.get(declaration.constName)!;
+      if (varSymbols.has(declaration.constName)) {
+        const existingVar = varSymbols.get(declaration.constName)!;
         diagnostics.push(
           buildNameDuplicateDeclaration({
             name: declaration.constName,
             range: astRangeToSourceRange(declaration.range),
-            secondaryRange: astRangeToSourceRange(existingState.range),
+            secondaryRange: astRangeToSourceRange(existingVar.range),
           }),
         );
         continue;
@@ -243,7 +249,7 @@ export function bindProgram(ast: ProgramAst, sourceFileName: string): BindProgra
       const bindExpressionResult = bindMethodArgumentExpression({
         expression: declaration.initialValueExpression,
         refSymbolTable,
-        stateSymbols,
+        varSymbols,
         constSymbols,
         animatorSymbols,
         tempNamesInScope: new Set(),
@@ -272,6 +278,24 @@ export function bindProgram(ast: ProgramAst, sourceFileName: string): BindProgra
     return { ok: false, report: createDiagnosticReport(diagnostics) };
   }
 
+  const stateMachinesInSourceOrder: BoundStateMachineDefinition[] = [];
+  for (const declaration of ast.declarations) {
+    if (declaration.kind !== "state_machine_declaration") {
+      continue;
+    }
+    const smBindResult = bindStateMachineDeclarationAst({
+      declaration,
+      refSymbolTable,
+      varSymbols,
+      constSymbols,
+      animatorSymbols,
+    });
+    if (smBindResult.ok === false) {
+      return smBindResult;
+    }
+    stateMachinesInSourceOrder.push(smBindResult.definition);
+  }
+
   const boundEveryTasks: BoundEveryTask[] = [];
   const boundLoopTasks: BoundLoopTask[] = [];
   const boundOnEventTasks: BoundOnEventTask[] = [];
@@ -281,7 +305,7 @@ export function bindProgram(ast: ProgramAst, sourceFileName: string): BindProgra
       const bindTaskResult = bindTaskDeclaration({
         taskDeclaration: declaration,
         refSymbolTable,
-        stateSymbols,
+        varSymbols,
         constSymbols,
         animatorSymbols,
       });
@@ -300,7 +324,7 @@ export function bindProgram(ast: ProgramAst, sourceFileName: string): BindProgra
       const bindOnResult = bindTaskOnDeclaration({
         taskOnDeclaration: declaration,
         refSymbolTable,
-        stateSymbols,
+        varSymbols,
         constSymbols,
         animatorSymbols,
       });
@@ -323,31 +347,32 @@ export function bindProgram(ast: ProgramAst, sourceFileName: string): BindProgra
   const boundProgram: BoundProgram = {
     sourceFileName,
     refSymbols,
-    stateSymbols,
+    varSymbols,
     constSymbols,
     constSymbolsInSourceOrder,
-    stateSymbolsInSourceOrder: buildStateSymbolsInSourceOrder(ast, stateSymbols),
+    varSymbolsInSourceOrder: buildVarSymbolsInSourceOrder(ast, varSymbols),
     animatorSymbols,
     animatorSymbolsInSourceOrder,
     everyTasks: boundEveryTasks,
     loopTasks: boundLoopTasks,
     onEventTasks: boundOnEventTasks,
     valueSymbolsInSourceOrder,
+    stateMachinesInSourceOrder,
   };
 
   return { ok: true, boundProgram };
 }
 
-function buildStateSymbolsInSourceOrder(
+function buildVarSymbolsInSourceOrder(
   ast: ProgramAst,
-  stateSymbols: Map<string, BoundStateSymbol>,
-): BoundStateSymbol[] {
-  const ordered: BoundStateSymbol[] = [];
+  varSymbols: Map<string, BoundVarSymbol>,
+): BoundVarSymbol[] {
+  const ordered: BoundVarSymbol[] = [];
   for (const declaration of ast.declarations) {
-    if (declaration.kind !== "state_declaration") {
+    if (declaration.kind !== "var_declaration") {
       continue;
     }
-    const symbol = stateSymbols.get(declaration.stateName);
+    const symbol = varSymbols.get(declaration.varName);
     if (symbol !== undefined) {
       ordered.push(symbol);
     }
@@ -355,21 +380,33 @@ function buildStateSymbolsInSourceOrder(
   return ordered;
 }
 
+function bindTaskStateMembershipAst(astMembership: TaskStateMembershipAst): BoundTaskStateMembership {
+  if (astMembership.kind === "none") {
+    return { kind: "none" };
+  }
+  return {
+    kind: "in_state_path",
+    statePathText: astMembership.statePathText,
+    range: astMembership.statePathRange,
+  };
+}
+
 function bindTaskDeclaration(params: {
   taskDeclaration: TaskDeclarationAst;
   refSymbolTable: RefSymbolTable;
-  stateSymbols: Map<string, BoundStateSymbol>;
+  varSymbols: Map<string, BoundVarSymbol>;
   constSymbols: Map<string, BoundConstSymbol>;
   animatorSymbols: ReadonlyMap<string, BoundAnimatorSymbol>;
 }): { ok: true; boundTask: BoundEveryTask | BoundLoopTask } | { ok: false; report: DiagnosticReport } {
   const linearTempScope = new Set<string>();
   const boundStatements: BoundStatement[] = [];
+  const stateMembership = bindTaskStateMembershipAst(params.taskDeclaration.stateMembership);
 
   for (const statement of params.taskDeclaration.bodyStatements) {
     const bindStatementResult = bindStatement({
       statement,
       refSymbolTable: params.refSymbolTable,
-      stateSymbols: params.stateSymbols,
+      varSymbols: params.varSymbols,
       constSymbols: params.constSymbols,
       animatorSymbols: params.animatorSymbols,
       tempNamesInScope: linearTempScope,
@@ -388,6 +425,7 @@ function bindTaskDeclaration(params: {
     const boundTask: BoundEveryTask = {
       runKind: "every",
       taskName: params.taskDeclaration.taskName,
+      stateMembership,
       intervalValue: schedule.intervalValue,
       intervalUnit: schedule.intervalUnit,
       intervalRange: schedule.intervalRange,
@@ -400,6 +438,7 @@ function bindTaskDeclaration(params: {
   const boundLoopTask: BoundLoopTask = {
     runKind: "loop",
     taskName: params.taskDeclaration.taskName,
+    stateMembership,
     statements: boundStatements,
     range: params.taskDeclaration.range,
   };
@@ -410,17 +449,11 @@ function bindTaskDeclaration(params: {
 function bindTaskOnDeclaration(params: {
   taskOnDeclaration: TaskOnDeclarationAst;
   refSymbolTable: RefSymbolTable;
-  stateSymbols: Map<string, BoundStateSymbol>;
+  varSymbols: Map<string, BoundVarSymbol>;
   constSymbols: Map<string, BoundConstSymbol>;
   animatorSymbols: ReadonlyMap<string, BoundAnimatorSymbol>;
 }): { ok: true; boundTask: BoundOnEventTask } | { ok: false; report: DiagnosticReport } {
-  const resolveEventTargetResult = resolveTaskOnEventTargetToDeviceAddress({
-    eventTarget: params.taskOnDeclaration.eventTarget,
-    refSymbolTable: params.refSymbolTable,
-  });
-  if (resolveEventTargetResult.ok === false) {
-    return resolveEventTargetResult;
-  }
+  const stateMembership = bindTaskStateMembershipAst(params.taskOnDeclaration.stateMembership);
 
   const linearTempScope = new Set<string>();
   const boundStatements: BoundStatement[] = [];
@@ -429,7 +462,7 @@ function bindTaskOnDeclaration(params: {
     const bindStatementResult = bindStatement({
       statement,
       refSymbolTable: params.refSymbolTable,
-      stateSymbols: params.stateSymbols,
+      varSymbols: params.varSymbols,
       constSymbols: params.constSymbols,
       animatorSymbols: params.animatorSymbols,
       tempNamesInScope: linearTempScope,
@@ -443,10 +476,34 @@ function bindTaskOnDeclaration(params: {
     }
   }
 
+  const trigger = params.taskOnDeclaration.trigger;
+  if (trigger.kind === "state_lifecycle") {
+    const boundTask: BoundOnEventTask = {
+      taskName: params.taskOnDeclaration.taskName,
+      stateMembership,
+      trigger: { kind: "state_lifecycle", lifecycle: trigger.lifecycle },
+      statements: boundStatements,
+      range: params.taskOnDeclaration.range,
+    };
+    return { ok: true, boundTask };
+  }
+
+  const resolveEventTargetResult = resolveTaskOnEventTargetToDeviceAddress({
+    eventTarget: trigger.eventTarget,
+    refSymbolTable: params.refSymbolTable,
+  });
+  if (resolveEventTargetResult.ok === false) {
+    return resolveEventTargetResult;
+  }
+
   const boundTask: BoundOnEventTask = {
     taskName: params.taskOnDeclaration.taskName,
-    deviceAddress: resolveEventTargetResult.deviceAddress,
-    eventName: params.taskOnDeclaration.eventName,
+    stateMembership,
+    trigger: {
+      kind: "device_event",
+      deviceAddress: resolveEventTargetResult.deviceAddress,
+      eventName: trigger.eventName,
+    },
     statements: boundStatements,
     range: params.taskOnDeclaration.range,
   };
@@ -496,7 +553,7 @@ function resolveTaskOnEventTargetToDeviceAddress(params: {
 function bindStatementSequence(params: {
   statements: import("../ast/script-ast").StatementAst[];
   refSymbolTable: RefSymbolTable;
-  stateSymbols: Map<string, BoundStateSymbol>;
+  varSymbols: Map<string, BoundVarSymbol>;
   constSymbols: Map<string, BoundConstSymbol>;
   animatorSymbols: ReadonlyMap<string, BoundAnimatorSymbol>;
   inheritedTempNames: Set<string>;
@@ -508,7 +565,7 @@ function bindStatementSequence(params: {
     const bindStatementResult = bindStatement({
       statement,
       refSymbolTable: params.refSymbolTable,
-      stateSymbols: params.stateSymbols,
+      varSymbols: params.varSymbols,
       constSymbols: params.constSymbols,
       animatorSymbols: params.animatorSymbols,
       tempNamesInScope: linearTempScope,
@@ -528,14 +585,14 @@ function bindStatementSequence(params: {
 function bindStatement(params: {
   statement: import("../ast/script-ast").StatementAst;
   refSymbolTable: RefSymbolTable;
-  stateSymbols: Map<string, BoundStateSymbol>;
+  varSymbols: Map<string, BoundVarSymbol>;
   constSymbols: Map<string, BoundConstSymbol>;
   animatorSymbols: ReadonlyMap<string, BoundAnimatorSymbol>;
   tempNamesInScope: Set<string>;
 }): { ok: true; boundStatement: BoundStatement } | { ok: false; report: DiagnosticReport } {
   const expressionBindContext = {
     refSymbolTable: params.refSymbolTable,
-    stateSymbols: params.stateSymbols,
+    varSymbols: params.varSymbols,
     constSymbols: params.constSymbols,
     animatorSymbols: params.animatorSymbols,
     tempNamesInScope: params.tempNamesInScope,
@@ -574,27 +631,27 @@ function bindStatement(params: {
   }
 
   if (params.statement.kind === "set_statement") {
-    if (params.constSymbols.has(params.statement.stateName)) {
+    if (params.constSymbols.has(params.statement.varName)) {
       return {
         ok: false,
         report: createDiagnosticReport([
           buildBindCannotAssignToConst({
-            name: params.statement.stateName,
+            name: params.statement.varName,
             range: astRangeToSourceRange(params.statement.range),
           }),
         ]),
       };
     }
 
-    const definedState = params.stateSymbols.get(params.statement.stateName);
-    if (definedState === undefined) {
+    const definedVar = params.varSymbols.get(params.statement.varName);
+    if (definedVar === undefined) {
       return {
         ok: false,
         report: createDiagnosticReport([
           buildNameUnknownReference({
-            name: params.statement.stateName,
+            name: params.statement.varName,
             range: astRangeToSourceRange(params.statement.range),
-            rangeText: params.statement.stateName,
+            rangeText: params.statement.varName,
           }),
         ]),
       };
@@ -610,7 +667,7 @@ function bindStatement(params: {
 
     const boundSet: BoundSetStatement = {
       kind: "set_statement",
-      stateName: params.statement.stateName,
+      varName: params.statement.varName,
       valueExpression: bindValueResult.expression,
       range: params.statement.range,
     };
@@ -621,7 +678,7 @@ function bindStatement(params: {
     const bindDurationResult = bindMethodArgumentExpression({
       expression: params.statement.durationMillisecondsExpression,
       refSymbolTable: params.refSymbolTable,
-      stateSymbols: params.stateSymbols,
+      varSymbols: params.varSymbols,
       constSymbols: params.constSymbols,
       animatorSymbols: params.animatorSymbols,
       tempNamesInScope: params.tempNamesInScope,
@@ -671,7 +728,7 @@ function bindStatement(params: {
     const thenSequenceResult = bindStatementSequence({
       statements: params.statement.thenBodyStatements,
       refSymbolTable: params.refSymbolTable,
-      stateSymbols: params.stateSymbols,
+      varSymbols: params.varSymbols,
       constSymbols: params.constSymbols,
       animatorSymbols: params.animatorSymbols,
       inheritedTempNames: inheritedScopeSnapshot,
@@ -683,7 +740,7 @@ function bindStatement(params: {
     const elseSequenceResult = bindStatementSequence({
       statements: params.statement.elseBodyStatements,
       refSymbolTable: params.refSymbolTable,
-      stateSymbols: params.stateSymbols,
+      varSymbols: params.varSymbols,
       constSymbols: params.constSymbols,
       animatorSymbols: params.animatorSymbols,
       inheritedTempNames: inheritedScopeSnapshot,
@@ -722,7 +779,7 @@ function bindStatement(params: {
       const branchSequenceResult = bindStatementSequence({
         statements: caseAst.bodyStatements,
         refSymbolTable: params.refSymbolTable,
-        stateSymbols: params.stateSymbols,
+        varSymbols: params.varSymbols,
         constSymbols: params.constSymbols,
         animatorSymbols: params.animatorSymbols,
         inheritedTempNames: scopeBeforeMatchArms,
@@ -739,7 +796,7 @@ function bindStatement(params: {
     const elseSequenceResult = bindStatementSequence({
       statements: params.statement.elseBodyStatements,
       refSymbolTable: params.refSymbolTable,
-      stateSymbols: params.stateSymbols,
+      varSymbols: params.varSymbols,
       constSymbols: params.constSymbols,
       animatorSymbols: params.animatorSymbols,
       inheritedTempNames: scopeBeforeMatchArms,
@@ -886,7 +943,7 @@ function bindReadTarget(params: {
 function bindMatchNumericPatternFromAst(params: {
   pattern: MatchNumericPatternAst;
   refSymbolTable: RefSymbolTable;
-  stateSymbols: Map<string, BoundStateSymbol>;
+  varSymbols: Map<string, BoundVarSymbol>;
   constSymbols: Map<string, BoundConstSymbol>;
   animatorSymbols: ReadonlyMap<string, BoundAnimatorSymbol>;
   tempNamesInScope: Set<string>;
@@ -895,7 +952,7 @@ function bindMatchNumericPatternFromAst(params: {
     const bindCompareResult = bindMethodArgumentExpression({
       expression: params.pattern.compareExpression,
       refSymbolTable: params.refSymbolTable,
-      stateSymbols: params.stateSymbols,
+      varSymbols: params.varSymbols,
       constSymbols: params.constSymbols,
       animatorSymbols: params.animatorSymbols,
       tempNamesInScope: params.tempNamesInScope,
@@ -918,7 +975,7 @@ function bindMatchNumericPatternFromAst(params: {
     const bindStartResult = bindMethodArgumentExpression({
       expression: params.pattern.startInclusive,
       refSymbolTable: params.refSymbolTable,
-      stateSymbols: params.stateSymbols,
+      varSymbols: params.varSymbols,
       constSymbols: params.constSymbols,
       animatorSymbols: params.animatorSymbols,
       tempNamesInScope: params.tempNamesInScope,
@@ -934,7 +991,7 @@ function bindMatchNumericPatternFromAst(params: {
     const bindEndResult = bindMethodArgumentExpression({
       expression: params.pattern.endExclusive,
       refSymbolTable: params.refSymbolTable,
-      stateSymbols: params.stateSymbols,
+      varSymbols: params.varSymbols,
       constSymbols: params.constSymbols,
       animatorSymbols: params.animatorSymbols,
       tempNamesInScope: params.tempNamesInScope,
@@ -959,7 +1016,7 @@ function bindMatchNumericPatternFromAst(params: {
 function bindMethodArgumentExpression(params: {
   expression: MethodArgumentExpressionAst;
   refSymbolTable: RefSymbolTable;
-  stateSymbols: Map<string, BoundStateSymbol>;
+  varSymbols: Map<string, BoundVarSymbol>;
   constSymbols: Map<string, BoundConstSymbol>;
   animatorSymbols: ReadonlyMap<string, BoundAnimatorSymbol>;
   tempNamesInScope: Set<string>;
@@ -970,7 +1027,7 @@ function bindMethodArgumentExpression(params: {
     bindMethodArgumentExpression({
       expression,
       refSymbolTable: params.refSymbolTable,
-      stateSymbols: params.stateSymbols,
+      varSymbols: params.varSymbols,
       constSymbols: params.constSymbols,
       animatorSymbols: params.animatorSymbols,
       tempNamesInScope: params.tempNamesInScope,
@@ -1062,8 +1119,8 @@ function bindMethodArgumentExpression(params: {
         expression: { kind: "const_reference", constName: name },
       };
     }
-    const stateBinding = params.stateSymbols.get(name);
-    if (stateBinding === undefined) {
+    const varBinding = params.varSymbols.get(name);
+    if (varBinding === undefined) {
       return {
         ok: false,
         report: createDiagnosticReport([
@@ -1077,7 +1134,7 @@ function bindMethodArgumentExpression(params: {
     }
     return {
       ok: true,
-      expression: { kind: "identifier", name },
+      expression: { kind: "var_reference", varName: name },
     };
   }
 
@@ -1207,7 +1264,7 @@ function bindMethodArgumentExpression(params: {
       const patternResult = bindMatchNumericPatternFromAst({
         pattern: arm.pattern,
         refSymbolTable: params.refSymbolTable,
-        stateSymbols: params.stateSymbols,
+        varSymbols: params.varSymbols,
         constSymbols: params.constSymbols,
         animatorSymbols: params.animatorSymbols,
         tempNamesInScope: params.tempNamesInScope,
@@ -1264,4 +1321,159 @@ function bindMethodArgumentExpression(params: {
       }),
     ]),
   };
+}
+
+function bindStateMachineDeclarationAst(params: {
+  declaration: StateMachineDeclarationAst;
+  refSymbolTable: RefSymbolTable;
+  varSymbols: Map<string, BoundVarSymbol>;
+  constSymbols: Map<string, BoundConstSymbol>;
+  animatorSymbols: ReadonlyMap<string, BoundAnimatorSymbol>;
+}): { ok: true; definition: BoundStateMachineDefinition } | { ok: false; report: DiagnosticReport } {
+  const bindCtx = {
+    refSymbolTable: params.refSymbolTable,
+    varSymbols: params.varSymbols,
+    constSymbols: params.constSymbols,
+    animatorSymbols: params.animatorSymbols,
+    tempNamesInScope: new Set<string>(),
+  };
+
+  const nodesByPath = new Map<string, BoundStateMachineNode>();
+  const machineGlobalTransitions: BoundStateMachineTransition[] = [];
+
+  for (const item of params.declaration.bodyItems) {
+    if (item.kind === "state_machine_global_transition") {
+      const condResult = bindMethodArgumentExpression({
+        expression: item.conditionExpression,
+        ...bindCtx,
+      });
+      if (condResult.ok === false) {
+        return condResult;
+      }
+      machineGlobalTransitions.push({
+        condition: condResult.expression,
+        targetPath: item.targetStatePathText,
+        range: item.range,
+      });
+      continue;
+    }
+
+    const walkResult = walkStateMachineStateBlock({
+      block: item,
+      machineName: params.declaration.machineName,
+      parentPath: undefined,
+      nodesByPath,
+      bindCtx,
+    });
+    if (walkResult.ok === false) {
+      return walkResult;
+    }
+  }
+
+  const initialLeafPath = params.declaration.initialStatePathText;
+  if (!nodesByPath.has(initialLeafPath)) {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildNameUnknownReference({
+          name: initialLeafPath,
+          range: astRangeToSourceRange(params.declaration.initialStatePathRange),
+          rangeText: initialLeafPath,
+        }),
+      ]),
+    };
+  }
+
+  return {
+    ok: true,
+    definition: {
+      machineName: params.declaration.machineName,
+      tickIntervalValue: params.declaration.tickIntervalValue,
+      tickIntervalUnit: params.declaration.tickIntervalUnit,
+      tickIntervalRange: params.declaration.tickIntervalRange,
+      initialLeafPath,
+      nodesByPath,
+      machineGlobalTransitions,
+      range: params.declaration.range,
+    },
+  };
+}
+
+function walkStateMachineStateBlock(params: {
+  block: import("../ast/script-ast").StateMachineStateBlockAst;
+  machineName: string;
+  parentPath: string | undefined;
+  nodesByPath: Map<string, BoundStateMachineNode>;
+  bindCtx: {
+    refSymbolTable: RefSymbolTable;
+    varSymbols: Map<string, BoundVarSymbol>;
+    constSymbols: Map<string, BoundConstSymbol>;
+    animatorSymbols: ReadonlyMap<string, BoundAnimatorSymbol>;
+    tempNamesInScope: Set<string>;
+  };
+}): { ok: true } | { ok: false; report: DiagnosticReport } {
+  const fullPath =
+    params.parentPath === undefined
+      ? `${params.machineName}.${params.block.stateName}`
+      : `${params.parentPath}.${params.block.stateName}`;
+
+  if (params.nodesByPath.has(fullPath)) {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildNameDuplicateDeclaration({
+          name: fullPath,
+          range: astRangeToSourceRange(params.block.range),
+          secondaryRange: astRangeToSourceRange(params.block.range),
+        }),
+      ]),
+    };
+  }
+
+  const localTransitions: BoundStateMachineTransition[] = [];
+  const childSimpleNames: string[] = [];
+
+  for (const item of params.block.items) {
+    if (item.kind === "state_machine_local_transition") {
+      const condResult = bindMethodArgumentExpression({
+        expression: item.conditionExpression,
+        refSymbolTable: params.bindCtx.refSymbolTable,
+        varSymbols: params.bindCtx.varSymbols,
+        constSymbols: params.bindCtx.constSymbols,
+        animatorSymbols: params.bindCtx.animatorSymbols,
+        tempNamesInScope: params.bindCtx.tempNamesInScope,
+      });
+      if (condResult.ok === false) {
+        return condResult;
+      }
+      localTransitions.push({
+        condition: condResult.expression,
+        targetPath: item.targetStatePathText,
+        range: item.range,
+      });
+      continue;
+    }
+
+    childSimpleNames.push(item.stateName);
+    const nestedResult = walkStateMachineStateBlock({
+      block: item,
+      machineName: params.machineName,
+      parentPath: fullPath,
+      nodesByPath: params.nodesByPath,
+      bindCtx: params.bindCtx,
+    });
+    if (nestedResult.ok === false) {
+      return nestedResult;
+    }
+  }
+
+  params.nodesByPath.set(fullPath, {
+    path: fullPath,
+    simpleName: params.block.stateName,
+    childSimpleNames,
+    initialChildLeafPath: params.block.initialChildStatePathText,
+    localTransitions,
+  });
+
+  return { ok: true };
 }

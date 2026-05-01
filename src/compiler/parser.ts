@@ -15,11 +15,14 @@
   ProgramAst,
   RefDeclarationAst,
   SetStatementAst,
-  StateDeclarationAst,
+  StateMachineDeclarationAst,
   StatementAst,
   TaskDeclarationAst,
   TaskOnDeclarationAst,
+  TaskOnEventTargetAst,
+  TaskStateMembershipAst,
   TopLevelDeclarationAst,
+  VarDeclarationAst,
   WaitStatementAst,
 } from "../ast/script-ast";
 import type { DiagnosticReport } from "../diagnostics/diagnostic";
@@ -92,8 +95,17 @@ export function parseProgram(tokens: Token[], fileName: string): ParseProgramRes
       continue;
     }
 
+    if (current.lexeme === "var") {
+      const varDecl = parseVarDeclaration(cursor);
+      if (varDecl.ok === false) {
+        return varDecl;
+      }
+      declarations.push(varDecl.declaration);
+      continue;
+    }
+
     if (current.lexeme === "state") {
-      const stateDecl = parseStateDeclaration(cursor);
+      const stateDecl = parseStateOrRejectLegacyPersistent(cursor);
       if (stateDecl.ok === false) {
         return stateDecl;
       }
@@ -221,13 +233,22 @@ class ParserCursor {
   public isAtEndOfFile(): boolean {
     return this.current().kind === "end_of_file";
   }
+
+  /** 現在位置から offset 先のトークン（EOF にはフォールバックしない）。 */
+  public peekAhead(offset: number): Token {
+    const idx = this.index + offset;
+    if (idx >= this.tokens.length) {
+      return this.tokens[this.tokens.length - 1]!;
+    }
+    return this.tokens[idx]!;
+  }
 }
 
-function parseStateDeclaration(
+function parseVarDeclaration(
   cursor: ParserCursor,
-): { ok: true; declaration: StateDeclarationAst } | { ok: false; report: DiagnosticReport } {
+): { ok: true; declaration: VarDeclarationAst } | { ok: false; report: DiagnosticReport } {
   const fileName = cursor.getSourceFileName();
-  const stateKeyword = cursor.current();
+  const varKeyword = cursor.current();
   cursor.advance();
 
   const nameToken = cursor.current();
@@ -239,7 +260,7 @@ function parseStateDeclaration(
           file: fileName,
           range: tokenToDiagnosticRange(fileName, nameToken),
           rangeText: nameToken.lexeme,
-          message: "Expected state variable name after state.",
+          message: "Expected variable name after var.",
         }),
       ]),
     };
@@ -255,7 +276,7 @@ function parseStateDeclaration(
           file: fileName,
           range: tokenToDiagnosticRange(fileName, equalsToken),
           rangeText: equalsToken.lexeme,
-          message: "Expected '=' in state declaration.",
+          message: "Expected '=' in var declaration.",
         }),
       ]),
     };
@@ -269,17 +290,535 @@ function parseStateDeclaration(
 
   const declarationRange: AstRange = {
     fileName,
-    start: stateKeyword.start,
+    start: varKeyword.start,
     end: initResult.expression.range.end,
   };
 
   return {
     ok: true,
     declaration: {
-      kind: "state_declaration",
+      kind: "var_declaration",
       range: declarationRange,
-      stateName: nameToken.lexeme,
+      varName: nameToken.lexeme,
       initialValueExpression: initResult.expression,
+    },
+  };
+}
+
+/**
+ * `state` は階層状態機械のみ。旧 `state name = expr` は拒否する。
+ */
+function parseStateOrRejectLegacyPersistent(
+  cursor: ParserCursor,
+): { ok: true; declaration: StateMachineDeclarationAst } | { ok: false; report: DiagnosticReport } {
+  const fileName = cursor.getSourceFileName();
+  const stateKeyword = cursor.current();
+  cursor.advance();
+
+  const nameToken = cursor.current();
+  if (nameToken.kind !== "identifier") {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildParseUnexpectedToken({
+          file: fileName,
+          range: tokenToDiagnosticRange(fileName, nameToken),
+          rangeText: nameToken.lexeme,
+          message: "Expected state machine name after state.",
+        }),
+      ]),
+    };
+  }
+
+  const nextAfterName = cursor.peekAhead(1);
+  if (nextAfterName.kind === "equals") {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildParseUnsupportedSyntax({
+          file: fileName,
+          range: tokenToDiagnosticRange(fileName, stateKeyword),
+          rangeText: "state",
+          message:
+            "Persistent values use `var`, not `state`. Replace `state name = ...` with `var name = ...`. State machines use `state Name every ... initial Path { ... }`.",
+        }),
+      ]),
+    };
+  }
+
+  return parseStateMachineDeclaration(cursor, stateKeyword, nameToken);
+}
+
+function parseStateMachineDeclaration(
+  cursor: ParserCursor,
+  stateKeyword: Token,
+  machineNameToken: Token,
+): { ok: true; declaration: StateMachineDeclarationAst } | { ok: false; report: DiagnosticReport } {
+  const fileName = cursor.getSourceFileName();
+  cursor.advance();
+
+  const everyTok = cursor.current();
+  if (everyTok.kind !== "identifier" || everyTok.lexeme !== "every") {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildParseUnexpectedToken({
+          file: fileName,
+          range: tokenToDiagnosticRange(fileName, everyTok),
+          rangeText: everyTok.lexeme,
+          message: 'Expected "every" after state machine name.',
+        }),
+      ]),
+    };
+  }
+  cursor.advance();
+
+  const numberToken = cursor.current();
+  if (numberToken.kind !== "number_literal") {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildParseUnexpectedToken({
+          file: fileName,
+          range: tokenToDiagnosticRange(fileName, numberToken),
+          rangeText: numberToken.lexeme,
+          message: "Expected numeric interval for state machine tick.",
+        }),
+      ]),
+    };
+  }
+  cursor.advance();
+
+  const unitToken = cursor.current();
+  let tickIntervalUnit: "ms" | "deg";
+  if (unitToken.kind === "ms_keyword") {
+    tickIntervalUnit = "ms";
+  } else if (unitToken.kind === "deg_keyword") {
+    tickIntervalUnit = "deg";
+  } else {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildParseUnexpectedToken({
+          file: fileName,
+          range: tokenToDiagnosticRange(fileName, unitToken),
+          rangeText: unitToken.lexeme,
+          message: 'Expected "ms" or "deg" after state machine interval.',
+        }),
+      ]),
+    };
+  }
+  cursor.advance();
+
+  const tickIntervalRange: AstRange = {
+    fileName,
+    start: numberToken.start,
+    end: unitToken.end,
+  };
+
+  const initialTok = cursor.current();
+  if (initialTok.kind !== "identifier" || initialTok.lexeme !== "initial") {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildParseUnexpectedToken({
+          file: fileName,
+          range: tokenToDiagnosticRange(fileName, initialTok),
+          rangeText: initialTok.lexeme,
+          message: 'Expected "initial" before initial state path.',
+        }),
+      ]),
+    };
+  }
+  cursor.advance();
+
+  const initialPathResult = parseAbsoluteStatePath(cursor);
+  if (initialPathResult.ok === false) {
+    return initialPathResult;
+  }
+
+  const openBrace = cursor.current();
+  if (openBrace.kind !== "left_brace") {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildParseUnexpectedToken({
+          file: fileName,
+          range: tokenToDiagnosticRange(fileName, openBrace),
+          rangeText: openBrace.lexeme,
+          message: "Expected '{' before state machine body.",
+        }),
+      ]),
+    };
+  }
+  cursor.advance();
+
+  const bodyItemsResult = parseStateMachineBodyItems(cursor, machineNameToken.lexeme);
+  if (bodyItemsResult.ok === false) {
+    return bodyItemsResult;
+  }
+
+  const closeBrace = cursor.current();
+  if (closeBrace.kind !== "right_brace") {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildParseUnexpectedToken({
+          file: fileName,
+          range: tokenToDiagnosticRange(fileName, closeBrace),
+          rangeText: closeBrace.lexeme,
+          message: "Expected '}' after state machine body.",
+        }),
+      ]),
+    };
+  }
+  cursor.advance();
+
+  const declarationRange: AstRange = {
+    fileName,
+    start: stateKeyword.start,
+    end: closeBrace.end,
+  };
+
+  return {
+    ok: true,
+    declaration: {
+      kind: "state_machine_declaration",
+      range: declarationRange,
+      machineName: machineNameToken.lexeme,
+      tickIntervalValue: Number.parseInt(numberToken.lexeme, 10),
+      tickIntervalUnit,
+      tickIntervalRange,
+      initialStatePathText: initialPathResult.pathText,
+      initialStatePathRange: initialPathResult.pathRange,
+      bodyItems: bodyItemsResult.items,
+    },
+  };
+}
+
+function parseAbsoluteStatePath(
+  cursor: ParserCursor,
+): { ok: true; pathText: string; pathRange: AstRange } | { ok: false; report: DiagnosticReport } {
+  const fileName = cursor.getSourceFileName();
+  const first = cursor.current();
+  if (first.kind !== "identifier") {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildParseUnexpectedToken({
+          file: fileName,
+          range: tokenToDiagnosticRange(fileName, first),
+          rangeText: first.lexeme,
+          message: "Expected state path segment.",
+        }),
+      ]),
+    };
+  }
+  let pathText = first.lexeme;
+  let rangeEnd = first.end;
+  cursor.advance();
+
+  while (cursor.current().kind === "dot") {
+    cursor.advance();
+    const seg = cursor.current();
+    if (seg.kind !== "identifier") {
+      return {
+        ok: false,
+        report: createDiagnosticReport([
+          buildParseUnexpectedToken({
+            file: fileName,
+            range: tokenToDiagnosticRange(fileName, seg),
+            rangeText: seg.lexeme,
+            message: "Expected identifier after '.' in state path.",
+          }),
+        ]),
+      };
+    }
+    pathText = `${pathText}.${seg.lexeme}`;
+    rangeEnd = seg.end;
+    cursor.advance();
+  }
+
+  const pathRange: AstRange = {
+    fileName,
+    start: first.start,
+    end: rangeEnd,
+  };
+
+  return { ok: true, pathText, pathRange };
+}
+
+function parseStateMachineBodyItems(
+  cursor: ParserCursor,
+  machineName: string,
+): { ok: true; items: import("../ast/script-ast").StateMachineBodyItemAst[] } | { ok: false; report: DiagnosticReport } {
+  const items: import("../ast/script-ast").StateMachineBodyItemAst[] = [];
+  const fileName = cursor.getSourceFileName();
+
+  while (cursor.current().kind !== "right_brace" && !cursor.isAtEndOfFile()) {
+    const tok = cursor.current();
+    if (tok.kind === "identifier" && tok.lexeme === "on") {
+      const globalResult = parseStateMachineTransition(cursor);
+      if (globalResult.ok === false) {
+        return globalResult;
+      }
+      items.push(globalResult.item);
+      continue;
+    }
+    if (tok.kind === "identifier") {
+      const blockResult = parseStateMachineStateBlock(cursor, machineName);
+      if (blockResult.ok === false) {
+        return blockResult;
+      }
+      items.push(blockResult.block);
+      continue;
+    }
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildParseUnexpectedToken({
+          file: fileName,
+          range: tokenToDiagnosticRange(fileName, tok),
+          rangeText: tok.lexeme,
+          message: "Expected 'on' transition or state block in state machine body.",
+        }),
+      ]),
+    };
+  }
+
+  return { ok: true, items };
+}
+
+function parseStateMachineTransition(
+  cursor: ParserCursor,
+): { ok: true; item: import("../ast/script-ast").StateMachineGlobalTransitionAst } | { ok: false; report: DiagnosticReport } {
+  const fileName = cursor.getSourceFileName();
+  const onTok = cursor.current();
+  cursor.advance();
+
+  const condResult = parseExpression(cursor);
+  if (condResult.ok === false) {
+    return condResult;
+  }
+
+  const arrowResult = parseThinArrow(cursor);
+  if (arrowResult.ok === false) {
+    return arrowResult;
+  }
+
+  const targetResult = parseAbsoluteStatePath(cursor);
+  if (targetResult.ok === false) {
+    return targetResult;
+  }
+
+  const itemRange: AstRange = {
+    fileName,
+    start: onTok.start,
+    end: targetResult.pathRange.end,
+  };
+
+  return {
+    ok: true,
+    item: {
+      kind: "state_machine_global_transition",
+      range: itemRange,
+      conditionExpression: condResult.expression,
+      targetStatePathText: targetResult.pathText,
+      targetStatePathRange: targetResult.pathRange,
+    },
+  };
+}
+
+function parseThinArrow(cursor: ParserCursor): { ok: true } | { ok: false; report: DiagnosticReport } {
+  const fileName = cursor.getSourceFileName();
+  const m = cursor.current();
+  if (m.kind !== "minus") {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildParseUnexpectedToken({
+          file: fileName,
+          range: tokenToDiagnosticRange(fileName, m),
+          rangeText: m.lexeme,
+          message: "Expected '->' (thin arrow).",
+        }),
+      ]),
+    };
+  }
+  cursor.advance();
+  const g = cursor.current();
+  if (g.kind !== "greater") {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildParseUnexpectedToken({
+          file: fileName,
+          range: tokenToDiagnosticRange(fileName, g),
+          rangeText: g.lexeme,
+          message: "Expected '->' (thin arrow).",
+        }),
+      ]),
+    };
+  }
+  cursor.advance();
+  return { ok: true };
+}
+
+function parseStateMachineStateBlock(
+  cursor: ParserCursor,
+  machineName: string,
+): { ok: true; block: import("../ast/script-ast").StateMachineStateBlockAst } | { ok: false; report: DiagnosticReport } {
+  const fileName = cursor.getSourceFileName();
+  const nameTok = cursor.current();
+  if (nameTok.kind !== "identifier") {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildParseUnexpectedToken({
+          file: fileName,
+          range: tokenToDiagnosticRange(fileName, nameTok),
+          rangeText: nameTok.lexeme,
+          message: "Expected state name.",
+        }),
+      ]),
+    };
+  }
+  cursor.advance();
+
+  let initialChildPathText: string | undefined;
+  let initialChildPathRange: AstRange | undefined;
+
+  const maybeInitial = cursor.current();
+  if (maybeInitial.kind === "identifier" && maybeInitial.lexeme === "initial") {
+    cursor.advance();
+    const pathResult = parseAbsoluteStatePath(cursor);
+    if (pathResult.ok === false) {
+      return pathResult;
+    }
+    initialChildPathText = pathResult.pathText;
+    initialChildPathRange = pathResult.pathRange;
+  }
+
+  const open = cursor.current();
+  if (open.kind !== "left_brace") {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildParseUnexpectedToken({
+          file: fileName,
+          range: tokenToDiagnosticRange(fileName, open),
+          rangeText: open.lexeme,
+          message: "Expected '{' before state body.",
+        }),
+      ]),
+    };
+  }
+  cursor.advance();
+
+  const nestedItems: import("../ast/script-ast").StateMachineNestedItemAst[] = [];
+
+  while (cursor.current().kind !== "right_brace" && !cursor.isAtEndOfFile()) {
+    const t = cursor.current();
+    if (t.kind === "identifier" && t.lexeme === "on") {
+      const locResult = parseStateMachineLocalTransition(cursor);
+      if (locResult.ok === false) {
+        return locResult;
+      }
+      nestedItems.push(locResult.item);
+      continue;
+    }
+    if (t.kind === "identifier") {
+      const childBlock = parseStateMachineStateBlock(cursor, machineName);
+      if (childBlock.ok === false) {
+        return childBlock;
+      }
+      nestedItems.push(childBlock.block);
+      continue;
+    }
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildParseUnexpectedToken({
+          file: fileName,
+          range: tokenToDiagnosticRange(fileName, t),
+          rangeText: t.lexeme,
+          message: "Expected 'on' or nested state in state body.",
+        }),
+      ]),
+    };
+  }
+
+  const close = cursor.current();
+  if (close.kind !== "right_brace") {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildParseUnexpectedToken({
+          file: fileName,
+          range: tokenToDiagnosticRange(fileName, close),
+          rangeText: close.lexeme,
+          message: "Expected '}' after state body.",
+        }),
+      ]),
+    };
+  }
+  cursor.advance();
+
+  const blockRange: AstRange = {
+    fileName,
+    start: nameTok.start,
+    end: close.end,
+  };
+
+  return {
+    ok: true,
+    block: {
+      kind: "state_machine_state_block",
+      range: blockRange,
+      stateName: nameTok.lexeme,
+      initialChildStatePathText: initialChildPathText,
+      initialChildStatePathRange: initialChildPathRange,
+      items: nestedItems,
+    },
+  };
+}
+
+function parseStateMachineLocalTransition(
+  cursor: ParserCursor,
+): { ok: true; item: import("../ast/script-ast").StateMachineLocalTransitionAst } | { ok: false; report: DiagnosticReport } {
+  const fileName = cursor.getSourceFileName();
+  const onTok = cursor.current();
+  cursor.advance();
+
+  const condResult = parseExpression(cursor);
+  if (condResult.ok === false) {
+    return condResult;
+  }
+
+  const arrowResult = parseThinArrow(cursor);
+  if (arrowResult.ok === false) {
+    return arrowResult;
+  }
+
+  const targetResult = parseAbsoluteStatePath(cursor);
+  if (targetResult.ok === false) {
+    return targetResult;
+  }
+
+  const itemRange: AstRange = {
+    fileName,
+    start: onTok.start,
+    end: targetResult.pathRange.end,
+  };
+
+  return {
+    ok: true,
+    item: {
+      kind: "state_machine_local_transition",
+      range: itemRange,
+      conditionExpression: condResult.expression,
+      targetStatePathText: targetResult.pathText,
+      targetStatePathRange: targetResult.pathRange,
     },
   };
 }
@@ -624,6 +1163,28 @@ function parseAnimatorDeclaration(
   };
 }
 
+function parseOptionalTaskStateMembership(
+  cursor: ParserCursor,
+): { ok: true; membership: TaskStateMembershipAst } | { ok: false; report: DiagnosticReport } {
+  const t = cursor.current();
+  if (t.kind !== "identifier" || t.lexeme !== "in") {
+    return { ok: true, membership: { kind: "none" } };
+  }
+  cursor.advance();
+  const pathResult = parseAbsoluteStatePath(cursor);
+  if (pathResult.ok === false) {
+    return pathResult;
+  }
+  return {
+    ok: true,
+    membership: {
+      kind: "in_state_path",
+      statePathText: pathResult.pathText,
+      statePathRange: pathResult.pathRange,
+    },
+  };
+}
+
 function parseTaskBranchAfterKeyword(
   cursor: ParserCursor,
 ): { ok: true; declaration: TaskDeclarationAst | TaskOnDeclarationAst } | { ok: false; report: DiagnosticReport } {
@@ -647,15 +1208,21 @@ function parseTaskBranchAfterKeyword(
   }
   cursor.advance();
 
+  const membershipResult = parseOptionalTaskStateMembership(cursor);
+  if (membershipResult.ok === false) {
+    return membershipResult;
+  }
+  const stateMembership = membershipResult.membership;
+
   const branchToken = cursor.current();
   if (branchToken.kind === "identifier" && branchToken.lexeme === "every") {
-    return parseTaskEveryAfterTaskName(cursor, taskKeyword, taskNameToken);
+    return parseTaskEveryAfterTaskName(cursor, taskKeyword, taskNameToken, stateMembership);
   }
   if (branchToken.kind === "identifier" && branchToken.lexeme === "on") {
-    return parseTaskOnAfterTaskName(cursor, taskKeyword, taskNameToken);
+    return parseTaskOnAfterTaskName(cursor, taskKeyword, taskNameToken, stateMembership);
   }
   if (branchToken.kind === "identifier" && branchToken.lexeme === "loop") {
-    return parseTaskLoopAfterTaskName(cursor, taskKeyword, taskNameToken);
+    return parseTaskLoopAfterTaskName(cursor, taskKeyword, taskNameToken, stateMembership);
   }
 
   return {
@@ -675,6 +1242,7 @@ function parseTaskEveryAfterTaskName(
   cursor: ParserCursor,
   taskKeyword: Token,
   taskNameToken: Token,
+  stateMembership: TaskStateMembershipAst,
 ): { ok: true; declaration: TaskDeclarationAst } | { ok: false; report: DiagnosticReport } {
   const fileName = cursor.getSourceFileName();
   const everyToken = cursor.current();
@@ -776,6 +1344,7 @@ function parseTaskEveryAfterTaskName(
       kind: "task_declaration",
       range: declarationRange,
       taskName: taskNameToken.lexeme,
+      stateMembership,
       schedule: {
         kind: "every",
         intervalValue: Number.parseInt(numberToken.lexeme, 10),
@@ -791,6 +1360,7 @@ function parseTaskLoopAfterTaskName(
   cursor: ParserCursor,
   taskKeyword: Token,
   taskNameToken: Token,
+  stateMembership: TaskStateMembershipAst,
 ): { ok: true; declaration: TaskDeclarationAst } | { ok: false; report: DiagnosticReport } {
   const fileName = cursor.getSourceFileName();
   const loopKeywordToken = cursor.current();
@@ -855,6 +1425,7 @@ function parseTaskLoopAfterTaskName(
       kind: "task_declaration",
       range: declarationRange,
       taskName: taskNameToken.lexeme,
+      stateMembership,
       schedule: {
         kind: "loop",
         loopKeywordRange,
@@ -868,12 +1439,77 @@ function parseTaskOnAfterTaskName(
   cursor: ParserCursor,
   taskKeyword: Token,
   taskNameToken: Token,
+  stateMembership: TaskStateMembershipAst,
 ): { ok: true; declaration: TaskOnDeclarationAst } | { ok: false; report: DiagnosticReport } {
   const fileName = cursor.getSourceFileName();
-  const onKeyword = cursor.current();
   cursor.advance();
 
-  const eventTargetNameToken = cursor.current();
+  const nextTok = cursor.current();
+  if (nextTok.kind === "identifier" && (nextTok.lexeme === "enter" || nextTok.lexeme === "exit")) {
+    cursor.advance();
+    const lifecycle = nextTok.lexeme === "enter" ? "enter" : "exit";
+
+    const leftBrace = cursor.current();
+    if (leftBrace.kind !== "left_brace") {
+      return {
+        ok: false,
+        report: createDiagnosticReport([
+          buildParseUnexpectedToken({
+            file: fileName,
+            range: tokenToDiagnosticRange(fileName, leftBrace),
+            rangeText: leftBrace.lexeme,
+            message: "Expected '{' before task on enter/exit body.",
+          }),
+        ]),
+      };
+    }
+    cursor.advance();
+
+    const bodyStatements: StatementAst[] = [];
+    while (cursor.current().kind !== "right_brace" && !cursor.isAtEndOfFile()) {
+      const statementResult = parseStatement(cursor);
+      if (statementResult.ok === false) {
+        return statementResult;
+      }
+      bodyStatements.push(statementResult.statement);
+    }
+
+    const closeBrace = cursor.current();
+    if (closeBrace.kind !== "right_brace") {
+      return {
+        ok: false,
+        report: createDiagnosticReport([
+          buildParseUnexpectedToken({
+            file: fileName,
+            range: tokenToDiagnosticRange(fileName, closeBrace),
+            rangeText: closeBrace.lexeme,
+            message: "Expected '}' after task on enter/exit body.",
+          }),
+        ]),
+      };
+    }
+    cursor.advance();
+
+    const declarationRange: AstRange = {
+      fileName,
+      start: taskKeyword.start,
+      end: closeBrace.end,
+    };
+
+    return {
+      ok: true,
+      declaration: {
+        kind: "task_on_declaration",
+        range: declarationRange,
+        taskName: taskNameToken.lexeme,
+        stateMembership,
+        trigger: { kind: "state_lifecycle", lifecycle },
+        bodyStatements,
+      },
+    };
+  }
+
+  const eventTargetNameToken = nextTok;
   if (eventTargetNameToken.kind !== "identifier") {
     return {
       ok: false,
@@ -890,7 +1526,7 @@ function parseTaskOnAfterTaskName(
   cursor.advance();
 
   const eventTargetSeparatorToken = cursor.current();
-  let eventTarget: TaskOnDeclarationAst["eventTarget"];
+  let eventTarget: TaskOnEventTargetAst;
 
   if (eventTargetSeparatorToken.kind === "hash") {
     cursor.advance();
@@ -1018,8 +1654,12 @@ function parseTaskOnAfterTaskName(
       kind: "task_on_declaration",
       range: declarationRange,
       taskName: taskNameToken.lexeme,
-      eventTarget,
-      eventName: eventNameToken.lexeme,
+      stateMembership,
+      trigger: {
+        kind: "device_event",
+        eventTarget,
+        eventName: eventNameToken.lexeme,
+      },
       bodyStatements,
     },
   };
@@ -1623,7 +2263,7 @@ function parseSetStatement(
           file: fileName,
           range: tokenToDiagnosticRange(fileName, nameToken),
           rangeText: nameToken.lexeme,
-          message: "Expected state name after set.",
+          message: "Expected var name after set.",
         }),
       ]),
     };
@@ -1662,7 +2302,7 @@ function parseSetStatement(
     statement: {
       kind: "set_statement",
       range: statementRange,
-      stateName: nameToken.lexeme,
+      varName: nameToken.lexeme,
       valueExpression: valueResult.expression,
     },
   };

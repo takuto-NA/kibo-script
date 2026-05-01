@@ -1,4 +1,4 @@
-state command = "on"
+var command = "on"
 
 ref led = led#0
 

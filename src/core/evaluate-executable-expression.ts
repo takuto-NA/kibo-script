@@ -1,5 +1,5 @@
 /**
- * ExecutableExpression を DeviceBus / script state 上で評価する。
+ * ExecutableExpression を DeviceBus / script var（永続ミュータブル値）上で評価する。
  */
 
 import type { DeviceBus } from "./device-bus";
@@ -9,9 +9,12 @@ import type { ScriptValue } from "./value";
 import { integerValue, stringValue } from "./value";
 import { clampPercentToPwmRange, interpolateAnimatorRampPercent } from "./animator-ramp";
 
+/** 状態機械の経過 ms が未注入のとき `.elapsed` が参照する既定値（スタブ）。 */
+const FALLBACK_STATE_PATH_ELAPSED_MS = 0;
+
 export type EvaluateExecutableExpressionContext = {
   readonly deviceBus: DeviceBus;
-  readonly stateValues: Map<string, number | string>;
+  readonly varValues: Map<string, number | string>;
   /** プログラム定数（読み取り専用）。 */
   readonly constValues?: ReadonlyMap<string, number | string>;
   /** 現在の task の `temp`（SimulationRuntime が TaskRecord から渡す）。 */
@@ -24,6 +27,8 @@ export type EvaluateExecutableExpressionContext = {
   readonly animatorDefinitionsByName?: ReadonlyMap<string, CompiledAnimatorDefinition>;
   /** step 評価で animator 状態を更新する（SimulationRuntime が保持）。 */
   readonly animatorRuntimeStatesByName?: Map<string, AnimatorRuntimeState>;
+  /** `some.Path.elapsed` 用（状態機械 runtime が ms を供給）。未設定時は 0ms とみなす。 */
+  readonly statePathElapsedMillisecondsByPath?: ReadonlyMap<string, number>;
 };
 
 export function evaluateExecutableExpression(
@@ -38,8 +43,8 @@ export function evaluateExecutableExpression(
     return stringValue(expression.value);
   }
 
-  if (expression.kind === "state_reference") {
-    const storedValue = context.stateValues.get(expression.stateName);
+  if (expression.kind === "var_reference") {
+    const storedValue = context.varValues.get(expression.varName);
     if (storedValue === undefined) {
       return undefined;
     }
@@ -47,6 +52,13 @@ export function evaluateExecutableExpression(
       return integerValue(storedValue);
     }
     return stringValue(storedValue);
+  }
+
+  if (expression.kind === "state_path_elapsed_reference") {
+    const elapsedMap = context.statePathElapsedMillisecondsByPath;
+    const elapsedMilliseconds =
+      elapsedMap !== undefined ? elapsedMap.get(expression.statePathText) : undefined;
+    return integerValue(elapsedMilliseconds ?? FALLBACK_STATE_PATH_ELAPSED_MS);
   }
 
   if (expression.kind === "const_reference") {

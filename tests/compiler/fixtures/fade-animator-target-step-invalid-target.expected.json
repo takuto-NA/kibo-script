@@ -10,12 +10,12 @@
         "start": {
           "line": 8,
           "column": 19,
-          "offset": 138
+          "offset": 134
         },
         "end": {
           "line": 8,
           "column": 37,
-          "offset": 156
+          "offset": 152
         }
       },
       "expected": {

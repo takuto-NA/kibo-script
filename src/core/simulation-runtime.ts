@@ -42,7 +42,7 @@ export class SimulationRuntime {
   private readonly physicsWorld: PhysicsWorld;
   public readonly tasks: TaskRegistry;
   private totalSimulationMilliseconds = 0;
-  private readonly scriptStateValues = new Map<string, number | string>();
+  private readonly scriptVarValues = new Map<string, number | string>();
   private readonly scriptConstValues = new Map<string, number | string>();
   private compiledAnimatorDefinitionsByName = new Map<string, CompiledAnimatorDefinition>();
   private readonly animatorRuntimeStatesByName = new Map<string, AnimatorRuntimeState>();
@@ -81,12 +81,12 @@ export class SimulationRuntime {
     return this.totalSimulationMilliseconds;
   }
 
-  public getScriptStateValues(): ReadonlyMap<string, number | string> {
-    return this.scriptStateValues;
+  public getScriptVarValues(): ReadonlyMap<string, number | string> {
+    return this.scriptVarValues;
   }
 
   /**
-   * 登録済み task を破棄し、CompiledProgram の state 初期化と task 再登録を行う。
+   * 登録済み task を破棄し、CompiledProgram の var 初期化と task 再登録を行う。
    */
   public replaceCompiledProgram(compiledProgram: CompiledProgram): void {
     this.compiledAnimatorDefinitionsByName = new Map(
@@ -107,20 +107,20 @@ export class SimulationRuntime {
   }
 
   private initializeScriptStateFromCompiledProgram(compiledProgram: CompiledProgram): void {
-    this.scriptStateValues.clear();
+    this.scriptVarValues.clear();
     this.scriptConstValues.clear();
     const evaluationContextBase = this.createEvaluationContextForStateInitialization();
-    for (const initializer of compiledProgram.stateInitializers) {
+    for (const initializer of compiledProgram.varInitializers) {
       const scriptValue = evaluateExecutableExpression(initializer.expression, evaluationContextBase);
       if (scriptValue === undefined) {
         continue;
       }
       if (scriptValue.tag === "integer") {
-        this.scriptStateValues.set(initializer.stateName, scriptValue.value);
+        this.scriptVarValues.set(initializer.varName, scriptValue.value);
         continue;
       }
       if (scriptValue.tag === "string") {
-        this.scriptStateValues.set(initializer.stateName, scriptValue.value);
+        this.scriptVarValues.set(initializer.varName, scriptValue.value);
       }
     }
 
@@ -154,6 +154,9 @@ export class SimulationRuntime {
   public dispatchScriptEvent(params: { deviceAddress: DeviceAddress; eventName: string }): void {
     for (const task of this.tasks.listTasks()) {
       if (!task.running || task.runMode !== "on_event") {
+        continue;
+      }
+      if (task.onEventTriggerKind === "state_enter" || task.onEventTriggerKind === "state_exit") {
         continue;
       }
       const filter = task.onEventFilter;
@@ -193,7 +196,7 @@ export class SimulationRuntime {
   private createEvaluationContextForStateInitialization(): EvaluateExecutableExpressionContext {
     return {
       deviceBus: this.deviceBus,
-      stateValues: this.scriptStateValues,
+      varValues: this.scriptVarValues,
       constValues: this.scriptConstValues,
     };
   }
@@ -204,7 +207,7 @@ export class SimulationRuntime {
     }
     return {
       deviceBus: this.deviceBus,
-      stateValues: this.scriptStateValues,
+      varValues: this.scriptVarValues,
       constValues: this.scriptConstValues,
       tempValues: task.taskLocalValues,
       taskExecution: {
@@ -356,8 +359,8 @@ export class SimulationRuntime {
         return;
       }
 
-      if (statement.kind === "assign_state") {
-        this.executeAssignStateStatement(statement, task);
+      if (statement.kind === "assign_var") {
+        this.executeAssignVarStatement(statement, task);
         task.executionProgress.programCounter = programCounter + 1;
         continue;
       }
@@ -451,8 +454,8 @@ export class SimulationRuntime {
         continue;
       }
 
-      if (innerStatement.kind === "assign_state") {
-        this.executeAssignStateStatement(innerStatement, task);
+      if (innerStatement.kind === "assign_var") {
+        this.executeAssignVarStatement(innerStatement, task);
         continue;
       }
 
@@ -512,8 +515,8 @@ export class SimulationRuntime {
     this.executeExecutableStatementsWithoutWaiting(branchStatements, task);
   }
 
-  private executeAssignStateStatement(
-    statement: ExecutableStatement & { kind: "assign_state" },
+  private executeAssignVarStatement(
+    statement: ExecutableStatement & { kind: "assign_var" },
     task: TaskRecord,
   ): void {
     const evaluationContext = this.createEvaluationContextForTask(task);
@@ -522,11 +525,11 @@ export class SimulationRuntime {
       return;
     }
     if (scriptValue.tag === "integer") {
-      this.scriptStateValues.set(statement.stateName, scriptValue.value);
+      this.scriptVarValues.set(statement.varName, scriptValue.value);
       return;
     }
     if (scriptValue.tag === "string") {
-      this.scriptStateValues.set(statement.stateName, scriptValue.value);
+      this.scriptVarValues.set(statement.varName, scriptValue.value);
     }
   }
 

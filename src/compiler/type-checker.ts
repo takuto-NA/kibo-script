@@ -109,7 +109,7 @@ export function typeCheckBoundProgram(boundProgram: BoundProgram): DiagnosticRep
     collectStepAnimatorTargetIntegerDiagnostics(expression, stateValueKinds, diagnostics, boundProgram);
   };
 
-  for (const stateSymbol of boundProgram.stateSymbolsInSourceOrder) {
+  for (const stateSymbol of boundProgram.varSymbolsInSourceOrder) {
     walkBoundExpressionTree(stateSymbol.initialValue, visitAnimatorStepDiagnostics);
   }
   for (const constSymbol of boundProgram.constSymbolsInSourceOrder) {
@@ -156,8 +156,12 @@ function inferBoundExpressionValueKind(
     return "string";
   }
 
-  if (expression.kind === "identifier") {
-    return stateValueKinds.get(expression.name);
+  if (expression.kind === "var_reference") {
+    return stateValueKinds.get(expression.varName);
+  }
+
+  if (expression.kind === "state_path_elapsed_reference") {
+    return "integer";
   }
 
   if (expression.kind === "const_reference") {
@@ -634,7 +638,7 @@ function collectSetStatementTypeDiagnostics(params: {
     collectAnimatorTimeExpressionsInvalidForNonEveryTask(params.statement.valueExpression, params.diagnostics);
   }
 
-  const expectedKind = params.stateValueKinds.get(params.statement.stateName);
+  const expectedKind = params.stateValueKinds.get(params.statement.varName);
   const actualKind = inferBoundExpressionValueKind(
     params.statement.valueExpression,
     params.stateValueKinds,
@@ -644,7 +648,7 @@ function collectSetStatementTypeDiagnostics(params: {
   if (expectedKind !== undefined && actualKind !== undefined && expectedKind !== actualKind) {
     params.diagnostics.push(
       buildTypeArgumentTypeMismatch({
-        message: `set assigns incompatible type to "${params.statement.stateName}".`,
+        message: `set assigns incompatible type to "${params.statement.varName}".`,
         range: convertAstRangeToSourceRange(params.statement.range),
         expected: { kind: "string", value: expectedKind },
         actual: { kind: "string", value: actualKind },

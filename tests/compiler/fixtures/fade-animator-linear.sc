@@ -1,5 +1,5 @@
 ref led = pwm#0
-state led_level = 0%
+var led_level = 0%
 animator fade_in = ramp from 0% to 100% over 1000ms ease linear
 
 task fade every 100ms {

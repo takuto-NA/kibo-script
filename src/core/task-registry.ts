@@ -28,7 +28,11 @@ export type TaskRecord = {
   taskLocalValues?: Map<string, number | string>;
   /** every task の wait 再開用。 */
   executionProgress?: TaskExecutionProgress;
-  /** runMode === on_event のときのフィルタ。 */
+  /** `task ... in <path> ...` の絶対パス。未設定なら全状態で実行可能とみなす。 */
+  stateMembershipPath?: string;
+  /** runMode === on_event のとき。device_event のとき必須。lifecycle は状態機械 runtime と組み合わせて評価。 */
+  onEventTriggerKind?: "device_event" | "state_enter" | "state_exit";
+  /** runMode === on_event かつ device_event のときのフィルタ。 */
   onEventFilter?: {
     deviceAddress: DeviceAddress;
     eventName: string;

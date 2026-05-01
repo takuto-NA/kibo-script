@@ -1,9 +1,9 @@
 {
   "ok": true,
   "program": {
-    "stateInitializers": [
+    "varInitializers": [
       {
-        "stateName": "command",
+        "varName": "command",
         "expression": {
           "kind": "string_literal",
           "value": "on"
@@ -11,11 +11,13 @@
       }
     ],
     "constInitializers": [],
+    "stateMachines": [],
     "animatorDefinitions": [],
     "everyTasks": [],
     "onEventTasks": [
       {
         "taskName": "apply_command",
+        "triggerKind": "device_event",
         "deviceAddress": {
           "kind": "button",
           "id": 0
@@ -25,8 +27,8 @@
           {
             "kind": "match_string",
             "targetExpression": {
-              "kind": "state_reference",
-              "stateName": "command"
+              "kind": "var_reference",
+              "varName": "command"
             },
             "stringCases": [
               {

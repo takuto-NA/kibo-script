@@ -22,14 +22,14 @@ const cruise_duration_ms = 1280
 const turn_duration_ms = 1280
 const reverse_duration_ms = 1280
 
-state scanner_angle_degrees = scanner_min_degrees
-state scanner_direction = 1
-state glow_level = 0%
-state glow_target = 35%
+var scanner_angle_degrees = scanner_min_degrees
+var scanner_direction = 1
+var glow_level = 0%
+var glow_target = 35%
 
-state left_power_target = 0
-state right_power_target = 0
-state warning_enabled = 0
+var left_power_target = 0
+var right_power_target = 0
+var warning_enabled = 0
 
 animator glow_fade = ramp over 360ms ease ease_in_out
 

@@ -6,9 +6,11 @@ import type { DeviceAddress } from "./device-address";
 export type ExecutableExpression =
   | { kind: "integer_literal"; value: number }
   | { kind: "string_literal"; value: string }
-  | { kind: "state_reference"; stateName: string }
+  | { kind: "var_reference"; varName: string }
   | { kind: "const_reference"; constName: string }
   | { kind: "temp_reference"; tempName: string }
+  /** `rover.Avoid.elapsed` など（ミリ秒整数） */
+  | { kind: "state_path_elapsed_reference"; statePathText: string }
   /** `task every` の 1 回起動の名目 dt（ms）。on_event では式として使えない。 */
   | { kind: "dt_interval_ms" }
   /** アニメータを dt 分進め、現在のパーセント（整数）を返す。`over_only` 定義では target が必須。 */
@@ -52,8 +54,8 @@ export type ExecutableStatement =
       arguments: ExecutableExpression[];
     }
   | {
-      kind: "assign_state";
-      stateName: string;
+      kind: "assign_var";
+      varName: string;
       valueExpression: ExecutableExpression;
     }
   | {
@@ -82,18 +84,23 @@ export type ExecutableStatement =
 export type CompiledEveryTask = {
   taskName: string;
   intervalMilliseconds: number;
+  /** `task ... in path ...` の絶対パス。無ければ全状態で実行 */
+  stateMembershipPath: string | undefined;
   statements: ExecutableStatement[];
 };
 
 export type CompiledLoopTask = {
   taskName: string;
+  stateMembershipPath: string | undefined;
   statements: ExecutableStatement[];
 };
 
 export type CompiledOnEventTask = {
   taskName: string;
-  deviceAddress: DeviceAddress;
-  eventName: string;
+  triggerKind: "device_event" | "state_enter" | "state_exit";
+  deviceAddress?: DeviceAddress;
+  eventName?: string;
+  stateMembershipPath: string | undefined;
   statements: ExecutableStatement[];
 };
 
@@ -116,10 +123,31 @@ export type CompiledAnimatorDefinition =
       ease: "linear" | "ease_in_out";
     };
 
+export type CompiledStateMachineTransition = {
+  condition: ExecutableExpression;
+  targetPath: string;
+};
+
+export type CompiledStateMachineNodeIr = {
+  path: string;
+  localTransitions: CompiledStateMachineTransition[];
+  initialChildLeafPath: string | undefined;
+  childPaths: string[];
+};
+
+export type CompiledStateMachine = {
+  machineName: string;
+  tickIntervalMilliseconds: number;
+  initialLeafPath: string;
+  globalTransitions: CompiledStateMachineTransition[];
+  nodes: CompiledStateMachineNodeIr[];
+};
+
 export type CompiledProgram = {
-  stateInitializers: { stateName: string; expression: ExecutableExpression }[];
+  varInitializers: { varName: string; expression: ExecutableExpression }[];
   constInitializers: { constName: string; expression: ExecutableExpression }[];
   animatorDefinitions: CompiledAnimatorDefinition[];
+  stateMachines: CompiledStateMachine[];
   everyTasks: CompiledEveryTask[];
   loopTasks: CompiledLoopTask[];
   onEventTasks: CompiledOnEventTask[];

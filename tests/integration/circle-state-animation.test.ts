@@ -5,7 +5,7 @@ import { TaskRegistry } from "../../src/core/task-registry";
 
 describe("circle state animation", () => {
   it("advances circle_x state each tick interval", () => {
-    const sourceText = `state circle_x = 20
+    const sourceText = `var circle_x = 20
 
 task move_circle every 100ms {
   do display#0.clear()
@@ -24,12 +24,12 @@ task move_circle every 100ms {
     const runtime = new SimulationRuntime({ tasks: taskRegistry });
     runtime.replaceCompiledProgram(compileResult.program);
 
-    expect(runtime.getScriptStateValues().get("circle_x")).toBe(20);
+    expect(runtime.getScriptVarValues().get("circle_x")).toBe(20);
 
     runtime.tick(100);
-    expect(runtime.getScriptStateValues().get("circle_x")).toBe(24);
+    expect(runtime.getScriptVarValues().get("circle_x")).toBe(24);
 
     runtime.tick(100);
-    expect(runtime.getScriptStateValues().get("circle_x")).toBe(28);
+    expect(runtime.getScriptVarValues().get("circle_x")).toBe(28);
   });
 });

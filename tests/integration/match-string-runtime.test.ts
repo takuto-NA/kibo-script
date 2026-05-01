@@ -5,7 +5,7 @@ import { TaskRegistry } from "../../src/core/task-registry";
 
 describe("match string runtime", () => {
   it("runs only the matched arm when the state matches a string case", () => {
-    const sourceText = `state command = "on"
+    const sourceText = `var command = "on"
 
 task apply on button#0.pressed {
   match command {
@@ -36,7 +36,7 @@ task apply on button#0.pressed {
   });
 
   it("runs else when no string case matches", () => {
-    const sourceText = `state command = "unknown"
+    const sourceText = `var command = "unknown"
 
 task apply on button#0.pressed {
   match command {

@@ -5,21 +5,26 @@
 import type {
   BoundExpression,
   BoundMatchPattern,
+  BoundOnEventTask,
   BoundProgram,
+  BoundStateMachineDefinition,
   BoundStatement,
+  BoundTaskStateMembership,
 } from "./bound-program";
 import type {
   CompiledEveryTask,
   CompiledLoopTask,
   CompiledOnEventTask,
   CompiledProgram,
+  CompiledStateMachine,
+  CompiledStateMachineNodeIr,
   ExecutableExpression,
   ExecutableStatement,
 } from "../core/executable-task";
 
 export function lowerBoundProgramToCompiledProgram(boundProgram: BoundProgram): CompiledProgram {
-  const stateInitializers = boundProgram.stateSymbolsInSourceOrder.map((symbol) => ({
-    stateName: symbol.stateName,
+  const varInitializers = boundProgram.varSymbolsInSourceOrder.map((symbol) => ({
+    varName: symbol.varName,
     expression: lowerBoundExpression(symbol.initialValue),
   }));
 
@@ -46,34 +51,109 @@ export function lowerBoundProgramToCompiledProgram(boundProgram: BoundProgram): 
   const everyTasks: CompiledEveryTask[] = boundProgram.everyTasks.map((task) => ({
     taskName: task.taskName,
     intervalMilliseconds: task.intervalValue,
+    stateMembershipPath: lowerStateMembershipToPath(task.stateMembership),
     statements: task.statements.map(lowerBoundStatementToExecutableStatement),
   }));
 
   const loopTasks: CompiledLoopTask[] = boundProgram.loopTasks.map((task) => ({
     taskName: task.taskName,
+    stateMembershipPath: lowerStateMembershipToPath(task.stateMembership),
     statements: task.statements.map(lowerBoundStatementToExecutableStatement),
   }));
 
-  const onEventTasks: CompiledOnEventTask[] = boundProgram.onEventTasks.map((task) => ({
-    taskName: task.taskName,
-    deviceAddress: task.deviceAddress,
-    eventName: task.eventName,
-    statements: task.statements.map(lowerBoundStatementToExecutableStatement),
-  }));
+  const onEventTasks: CompiledOnEventTask[] = boundProgram.onEventTasks.map(lowerBoundOnEventTask);
 
   const constInitializers = boundProgram.constSymbolsInSourceOrder.map((symbol) => ({
     constName: symbol.constName,
     expression: lowerBoundExpression(symbol.initialValue),
   }));
 
+  const stateMachines = boundProgram.stateMachinesInSourceOrder.map(lowerBoundStateMachineDefinition);
+
   return {
-    stateInitializers,
+    varInitializers,
     constInitializers,
     animatorDefinitions,
+    stateMachines,
     everyTasks,
     loopTasks,
     onEventTasks,
   };
+}
+
+function lowerStateMembershipToPath(membership: BoundTaskStateMembership): string | undefined {
+  if (membership.kind === "none") {
+    return undefined;
+  }
+  return membership.statePathText;
+}
+
+function lowerBoundOnEventTask(task: BoundOnEventTask): CompiledOnEventTask {
+  const stateMembershipPath = lowerStateMembershipToPath(task.stateMembership);
+  const statements = task.statements.map(lowerBoundStatementToExecutableStatement);
+  if (task.trigger.kind === "state_lifecycle") {
+    return {
+      taskName: task.taskName,
+      triggerKind: task.trigger.lifecycle === "enter" ? "state_enter" : "state_exit",
+      stateMembershipPath,
+      statements,
+    };
+  }
+  return {
+    taskName: task.taskName,
+    triggerKind: "device_event",
+    deviceAddress: task.trigger.deviceAddress,
+    eventName: task.trigger.eventName,
+    stateMembershipPath,
+    statements,
+  };
+}
+
+function lowerBoundStateMachineDefinition(definition: BoundStateMachineDefinition): CompiledStateMachine {
+  const tickIntervalMilliseconds = stateMachineTickToIntervalMilliseconds({
+    value: definition.tickIntervalValue,
+    unit: definition.tickIntervalUnit,
+  });
+
+  const sortedPaths = [...definition.nodesByPath.keys()].sort();
+  const nodes: CompiledStateMachineNodeIr[] = [];
+  for (const path of sortedPaths) {
+    const node = definition.nodesByPath.get(path);
+    if (node === undefined) {
+      throw new Error(`Invariant: state machine node missing for path ${path}`);
+    }
+    const childPaths = node.childSimpleNames.map((childSimpleName) => `${path}.${childSimpleName}`);
+    nodes.push({
+      path,
+      localTransitions: node.localTransitions.map((transition) => ({
+        condition: lowerBoundExpression(transition.condition),
+        targetPath: transition.targetPath,
+      })),
+      initialChildLeafPath: node.initialChildLeafPath,
+      childPaths,
+    });
+  }
+
+  return {
+    machineName: definition.machineName,
+    tickIntervalMilliseconds,
+    initialLeafPath: definition.initialLeafPath,
+    globalTransitions: definition.machineGlobalTransitions.map((transition) => ({
+      condition: lowerBoundExpression(transition.condition),
+      targetPath: transition.targetPath,
+    })),
+    nodes,
+  };
+}
+
+function stateMachineTickToIntervalMilliseconds(params: {
+  value: number;
+  unit: "ms" | "deg";
+}): number {
+  if (params.unit === "ms") {
+    return params.value;
+  }
+  return params.value;
 }
 
 export function lowerBoundStatementToExecutableStatement(statement: BoundStatement): ExecutableStatement {
@@ -88,8 +168,8 @@ export function lowerBoundStatementToExecutableStatement(statement: BoundStateme
 
   if (statement.kind === "set_statement") {
     return {
-      kind: "assign_state",
-      stateName: statement.stateName,
+      kind: "assign_var",
+      varName: statement.varName,
       valueExpression: lowerBoundExpression(statement.valueExpression),
     };
   }
@@ -177,8 +257,8 @@ function lowerBoundExpression(expression: BoundExpression): ExecutableExpression
     return { kind: "string_literal", value: expression.value };
   }
 
-  if (expression.kind === "identifier") {
-    return { kind: "state_reference", stateName: expression.name };
+  if (expression.kind === "var_reference") {
+    return { kind: "var_reference", varName: expression.varName };
   }
 
   if (expression.kind === "const_reference") {
@@ -187,6 +267,10 @@ function lowerBoundExpression(expression: BoundExpression): ExecutableExpression
 
   if (expression.kind === "temp_reference") {
     return { kind: "temp_reference", tempName: expression.tempName };
+  }
+
+  if (expression.kind === "state_path_elapsed_reference") {
+    return { kind: "state_path_elapsed_reference", statePathText: expression.statePathText };
   }
 
   if (expression.kind === "binary_add") {

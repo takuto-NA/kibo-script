@@ -4,14 +4,14 @@ import type { DeviceAddress } from "../core/device-address";
 export type BoundProgram = {
   sourceFileName: string;
   refSymbols: Map<string, BoundRefSymbol>;
-  /** Compiler-visible script state names -> initialized binding */
-  stateSymbols: Map<string, BoundStateSymbol>;
-  /** `const` 宣言: 不変。state と同名不可。 */
+  /** Compiler-visible script var names -> initialized binding */
+  varSymbols: Map<string, BoundVarSymbol>;
+  /** `const` 宣言: 不変。var と同名不可。 */
   constSymbols: Map<string, BoundConstSymbol>;
   /** `const` 宣言がソースに現れた順。 */
   constSymbolsInSourceOrder: BoundConstSymbol[];
-  /** `state` 宣言がソースに現れた順（初期化評価順）。 */
-  stateSymbolsInSourceOrder: BoundStateSymbol[];
+  /** `var` 宣言がソースに現れた順（初期化評価順）。 */
+  varSymbolsInSourceOrder: BoundVarSymbol[];
   /**
    * アニメータ名 -> 定義。宣言の重複は束縛前に弾く。
    */
@@ -21,13 +21,15 @@ export type BoundProgram = {
   everyTasks: BoundEveryTask[];
   loopTasks: BoundLoopTask[];
   onEventTasks: BoundOnEventTask[];
-  /** state / const をソース順に束縛した行（型推論の宣言順序に使用） */
+  /** var / const をソース順に束縛した行（型推論の宣言順序に使用） */
   valueSymbolsInSourceOrder: BoundValueSymbolInSourceOrderRow[];
+  /** v0.5 階層状態機械（名前解決・検証済み） */
+  stateMachinesInSourceOrder: BoundStateMachineDefinition[];
 };
 
 export type BoundValueSymbolInSourceOrderRow =
   | {
-      kind: "state";
+      kind: "var";
       name: string;
       initialValue: BoundExpression;
       range: AstRange;
@@ -45,8 +47,8 @@ export type BoundRefSymbol = {
   range: AstRange;
 };
 
-export type BoundStateSymbol = {
-  stateName: string;
+export type BoundVarSymbol = {
+  varName: string;
   initialValue: BoundExpression;
   range: AstRange;
 };
@@ -76,9 +78,15 @@ export type BoundAnimatorSymbol = {
   range: AstRange;
 };
 
+/** `task ... in path ...` の所属（binder で検証済み） */
+export type BoundTaskStateMembership =
+  | { kind: "none" }
+  | { kind: "in_state_path"; statePathText: string; range: AstRange };
+
 export type BoundEveryTask = {
   runKind: "every";
   taskName: string;
+  stateMembership: BoundTaskStateMembership;
   intervalValue: number;
   intervalUnit: "ms" | "deg";
   intervalRange: AstRange;
@@ -89,16 +97,21 @@ export type BoundEveryTask = {
 export type BoundLoopTask = {
   runKind: "loop";
   taskName: string;
+  stateMembership: BoundTaskStateMembership;
   statements: BoundStatement[];
   range: AstRange;
 };
 
 export type BoundTask = BoundEveryTask | BoundLoopTask;
 
+export type BoundOnEventTrigger =
+  | { kind: "device_event"; deviceAddress: DeviceAddress; eventName: string }
+  | { kind: "state_lifecycle"; lifecycle: "enter" | "exit" };
+
 export type BoundOnEventTask = {
   taskName: string;
-  deviceAddress: DeviceAddress;
-  eventName: string;
+  stateMembership: BoundTaskStateMembership;
+  trigger: BoundOnEventTrigger;
   statements: BoundStatement[];
   range: AstRange;
 };
@@ -144,7 +157,7 @@ export type BoundDoStatement = {
 
 export type BoundSetStatement = {
   kind: "set_statement";
-  stateName: string;
+  varName: string;
   valueExpression: BoundExpression;
   range: AstRange;
 };
@@ -159,9 +172,11 @@ export type BoundWaitStatement = {
 export type BoundExpression =
   | { kind: "integer"; value: number }
   | { kind: "string"; value: string }
-  | { kind: "identifier"; name: string }
+  | { kind: "var_reference"; varName: string }
   | { kind: "const_reference"; constName: string }
   | { kind: "temp_reference"; tempName: string }
+  /** `some.Path.elapsed` — 状態経過時間（ms） */
+  | { kind: "state_path_elapsed_reference"; statePathText: string; range: AstRange }
   | { kind: "percent"; value: number; range: AstRange }
   | { kind: "dt_reference"; range: AstRange }
   | { kind: "step_animator"; animatorName: string; targetExpression?: BoundExpression; range: AstRange }
@@ -198,3 +213,36 @@ export type BoundMatchPattern =
       startInclusive?: BoundExpression;
       endExclusive?: BoundExpression;
     };
+
+/** 状態機械 1 台分（binder がフラットなノード表へ展開） */
+export type BoundStateMachineDefinition = {
+  machineName: string;
+  tickIntervalValue: number;
+  tickIntervalUnit: "ms" | "deg";
+  tickIntervalRange: AstRange;
+  initialLeafPath: string;
+  /** machine root と各状態ノード（パスキーは絶対パス rover.Child） */
+  nodesByPath: Map<string, BoundStateMachineNode>;
+  /** 状態機械直下の global transition（draft §8.6 の順で評価されるブロック） */
+  machineGlobalTransitions: BoundStateMachineTransition[];
+  range: AstRange;
+};
+
+export type BoundStateMachineNode = {
+  /** 絶対パス（例 rover.Manual.Forward） */
+  path: string;
+  /** 単純名（例 Forward） */
+  simpleName: string;
+  /** 直下の子状態の単純名 */
+  childSimpleNames: string[];
+  /** initial rover.Manual.Stop のような初期子 leaf の絶対パス（無ければ undefined） */
+  initialChildLeafPath: string | undefined;
+  /** このノードにぶら下がる local/on と直下 global は別構造 — local はノードに保存 */
+  localTransitions: BoundStateMachineTransition[];
+};
+
+export type BoundStateMachineTransition = {
+  condition: BoundExpression;
+  targetPath: string;
+  range: AstRange;
+};

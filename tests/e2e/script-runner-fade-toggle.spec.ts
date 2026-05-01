@@ -7,9 +7,9 @@ import { expect, test, type Page } from "@playwright/test";
 const TOGGLE_FADE_SCRIPT = `ref led = pwm#0
 ref button = button#0
 
-state led_level = 0%
-state led_target = 0%
-state next_target = "on"
+var led_level = 0%
+var led_target = 0%
+var next_target = "on"
 
 animator fade = ramp over 1200ms ease ease_in_out
 
