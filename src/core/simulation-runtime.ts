@@ -5,7 +5,14 @@ import {
   mapDoMethodCallToDeviceEffects,
   type ConcreteMethodArgument,
 } from "./executable-statement-to-device-effects";
-import type { CompiledAnimatorDefinition, CompiledProgram, ExecutableExpression, ExecutableStatement } from "./executable-task";
+import type {
+  CompiledAnimatorDefinition,
+  CompiledProgram,
+  CompiledStateMachine,
+  CompiledStateMachineNodeIr,
+  ExecutableExpression,
+  ExecutableStatement,
+} from "./executable-task";
 import { createInitialAnimatorRuntimeState, type AnimatorRuntimeState } from "./animator-runtime-state";
 import {
   evaluateExecutableExpression,
@@ -20,6 +27,10 @@ import { NoopPhysicsWorld } from "../physics/noop-physics-world";
 import type { PhysicsWorld } from "../physics/physics-world";
 import type { ScriptValue } from "./value";
 import type { TaskRecord, TaskRegistry } from "./task-registry";
+
+/**
+ * 責務: コンパイル済みタスクと状態機械をシミュレーション時間で進め、DeviceBus へ効果を適用する。
+ */
 
 /**
  * loop / every が同一 wake-up で暴走しないための協調的上限（分岐で wait を迂回しても止められる）。
@@ -46,6 +57,11 @@ export class SimulationRuntime {
   private readonly scriptConstValues = new Map<string, number | string>();
   private compiledAnimatorDefinitionsByName = new Map<string, CompiledAnimatorDefinition>();
   private readonly animatorRuntimeStatesByName = new Map<string, AnimatorRuntimeState>();
+  private readonly statePathEntrySimulationMs = new Map<string, number>();
+  private compiledStateMachines: CompiledStateMachine[] = [];
+  private readonly activeLeafPathByMachineName = new Map<string, string>();
+  private readonly stateMachineTickAccumulatorMsByMachineName = new Map<string, number>();
+  private readonly compiledStateMachineNodeIndexByMachineName = new Map<string, Map<string, CompiledStateMachineNodeIr>>();
   private readonly onAfterDeviceEffectApplied?: DeviceEffectAppliedListener;
 
   public constructor(params: {
@@ -98,10 +114,12 @@ export class SimulationRuntime {
     }
     this.tasks.clearAllTasks();
     this.initializeScriptStateFromCompiledProgram(compiledProgram);
+    this.initializeCompiledStateMachines(compiledProgram);
     registerCompiledProgramOnTaskRegistry({
       taskRegistry: this.tasks,
       compiledProgram,
     });
+    this.dispatchInitialEnterLifecycleForAllStateMachines();
     this.startRunnableLoopTasks();
     this.flushPendingEffects();
   }
@@ -172,6 +190,9 @@ export class SimulationRuntime {
       if (filter.eventName !== params.eventName) {
         continue;
       }
+      if (!this.isTaskRunnableGivenStateMembership(task)) {
+        continue;
+      }
       if (task.executionProgress !== undefined) {
         continue;
       }
@@ -187,6 +208,7 @@ export class SimulationRuntime {
   public tick(elapsedMilliseconds: number): SimulationTickResult {
     this.totalSimulationMilliseconds += elapsedMilliseconds;
     this.resumeWaitingTasks();
+    this.advanceStateMachines(elapsedMilliseconds);
     this.advanceEveryTasks(elapsedMilliseconds);
     this.startRunnableLoopTasks();
     const appliedEffectCount = this.flushPendingEffects();
@@ -198,6 +220,7 @@ export class SimulationRuntime {
       deviceBus: this.deviceBus,
       varValues: this.scriptVarValues,
       constValues: this.scriptConstValues,
+      resolveStatePathElapsedMilliseconds: (path) => this.getElapsedMsForStatePath(path),
     };
   }
 
@@ -216,6 +239,7 @@ export class SimulationRuntime {
       },
       animatorDefinitionsByName: this.compiledAnimatorDefinitionsByName,
       animatorRuntimeStatesByName: this.animatorRuntimeStatesByName,
+      resolveStatePathElapsedMilliseconds: (path) => this.getElapsedMsForStatePath(path),
     };
   }
 
@@ -248,6 +272,9 @@ export class SimulationRuntime {
       if (this.totalSimulationMilliseconds < progress.resumeAtTotalMilliseconds) {
         continue;
       }
+      if (!this.isTaskRunnableGivenStateMembership(task)) {
+        continue;
+      }
       progress.resumeAtTotalMilliseconds = undefined;
       this.drainTaskExecution(task);
     }
@@ -256,6 +283,9 @@ export class SimulationRuntime {
   private startRunnableLoopTasks(): void {
     for (const task of this.tasks.listTasks()) {
       if (!task.running || task.runMode !== "loop") {
+        continue;
+      }
+      if (!this.isTaskRunnableGivenStateMembership(task)) {
         continue;
       }
       if (task.compiledStatements === undefined) {
@@ -296,6 +326,9 @@ export class SimulationRuntime {
         if (task.executionProgress !== undefined) {
           continue;
         }
+        if (!this.isTaskRunnableGivenStateMembership(task)) {
+          continue;
+        }
         task.executionProgress = {
           programCounter: 0,
           resumeAtTotalMilliseconds: undefined,
@@ -306,6 +339,10 @@ export class SimulationRuntime {
   }
 
   private drainTaskExecution(task: TaskRecord): void {
+    if (!this.isTaskRunnableGivenStateMembership(task)) {
+      task.executionProgress = undefined;
+      return;
+    }
     const statements = task.compiledStatements;
     if (statements === undefined) {
       task.executionProgress = undefined;
@@ -572,6 +609,230 @@ export class SimulationRuntime {
       concreteArguments,
     });
   }
+
+  private initializeCompiledStateMachines(compiledProgram: CompiledProgram): void {
+    this.compiledStateMachines = compiledProgram.stateMachines;
+    this.compiledStateMachineNodeIndexByMachineName.clear();
+    this.activeLeafPathByMachineName.clear();
+    this.stateMachineTickAccumulatorMsByMachineName.clear();
+    this.statePathEntrySimulationMs.clear();
+
+    for (const stateMachine of compiledProgram.stateMachines) {
+      const nodeIndex = buildCompiledStateMachineNodeIndex(stateMachine.nodes);
+      this.compiledStateMachineNodeIndexByMachineName.set(stateMachine.machineName, nodeIndex);
+      this.activeLeafPathByMachineName.set(stateMachine.machineName, stateMachine.initialLeafPath);
+      this.stateMachineTickAccumulatorMsByMachineName.set(stateMachine.machineName, 0);
+      this.seedStatePathEntryTimesForLeafPath(stateMachine.initialLeafPath);
+    }
+  }
+
+  private seedStatePathEntryTimesForLeafPath(leafPath: string): void {
+    const timestampMilliseconds = this.totalSimulationMilliseconds;
+    for (const prefixPath of enumerateDotPathPrefixes(leafPath)) {
+      this.statePathEntrySimulationMs.set(prefixPath, timestampMilliseconds);
+    }
+  }
+
+  private dispatchInitialEnterLifecycleForAllStateMachines(): void {
+    for (const stateMachine of this.compiledStateMachines) {
+      const activeLeafPath = this.activeLeafPathByMachineName.get(stateMachine.machineName);
+      if (activeLeafPath === undefined) {
+        continue;
+      }
+      const enterPathSequence = computeEnterPathSequence(undefined, activeLeafPath);
+      for (const enterPath of enterPathSequence) {
+        this.dispatchLifecycleEnterTasksForExactMembershipPath(enterPath);
+      }
+    }
+  }
+
+  private getElapsedMsForStatePath(statePath: string): number {
+    const entrySimulationMs = this.statePathEntrySimulationMs.get(statePath);
+    if (entrySimulationMs === undefined) {
+      return 0;
+    }
+    return this.totalSimulationMilliseconds - entrySimulationMs;
+  }
+
+  private isTaskRunnableGivenStateMembership(task: TaskRecord): boolean {
+    const membershipPath = task.stateMembershipPath;
+    if (membershipPath === undefined) {
+      return true;
+    }
+    const machineName = membershipPath.split(".")[0];
+    const activeLeafPath = this.activeLeafPathByMachineName.get(machineName);
+    if (activeLeafPath === undefined) {
+      return false;
+    }
+    return activeLeafPath === membershipPath || activeLeafPath.startsWith(`${membershipPath}.`);
+  }
+
+  private advanceStateMachines(elapsedMilliseconds: number): void {
+    for (const stateMachine of this.compiledStateMachines) {
+      const tickIntervalMilliseconds = stateMachine.tickIntervalMilliseconds;
+      if (tickIntervalMilliseconds <= 0) {
+        this.stateMachineTickAccumulatorMsByMachineName.set(stateMachine.machineName, 0);
+        continue;
+      }
+
+      let accumulatedMilliseconds =
+        this.stateMachineTickAccumulatorMsByMachineName.get(stateMachine.machineName) ?? 0;
+      accumulatedMilliseconds += elapsedMilliseconds;
+
+      while (accumulatedMilliseconds >= tickIntervalMilliseconds) {
+        accumulatedMilliseconds -= tickIntervalMilliseconds;
+        this.runSingleStateMachineTick(stateMachine);
+      }
+
+      this.stateMachineTickAccumulatorMsByMachineName.set(stateMachine.machineName, accumulatedMilliseconds);
+    }
+  }
+
+  private runSingleStateMachineTick(stateMachine: CompiledStateMachine): void {
+    const nodeIndex = this.compiledStateMachineNodeIndexByMachineName.get(stateMachine.machineName);
+    if (nodeIndex === undefined) {
+      return;
+    }
+
+    const activeLeafPath = this.activeLeafPathByMachineName.get(stateMachine.machineName);
+    if (activeLeafPath === undefined) {
+      return;
+    }
+
+    const transitionTargetPath = this.evaluateFirstMatchingTransitionTarget({
+      stateMachine,
+      activeLeafPath,
+      nodeIndex,
+    });
+
+    if (transitionTargetPath === undefined) {
+      return;
+    }
+
+    const resolvedNewLeafPath = this.resolveConfiguredLeafPath(nodeIndex, transitionTargetPath);
+    if (resolvedNewLeafPath === undefined || resolvedNewLeafPath === activeLeafPath) {
+      return;
+    }
+
+    this.applyStateMachineLeafTransition({
+      machineName: stateMachine.machineName,
+      oldLeafPath: activeLeafPath,
+      newLeafPath: resolvedNewLeafPath,
+    });
+  }
+
+  private evaluateFirstMatchingTransitionTarget(params: {
+    stateMachine: CompiledStateMachine;
+    activeLeafPath: string;
+    nodeIndex: Map<string, CompiledStateMachineNodeIr>;
+  }): string | undefined {
+    const evaluationContext = this.createEvaluationContextForStateInitialization();
+
+    for (const transition of params.stateMachine.globalTransitions) {
+      const conditionValue = evaluateExecutableExpression(transition.condition, evaluationContext);
+      const conditionInteger =
+        conditionValue === undefined ? undefined : scriptValueToIntegerOrUndefined(conditionValue);
+      if (conditionInteger !== undefined && conditionInteger !== 0) {
+        return transition.targetPath;
+      }
+    }
+
+    let cursorNodePath: string | undefined = params.activeLeafPath;
+    while (cursorNodePath !== undefined) {
+      const stateNode = params.nodeIndex.get(cursorNodePath);
+      if (stateNode !== undefined) {
+        for (const transition of stateNode.localTransitions) {
+          const conditionValue = evaluateExecutableExpression(transition.condition, evaluationContext);
+          const conditionInteger =
+            conditionValue === undefined ? undefined : scriptValueToIntegerOrUndefined(conditionValue);
+          if (conditionInteger !== undefined && conditionInteger !== 0) {
+            return transition.targetPath;
+          }
+        }
+      }
+      cursorNodePath = parentDotPath(cursorNodePath);
+    }
+
+    return undefined;
+  }
+
+  private resolveConfiguredLeafPath(
+    nodeIndex: Map<string, CompiledStateMachineNodeIr>,
+    path: string,
+  ): string | undefined {
+    const node = nodeIndex.get(path);
+    if (node === undefined) {
+      return undefined;
+    }
+    if (node.childPaths.length === 0) {
+      return path;
+    }
+    if (node.initialChildLeafPath === undefined) {
+      return undefined;
+    }
+    return this.resolveConfiguredLeafPath(nodeIndex, node.initialChildLeafPath);
+  }
+
+  private applyStateMachineLeafTransition(params: {
+    machineName: string;
+    oldLeafPath: string;
+    newLeafPath: string;
+  }): void {
+    const exitPathSequence = computeExitPathSequence(params.oldLeafPath, params.newLeafPath);
+    for (const exitPath of exitPathSequence) {
+      this.dispatchLifecycleExitTasksForExactMembershipPath(exitPath);
+    }
+
+    this.activeLeafPathByMachineName.set(params.machineName, params.newLeafPath);
+
+    const enterPathSequence = computeEnterPathSequence(params.oldLeafPath, params.newLeafPath);
+    const transitionTimestampMilliseconds = this.totalSimulationMilliseconds;
+    for (const enterPath of enterPathSequence) {
+      this.statePathEntrySimulationMs.set(enterPath, transitionTimestampMilliseconds);
+    }
+
+    for (const enterPath of enterPathSequence) {
+      this.dispatchLifecycleEnterTasksForExactMembershipPath(enterPath);
+    }
+  }
+
+  private dispatchLifecycleExitTasksForExactMembershipPath(membershipPath: string): void {
+    for (const task of this.tasks.listTasks()) {
+      if (!task.running || task.runMode !== "on_event") {
+        continue;
+      }
+      if (task.onEventTriggerKind !== "state_exit") {
+        continue;
+      }
+      if (task.stateMembershipPath !== membershipPath) {
+        continue;
+      }
+      task.executionProgress = {
+        programCounter: 0,
+        resumeAtTotalMilliseconds: undefined,
+      };
+      this.drainTaskExecution(task);
+    }
+  }
+
+  private dispatchLifecycleEnterTasksForExactMembershipPath(membershipPath: string): void {
+    for (const task of this.tasks.listTasks()) {
+      if (!task.running || task.runMode !== "on_event") {
+        continue;
+      }
+      if (task.onEventTriggerKind !== "state_enter") {
+        continue;
+      }
+      if (task.stateMembershipPath !== membershipPath) {
+        continue;
+      }
+      task.executionProgress = {
+        programCounter: 0,
+        resumeAtTotalMilliseconds: undefined,
+      };
+      this.drainTaskExecution(task);
+    }
+  }
 }
 
 function scriptValueToConcreteArgument(value: ScriptValue | undefined): ConcreteMethodArgument | undefined {
@@ -585,4 +846,79 @@ function scriptValueToConcreteArgument(value: ScriptValue | undefined): Concrete
     return { kind: "string", value: value.value };
   }
   return undefined;
+}
+
+function buildCompiledStateMachineNodeIndex(
+  nodes: CompiledStateMachineNodeIr[],
+): Map<string, CompiledStateMachineNodeIr> {
+  return new Map(nodes.map((node) => [node.path, node]));
+}
+
+function enumerateDotPathPrefixes(fullPath: string): string[] {
+  const segments = fullPath.split(".");
+  const prefixes: string[] = [];
+  for (let segmentCount = 1; segmentCount <= segments.length; segmentCount += 1) {
+    prefixes.push(segments.slice(0, segmentCount).join("."));
+  }
+  return prefixes;
+}
+
+function parentDotPath(path: string): string | undefined {
+  const lastDotIndex = path.lastIndexOf(".");
+  if (lastDotIndex === -1) {
+    return undefined;
+  }
+  return path.slice(0, lastDotIndex);
+}
+
+function longestCommonDotPathPrefix(leftPath: string, rightPath: string): string {
+  const leftSegments = leftPath.split(".");
+  const rightSegments = rightPath.split(".");
+  const commonSegments: string[] = [];
+  const maximumSharedSegmentCount = Math.min(leftSegments.length, rightSegments.length);
+  for (let index = 0; index < maximumSharedSegmentCount; index += 1) {
+    if (leftSegments[index] !== rightSegments[index]) {
+      break;
+    }
+    commonSegments.push(leftSegments[index]);
+  }
+  return commonSegments.join(".");
+}
+
+function computeExitPathSequence(oldLeafPath: string, newLeafPath: string): string[] {
+  const longestCommonPrefixPath = longestCommonDotPathPrefix(oldLeafPath, newLeafPath);
+  const exitPaths: string[] = [];
+  let cursorPath: string | undefined = oldLeafPath;
+  while (cursorPath !== undefined && cursorPath !== longestCommonPrefixPath) {
+    exitPaths.push(cursorPath);
+    cursorPath = parentDotPath(cursorPath);
+  }
+  return exitPaths;
+}
+
+function computeEnterPathSequence(oldLeafPath: string | undefined, newLeafPath: string): string[] {
+  if (oldLeafPath === undefined) {
+    return enumerateDotPathPrefixes(newLeafPath);
+  }
+  if (oldLeafPath === newLeafPath) {
+    return [];
+  }
+  const longestCommonPrefixPath = longestCommonDotPathPrefix(oldLeafPath, newLeafPath);
+  const enterPaths: string[] = [];
+  for (const path of enumerateDotPathPrefixes(newLeafPath)) {
+    if (path === longestCommonPrefixPath) {
+      continue;
+    }
+    if (path.length <= longestCommonPrefixPath.length) {
+      continue;
+    }
+    if (longestCommonPrefixPath === "") {
+      enterPaths.push(path);
+      continue;
+    }
+    if (path.startsWith(`${longestCommonPrefixPath}.`)) {
+      enterPaths.push(path);
+    }
+  }
+  return enterPaths;
 }

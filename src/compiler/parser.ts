@@ -631,30 +631,15 @@ function parseStateMachineTransition(
 
 function parseThinArrow(cursor: ParserCursor): { ok: true } | { ok: false; report: DiagnosticReport } {
   const fileName = cursor.getSourceFileName();
-  const m = cursor.current();
-  if (m.kind !== "minus") {
+  const arrowToken = cursor.current();
+  if (arrowToken.kind !== "thin_arrow") {
     return {
       ok: false,
       report: createDiagnosticReport([
         buildParseUnexpectedToken({
           file: fileName,
-          range: tokenToDiagnosticRange(fileName, m),
-          rangeText: m.lexeme,
-          message: "Expected '->' (thin arrow).",
-        }),
-      ]),
-    };
-  }
-  cursor.advance();
-  const g = cursor.current();
-  if (g.kind !== "greater") {
-    return {
-      ok: false,
-      report: createDiagnosticReport([
-        buildParseUnexpectedToken({
-          file: fileName,
-          range: tokenToDiagnosticRange(fileName, g),
-          rangeText: g.lexeme,
+          range: tokenToDiagnosticRange(fileName, arrowToken),
+          rangeText: arrowToken.lexeme,
           message: "Expected '->' (thin arrow).",
         }),
       ]),
@@ -2883,15 +2868,7 @@ function parsePrimaryExpression(
   }
 
   if (token.kind === "identifier") {
-    cursor.advance();
-    return {
-      ok: true,
-      expression: {
-        kind: "identifier_expression",
-        range: { fileName, start: token.start, end: token.end },
-        name: token.lexeme,
-      },
-    };
+    return parseIdentifierOrStatePathElapsedExpression(cursor);
   }
 
   return {
@@ -2902,6 +2879,85 @@ function parsePrimaryExpression(
         range: tokenToDiagnosticRange(fileName, token),
         rangeText: token.lexeme,
         message: "Expected expression.",
+      }),
+    ]),
+  };
+}
+
+function parseIdentifierOrStatePathElapsedExpression(
+  cursor: ParserCursor,
+): { ok: true; expression: MethodArgumentExpressionAst } | { ok: false; report: DiagnosticReport } {
+  const fileName = cursor.getSourceFileName();
+  const firstToken = cursor.current();
+  if (firstToken.kind !== "identifier") {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildParseUnexpectedToken({
+          file: fileName,
+          range: tokenToDiagnosticRange(fileName, firstToken),
+          rangeText: firstToken.lexeme,
+          message: "Expected expression.",
+        }),
+      ]),
+    };
+  }
+
+  cursor.advance();
+  if (cursor.current().kind !== "dot") {
+    return {
+      ok: true,
+      expression: {
+        kind: "identifier_expression",
+        range: { fileName, start: firstToken.start, end: firstToken.end },
+        name: firstToken.lexeme,
+      },
+    };
+  }
+
+  const pathSegments = [firstToken.lexeme];
+  let expressionEnd = firstToken.end;
+  while (cursor.current().kind === "dot") {
+    cursor.advance();
+    const segmentToken = cursor.current();
+    if (segmentToken.kind !== "identifier") {
+      return {
+        ok: false,
+        report: createDiagnosticReport([
+          buildParseUnexpectedToken({
+            file: fileName,
+            range: tokenToDiagnosticRange(fileName, segmentToken),
+            rangeText: segmentToken.lexeme,
+            message: "Expected identifier after '.' in state elapsed expression.",
+          }),
+        ]),
+      };
+    }
+
+    cursor.advance();
+    pathSegments.push(segmentToken.lexeme);
+    expressionEnd = segmentToken.end;
+    if (segmentToken.lexeme === "elapsed") {
+      const statePathText = pathSegments.slice(0, -1).join(".");
+      return {
+        ok: true,
+        expression: {
+          kind: "state_path_elapsed_expression",
+          range: { fileName, start: firstToken.start, end: expressionEnd },
+          statePathText,
+        },
+      };
+    }
+  }
+
+  return {
+    ok: false,
+    report: createDiagnosticReport([
+      buildParseUnexpectedToken({
+        file: fileName,
+        range: { file: fileName, start: firstToken.start, end: expressionEnd },
+        rangeText: pathSegments.join("."),
+        message: "Expected '.elapsed' at the end of a dotted state path expression.",
       }),
     ]),
   };

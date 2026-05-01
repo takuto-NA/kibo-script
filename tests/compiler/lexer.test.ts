@@ -19,4 +19,14 @@ task blink every 1000ms {
     expect(kinds).toContain("hash");
     expect(kinds).toContain("number_literal");
   });
+
+  it("tokenizes thin arrow as a single token so expressions may end before ->", () => {
+    const lexResult = lexSourceText("on 1 -> sm.A", "arrow.sc");
+    expect(lexResult.ok).toBe(true);
+    if (lexResult.ok === false) {
+      return;
+    }
+    const kinds = lexResult.tokens.map((token) => token.kind);
+    expect(kinds).toContain("thin_arrow");
+  });
 });

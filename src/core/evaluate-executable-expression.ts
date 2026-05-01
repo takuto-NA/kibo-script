@@ -29,6 +29,8 @@ export type EvaluateExecutableExpressionContext = {
   readonly animatorRuntimeStatesByName?: Map<string, AnimatorRuntimeState>;
   /** `some.Path.elapsed` 用（状態機械 runtime が ms を供給）。未設定時は 0ms とみなす。 */
   readonly statePathElapsedMillisecondsByPath?: ReadonlyMap<string, number>;
+  /** `some.Path.elapsed` の動的解決（SimulationRuntime が優先して設定）。 */
+  readonly resolveStatePathElapsedMilliseconds?: (statePathText: string) => number;
 };
 
 export function evaluateExecutableExpression(
@@ -55,6 +57,10 @@ export function evaluateExecutableExpression(
   }
 
   if (expression.kind === "state_path_elapsed_reference") {
+    const resolver = context.resolveStatePathElapsedMilliseconds;
+    if (resolver !== undefined) {
+      return integerValue(resolver(expression.statePathText));
+    }
     const elapsedMap = context.statePathElapsedMillisecondsByPath;
     const elapsedMilliseconds =
       elapsedMap !== undefined ? elapsedMap.get(expression.statePathText) : undefined;

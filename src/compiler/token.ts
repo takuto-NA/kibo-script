@@ -15,6 +15,7 @@ export type TokenKind =
   | "equals_equals"
   | "bang_equals"
   | "fat_arrow"
+  | "thin_arrow"
   | "plus"
   | "minus"
   | "star"

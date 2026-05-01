@@ -21,6 +21,10 @@ import {
   buildNameDuplicateDeclaration,
   buildNameUnknownReference,
   buildBindCannotAssignToConst,
+  buildSemanticDuplicateStateMachineName,
+  buildSemanticInvalidStateMachineTransitionTarget,
+  buildSemanticCompositeStateRequiresInitialChild,
+  buildSemanticUnresolvedInitialLeafPath,
 } from "../diagnostics/diagnostic-builder";
 import type {
   BoundConstSymbol,
@@ -279,10 +283,28 @@ export function bindProgram(ast: ProgramAst, sourceFileName: string): BindProgra
   }
 
   const stateMachinesInSourceOrder: BoundStateMachineDefinition[] = [];
+  const firstStateMachineDeclarationRangeByMachineName = new Map<
+    string,
+    import("../ast/script-ast").AstRange
+  >();
   for (const declaration of ast.declarations) {
     if (declaration.kind !== "state_machine_declaration") {
       continue;
     }
+    const earlierRange = firstStateMachineDeclarationRangeByMachineName.get(declaration.machineName);
+    if (earlierRange !== undefined) {
+      return {
+        ok: false,
+        report: createDiagnosticReport([
+          buildSemanticDuplicateStateMachineName({
+            name: declaration.machineName,
+            range: astRangeToSourceRange(declaration.range),
+            secondaryRange: astRangeToSourceRange(earlierRange),
+          }),
+        ]),
+      };
+    }
+    firstStateMachineDeclarationRangeByMachineName.set(declaration.machineName, declaration.range);
     const smBindResult = bindStateMachineDeclarationAst({
       declaration,
       refSymbolTable,
@@ -1138,6 +1160,17 @@ function bindMethodArgumentExpression(params: {
     };
   }
 
+  if (params.expression.kind === "state_path_elapsed_expression") {
+    return {
+      ok: true,
+      expression: {
+        kind: "state_path_elapsed_reference",
+        statePathText: params.expression.statePathText,
+        range: params.expression.range,
+      },
+    };
+  }
+
   if (params.expression.kind === "binary_add") {
     const leftResult = bindRecursive(params.expression.left);
     if (leftResult.ok === false) {
@@ -1323,6 +1356,66 @@ function bindMethodArgumentExpression(params: {
   };
 }
 
+function resolveBoundStateMachineConfiguredLeafPath(
+  nodesByPath: Map<string, BoundStateMachineNode>,
+  path: string,
+): string | undefined {
+  const node = nodesByPath.get(path);
+  if (node === undefined) {
+    return undefined;
+  }
+  if (node.childSimpleNames.length === 0) {
+    return path;
+  }
+  if (node.initialChildLeafPath === undefined) {
+    return undefined;
+  }
+  return resolveBoundStateMachineConfiguredLeafPath(nodesByPath, node.initialChildLeafPath);
+}
+
+function collectBoundStateMachineTransitionValidationDiagnostics(params: {
+  machineDeclarationRange: import("../ast/script-ast").AstRange;
+  nodesByPath: Map<string, BoundStateMachineNode>;
+  machineGlobalTransitions: BoundStateMachineTransition[];
+}): DiagnosticReport["diagnostics"] {
+  const diagnostics: DiagnosticReport["diagnostics"] = [];
+
+  for (const [, node] of params.nodesByPath) {
+    if (node.childSimpleNames.length > 0 && node.initialChildLeafPath === undefined) {
+      diagnostics.push(
+        buildSemanticCompositeStateRequiresInitialChild({
+          path: node.path,
+          range: astRangeToSourceRange(params.machineDeclarationRange),
+        }),
+      );
+    }
+  }
+
+  const checkTarget = (targetPath: string, range: import("../ast/script-ast").AstRange) => {
+    const resolved = resolveBoundStateMachineConfiguredLeafPath(params.nodesByPath, targetPath);
+    if (resolved === undefined) {
+      diagnostics.push(
+        buildSemanticInvalidStateMachineTransitionTarget({
+          targetPath,
+          range: astRangeToSourceRange(range),
+        }),
+      );
+    }
+  };
+
+  for (const transition of params.machineGlobalTransitions) {
+    checkTarget(transition.targetPath, transition.range);
+  }
+
+  for (const [, node] of params.nodesByPath) {
+    for (const localTransition of node.localTransitions) {
+      checkTarget(localTransition.targetPath, localTransition.range);
+    }
+  }
+
+  return diagnostics;
+}
+
 function bindStateMachineDeclarationAst(params: {
   declaration: StateMachineDeclarationAst;
   refSymbolTable: RefSymbolTable;
@@ -1384,6 +1477,28 @@ function bindStateMachineDeclarationAst(params: {
     };
   }
 
+  const resolvedInitialLeafPath = resolveBoundStateMachineConfiguredLeafPath(nodesByPath, initialLeafPath);
+  if (resolvedInitialLeafPath === undefined) {
+    return {
+      ok: false,
+      report: createDiagnosticReport([
+        buildSemanticUnresolvedInitialLeafPath({
+          path: initialLeafPath,
+          range: astRangeToSourceRange(params.declaration.initialStatePathRange),
+        }),
+      ]),
+    };
+  }
+
+  const transitionDiagnostics = collectBoundStateMachineTransitionValidationDiagnostics({
+    machineDeclarationRange: params.declaration.range,
+    nodesByPath,
+    machineGlobalTransitions,
+  });
+  if (transitionDiagnostics.length > 0) {
+    return { ok: false, report: createDiagnosticReport(transitionDiagnostics) };
+  }
+
   return {
     ok: true,
     definition: {
@@ -1391,7 +1506,7 @@ function bindStateMachineDeclarationAst(params: {
       tickIntervalValue: params.declaration.tickIntervalValue,
       tickIntervalUnit: params.declaration.tickIntervalUnit,
       tickIntervalRange: params.declaration.tickIntervalRange,
-      initialLeafPath,
+      initialLeafPath: resolvedInitialLeafPath,
       nodesByPath,
       machineGlobalTransitions,
       range: params.declaration.range,

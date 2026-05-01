@@ -399,6 +399,101 @@ export function buildAnimatorStepForbidsTargetExpression(params: {
   };
 }
 
+export function buildSemanticDuplicateStateMachineName(params: {
+  name: string;
+  range?: SourceRange;
+  secondaryRange?: SourceRange;
+}): StructuredDiagnostic {
+  return {
+    id: "semantic.duplicate_state_machine_name",
+    severity: "error",
+    phase: "semantic_check",
+    message: `Duplicate state machine declaration "${params.name}".`,
+    location: params.range,
+    related:
+      params.secondaryRange !== undefined
+        ? [{ message: "First declared here.", location: params.secondaryRange }]
+        : undefined,
+  };
+}
+
+export function buildSemanticInvalidStateMachineTransitionTarget(params: {
+  targetPath: string;
+  range?: SourceRange;
+}): StructuredDiagnostic {
+  return {
+    id: "semantic.state_machine_invalid_transition_target",
+    severity: "error",
+    phase: "semantic_check",
+    message: `State machine transition target "${params.targetPath}" is not a valid configured leaf state.`,
+    location: params.range,
+  };
+}
+
+export function buildSemanticCompositeStateRequiresInitialChild(params: {
+  path: string;
+  range?: SourceRange;
+}): StructuredDiagnostic {
+  return {
+    id: "semantic.state_machine_composite_requires_initial_child",
+    severity: "error",
+    phase: "semantic_check",
+    message: `Composite state "${params.path}" requires an \`initial <leaf path>\` before \`{\`.`,
+    location: params.range,
+  };
+}
+
+export function buildSemanticUnresolvedInitialLeafPath(params: {
+  path: string;
+  range?: SourceRange;
+}): StructuredDiagnostic {
+  return {
+    id: "semantic.state_machine_unresolved_initial_leaf",
+    severity: "error",
+    phase: "semantic_check",
+    message: `Could not resolve initial active leaf from "${params.path}" (missing initial child on a composite state).`,
+    location: params.range,
+  };
+}
+
+export function buildSemanticUnknownStateMembershipPath(params: {
+  path: string;
+  range?: SourceRange;
+}): StructuredDiagnostic {
+  return {
+    id: "semantic.unknown_state_membership_path",
+    severity: "error",
+    phase: "semantic_check",
+    message: `Unknown state path "${params.path}" for task membership (expected a prefix of a declared state machine path).`,
+    location: params.range,
+  };
+}
+
+export function buildSemanticUnknownStateElapsedPath(params: {
+  path: string;
+  range?: SourceRange;
+}): StructuredDiagnostic {
+  return {
+    id: "semantic.unknown_state_elapsed_path",
+    severity: "error",
+    phase: "semantic_check",
+    message: `Unknown state path "${params.path}" for elapsed reference.`,
+    location: params.range,
+  };
+}
+
+export function buildSemanticLifecycleRequiresStateMembership(params: {
+  range?: SourceRange;
+}): StructuredDiagnostic {
+  return {
+    id: "semantic.lifecycle_requires_state_membership",
+    severity: "error",
+    phase: "semantic_check",
+    message: '`task on enter` / `task on exit` requires `in <state.path>` membership.',
+    location: params.range,
+  };
+}
+
 const MIN_PERCENT_LITERAL_BOUND = 0;
 const MAX_PERCENT_LITERAL_BOUND = 100;
 

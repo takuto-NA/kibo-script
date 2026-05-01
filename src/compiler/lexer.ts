@@ -257,6 +257,16 @@ export function lexSourceText(sourceText: string, fileName: string): LexResult {
       continue;
     }
     if (character === "-") {
+      if (sourceText[offset + 1] === ">") {
+        offset += 2;
+        tokens.push({
+          kind: "thin_arrow",
+          lexeme: "->",
+          start: tokenStartPosition,
+          end: positionAt(offset),
+        });
+        continue;
+      }
       offset += 1;
       tokens.push({
         kind: "minus",

@@ -269,6 +269,8 @@ export type MethodArgumentExpressionAst =
   | { kind: "percent_literal"; range: AstRange; value: number }
   | { kind: "string_literal"; range: AstRange; value: string }
   | { kind: "identifier_expression"; range: AstRange; name: string }
+  /** `some.State.elapsed` — 状態経過時間（ms） */
+  | { kind: "state_path_elapsed_expression"; range: AstRange; statePathText: string }
   /** every タスクの名目間隔（ms）。state 名 `dt` とは別（式では `dt` は常にこれを指す）。 */
   | { kind: "dt_expression"; range: AstRange }
   /** `step <animator> with dt` または `step <animator> with <expr> dt` */
