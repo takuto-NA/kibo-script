@@ -12,7 +12,7 @@ MVP として、ブラウザ UI・仮想デバイス・task runtime・full compi
 
 - ブラウザで端末、script runner、OLED 風 canvas、**three.js による簡易 3D 物理ビュー**、LED ランプ、**pwm#0 レベル（バー + テキスト）**、`button#0` の Press UI を表示できる。
 - `compileScript()` で複数行 script を parse / bind / type check / semantic check し、runtime IR に下げられる。
-- `state` / `set`、式（`+` `-` `*` `/` 単項 `-`、比較）、`read`、`wait`（整数式）、`const` / `temp`、`match` 文（文字列）/ `match` 式（数値・範囲）、最小 `if`、`task every` / `task on` / **`task loop`** まで実装済み。
+- `var` / `set`、式（`+` `-` `*` `/` 単項 `-`、比較）、`read`、`wait`（整数式）、`const` / `temp`、`match` 文（文字列）/ `match` 式（数値・範囲）、最小 `if`、`task every` / `task on` / **`task loop`** まで実装済み。
 - `task on` は `button#0.pressed` 直書きと `ref button = button#0` 経由の `button.pressed` の両方に対応している。
 - Embed API から command / tick / snapshot / display frame / ADC 設定 / script load を呼べる。
 - structured diagnostics を JSON 互換形式で返せる。
@@ -99,7 +99,7 @@ drop task <name>
 制限:
 
 - interactive task body は現状 1 行 1 つの `do ...` のみ。
-- interactive task body で `state` / `set` / `wait` / `match` / `const` / `temp` / `if` を使うには、今後 body parser を拡張する必要がある。
+- interactive task body で `var` / `set` / `wait` / `match` / `const` / `temp` / `if` を使うには、今後 body parser を拡張する必要がある。
 - これらの構文を使う場合は、現状では script textarea の full compiler 経路を使う。
 
 ## 仮想デバイス
@@ -124,20 +124,20 @@ drop task <name>
 
 入口は `src/compiler/compile-script.ts` の `compileScript(sourceText, fileName)`。
 
-成功時は `src/core/executable-task.ts` の `CompiledProgram`（`everyTasks` / `loopTasks` / `onEventTasks` など）を返し、`SimulationRuntime.replaceCompiledProgram()` が state 初期化と task 登録を行う。失敗時は `DiagnosticReport` を返す。
+成功時は `src/core/executable-task.ts` の `CompiledProgram`（`everyTasks` / `loopTasks` / `onEventTasks` など）を返し、`SimulationRuntime.replaceCompiledProgram()` が var 初期化と task 登録を行う。失敗時は `DiagnosticReport` を返す。
 
 実装済みの主な構文:
 
 - `ref`
 - `const`
-- `state`
+- `var`
 - `task <name> every <N>ms`
 - `task <name> loop`
 - `task <name> on <device#id>.<event>`
 - `task <name> on <ref>.<event>`
 - `do <device/ref>.<method>(...)`
 - `temp <name> = <expression>`
-- `set <state> = <expression>`
+- `set <var> = <expression>`
 - `if <comparison> { ... } else { ... }`
 - `wait <integer-expression>ms`（実行時 1 回評価。未評価・非整数・0 以下はその task を停止）
 - `read <device#id>` 式
@@ -149,7 +149,7 @@ drop task <name>
 - integer literal
 - percent literal（v1 では整数パーセントへ下げる）
 - string literal
-- state reference
+- var reference
 - const reference
 - temp reference
 - binary `+` / `-` / `*` / `/`
@@ -268,7 +268,7 @@ response は成功時 `ok: true`、失敗時 `ok: false` と structured diagnost
 - structured diagnostics
 - full compiler（lexer / parser / binder / type checker / semantic checker / golden fixtures）
 - compiled program 登録
-- `state` / `set` / `read` / `wait` / `task on` / `task loop` / `match`
+- `var` / `set` / `read` / `wait` / `task on` / `task loop` / `match`
 - `const` / `temp` / arithmetic / comparison / numeric range `match` / `if`
 - `serial#0.println` の task 出力を terminal に逐次表示
 - UI の compile 経路
@@ -304,7 +304,7 @@ Playwright E2E で次を確認している。
 
 できること:
 
-- `ref` / `state` / `set` / `read` / `wait`（整数式）
+- `ref` / `var` / `set` / `read` / `wait`（整数式）
 - `const` / `temp`
 - `task every` / `task on` / `task loop`
 - 文字列 `match` の最小形、数値 / percent の `match` 式と range pattern
@@ -312,7 +312,7 @@ Playwright E2E で次を確認している。
 - 算術 `+` / `-` / `*` / `/` と単項 `-`
 - `led#0` の on / off / toggle
 - `pwm#0.level(number)` による PWM 出力値の変更
-- **animator**: **`animator ... = ramp from A% to B% over Nms ease linear|ease_in_out`** と **`step <name> with dt`**（固定端点の one-shot ramp）、および **`animator ... = ramp over Nms ease linear|ease_in_out`** と **`step <name> with <target_expr> dt`**（目標値ドリブン。`task on` は目標 `state` の更新のみ、`task every` が `step`）（いずれも `task on` / `task loop` / state 初期化では `dt` / `step` 不可）
+- **animator**: **`animator ... = ramp from A% to B% over Nms ease linear|ease_in_out`** と **`step <name> with dt`**（固定端点の one-shot ramp）、および **`animator ... = ramp over Nms ease linear|ease_in_out`** と **`step <name> with <target_expr> dt`**（目標値ドリブン。`task on` は目標 `var` の更新のみ、`task every` が `step`）（いずれも `task on` / `task loop` / var 初期化では `dt` / `step` 不可）
 - **パーセントリテラル** `0%`…`100%`（v1 では整数パーセントに下ろす）
 - `display#0` の基本図形描画（clear / pixel / line / circle / present）
 
@@ -325,7 +325,7 @@ Playwright E2E で次を確認している。
 - `wait until`、`else return`
 - `draft.md` 相当の **IMU ベクトル型**（`read imu#0.gyro.y` 等）、**`motor.drive`**、サーボ **`wait until` 完了** などの高水準API
 - serial の `line_ready` event や `read host.line`
-- ownership / single-writer checker 本実装（Phase 2: まず `state` の `set` 競合など最小診断から）
+- ownership / single-writer checker 本実装（Phase 2: まず `var` の `set` 競合など最小診断から）
 - OLED の text API や SSD1306 物理互換
 
 ### フェードイン・フェードアウト（animator）
@@ -336,7 +336,7 @@ Playwright E2E で次を確認している。
 
 ```text
 ref led = pwm#0
-state led_level = 0%
+var led_level = 0%
 animator fade_in = ramp from 0% to 100% over 1200ms ease ease_in_out
 
 task fade every 16ms {
@@ -345,12 +345,12 @@ task fade every 16ms {
 }
 ```
 
-**目標値ドリブン**（`ramp over …` のみ）では **`step <name> with <target> dt`**。`target` は整数パーセント式（`state` や `+` など）。目標が変わると **現在値から新目標へ** ramp が再始動する。目標が変わらない tick では完了後は値が揺れない。実行時に **0–100 外の整数** は `pwm.level` と同様に clamp。`task on` / `task loop` / state 初期値では引き続き `dt` / `step` は使えない（イベント側は `set led_target = …` のみ、周期 task が `step`）。
+**目標値ドリブン**（`ramp over …` のみ）では **`step <name> with <target> dt`**。`target` は整数パーセント式（`var` や `+` など）。目標が変わると **現在値から新目標へ** ramp が再始動する。目標が変わらない tick では完了後は値が揺れない。実行時に **0–100 外の整数** は `pwm.level` と同様に clamp。`task on` / `task loop` / var 初期値では引き続き `dt` / `step` は使えない（イベント側は `set led_target = …` のみ、周期 task が `step`）。
 
 ```text
 ref led = pwm#0
-state led_target = 100%
-state led_level = 0%
+var led_target = 100%
+var led_level = 0%
 animator fade = ramp over 1200ms ease ease_in_out
 
 task apply every 16ms {
@@ -419,7 +419,7 @@ task fade_out on button.pressed {
 Phase 1 は次の順で実装済み。
 
 - 6.1 `read` を式として使う（`serial-read-adc.sc`）
-- 6.2 `state` / `set` と永続束縛（`circle-animation.sc`）
+- 6.2 `var` / `set` と永続束縛（`circle-animation.sc`）
 - 6.3 `wait`（`tests/integration/wait-task-runtime.test.ts`）
 - 6.4 `task on` と event source（`tests/integration/task-on-button-runtime.test.ts`）
 - 6.5 `match` 最小形（`match-string-command.sc`）

@@ -47,7 +47,7 @@ task blink every 1000ms {
 `task patrol loop { ... }` は **周期タイマを持たない**。本体が最後まで進むと先頭へ戻るが、協調的スケジューラのため **各シミュレーション tick で少しずつ進む**（`wait` で明示的に時間を渡す）。
 
 ```text
-state step = 0
+var step = 0
 
 task patrol loop {
   set step = 1
@@ -82,7 +82,7 @@ task react on button.pressed {
 `task` 本体で、`match <文字列式> { "ケース" => { ... } ... else => { ... } }` が使える。分岐の本体は `do` / `set` / `temp` / `if`（`match` 分岐内の `wait` / nested `match`、および `if` 分岐内の `wait` は compile エラー）。
 
 ```text
-state mode = "on"
+var mode = "on"
 
 ref led = led#0
 
@@ -108,7 +108,7 @@ task apply on button#0.pressed {
 
 ```text
 const max_x = 127
-state x = 64
+var x = 64
 
 task move every 20ms {
   temp next_x = x + 1
@@ -192,13 +192,13 @@ task dim every 1000ms {
 
 - `%` は `0%`〜`100%` の整数パーセントとして解釈される。
 - `dt` はその `task every <N>ms` の **名目間隔 N**（ミリ秒）。
-- `task on` / `task loop` の本体や `state` の初期値では `dt` / `step` は使えない。
+- `task on` / `task loop` の本体や `var` の初期値では `dt` / `step` は使えない。
 
 ### 固定端点（`ramp from … to …`）
 
 ```text
 ref led = pwm#0
-state led_level = 0%
+var led_level = 0%
 animator fade_in = ramp from 0% to 100% over 1200ms ease ease_in_out
 
 task fade every 16ms {
@@ -209,15 +209,15 @@ task fade every 16ms {
 
 ### 目標値ドリブン（`ramp over …` + `step … with <target> dt`）
 
-`animator` に端点を書かず、**`step` の引数で目標パーセント**を渡す。イベント側は `state` の目標だけ更新し、**`task every` だけが `step`** する（`draft.md` の方針）。
+`animator` に端点を書かず、**`step` の引数で目標パーセント**を渡す。イベント側は `var` の目標だけ更新し、**`task every` だけが `step`** する（`draft.md` の方針）。
 
 ```text
 ref led = pwm#0
 ref button = button#0
 
-state led_level = 0%
-state led_target = 0%
-state next_target = "on"
+var led_level = 0%
+var led_target = 0%
+var next_target = "on"
 
 animator fade = ramp over 1200ms ease ease_in_out
 
@@ -268,14 +268,14 @@ const cruise_duration_ms = 1280
 const turn_duration_ms = 1280
 const reverse_duration_ms = 1280
 
-state scanner_angle_degrees = scanner_min_degrees
-state scanner_direction = 1
-state glow_level = 0%
-state glow_target = 35%
+var scanner_angle_degrees = scanner_min_degrees
+var scanner_direction = 1
+var glow_level = 0%
+var glow_target = 35%
 
-state left_power_target = 0
-state right_power_target = 0
-state warning_enabled = 0
+var left_power_target = 0
+var right_power_target = 0
+var warning_enabled = 0
 
 animator glow_fade = ramp over 360ms ease ease_in_out
 
@@ -365,12 +365,12 @@ do display#0.circle(64, 32, 8)
 do display#0.present()
 ```
 
-## Circle を動かす（Phase 1: `state` / `set` 対応）
+## Circle を動かす（Phase 1: `var` / `set` 対応）
 
 ブラウザの **script textarea** に次を入れて `Compile & run` すると、座標が毎 tick 更新される。
 
 ```text
-state circle_x = 20
+var circle_x = 20
 
 task move_circle every 100ms {
   do display#0.clear()
@@ -402,7 +402,7 @@ do display#0.circle(60, 32, 8)
 do display#0.present()
 ```
 
-変数で Circle を動かすアニメーションは **上記の `state` / `set` 付き script** を利用（full compiler 経路）。
+変数で Circle を動かすアニメーションは **上記の `var` / `set` 付き script** を利用（full compiler 経路）。
 
 ## Interactive Task
 
@@ -412,7 +412,7 @@ do display#0.present()
 task blink every 1000ms { do led#0.toggle() }
 ```
 
-Interactive task body は現状 1 行 1 つの `do ...` のみ。`state` / `set` / `wait` / `match` を使う場合は script textarea の full compiler 経路を使う。
+Interactive task body は現状 1 行 1 つの `do ...` のみ。`var` / `set` / `wait` / `match` を使う場合は script textarea の full compiler 経路を使う。
 
 task 操作:
 
@@ -458,6 +458,6 @@ task blink every 1000deg {
 
 次の拡張候補:
 
-- interactive `task every` body に `set` / `state` / `wait` / `read` 式（現状 body は 1 行 1 `do` のみ、full compiler 経路で上記を利用する）
+- interactive `task every` body に `set` / `var` / `wait` / `read` 式（現状 body は 1 行 1 `do` のみ、full compiler 経路で上記を利用する）
 - `display#0` の text 等、追加 API
 
