@@ -60,6 +60,22 @@ Pop-Location
 - 代替として `RPI-RP2` ボリュームへ `firmware.uf2` をコピーする方法が確実だった。
 - 参考: `machine.bootloader()` は **REPL が独占できているとき**は便利だが、別プロセスが COM を掴んでいると失敗することがある（実測）。
 
+### Kibo runtime vertical slice 実機確認（2026-05-04）
+
+- 対象: [`runtime/pico/vertical_slice/`](../runtime/pico/vertical_slice/README.md)
+- `circle-animation` の runtime IR contract を firmware に埋め込み、Pico 上の C++ runtime で実行した。
+- OLED では circle が 100ms tick で右へ動き、約 3.2 秒ごとに左側から再開する。
+- USB Serial は `COM11` として再認識され、conformance 用の `trace ...` 3 行が約 5 秒ごとに再送される。
+- `pio run -t upload` は BOOTSEL には入ったが `picotool` が driver 権限で接続できなかったため、`RPI-RP2` へ `firmware.uf2` をコピーして書き込んだ。
+
+確認できた trace:
+
+```text
+trace schema=1 sim_ms=0 led0=0 btn0=0 dpy_fp=b9d103fd6854a325 vars=circle_x=20 sm=-
+trace schema=1 sim_ms=100 led0=0 btn0=0 dpy_fp=abb0ec954afd3205 vars=circle_x=24 sm=-
+trace schema=1 sim_ms=200 led0=0 btn0=0 dpy_fp=317a917e19c73405 vars=circle_x=28 sm=-
+```
+
 ### USB Serial の取りこぼし対策（probe 側）
 
 - USB CDC はホストが遅れて attach すると、`setup()` 冒頭の一度きり出力を取りこぼしやすい。
