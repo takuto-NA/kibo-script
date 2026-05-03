@@ -4,6 +4,8 @@ import type { DeviceAddress } from "../core/device-address";
 export type BoundProgram = {
   sourceFileName: string;
   refSymbols: Map<string, BoundRefSymbol>;
+  /** `ref` 宣言がソースに存在する名前（IR の deviceAliases はここに含まれる ref のみ下げる）。 */
+  sourceDeclaredRefNames: ReadonlySet<string>;
   /** Compiler-visible script var names -> initialized binding */
   varSymbols: Map<string, BoundVarSymbol>;
   /** `const` 宣言: 不変。var と同名不可。 */

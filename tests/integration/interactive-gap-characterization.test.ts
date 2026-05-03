@@ -27,7 +27,7 @@ task blink every 1000ms {
     if (parsed.ok) {
       expect(parsed.command.kind).toBe("do_led_effect");
       if (parsed.command.kind === "do_led_effect") {
-        expect(parsed.command.ledId).toBe(0);
+        expect(parsed.command.ledTargetText).toBe("led#0");
         expect(parsed.command.ledEffect).toBe("toggle");
       }
     }

@@ -5,6 +5,16 @@
     "constInitializers": [],
     "stateMachines": [],
     "animatorDefinitions": [],
+    "deviceAliases": [
+      {
+        "refName": "port",
+        "deviceAddress": {
+          "kind": "serial",
+          "id": 0
+        }
+      }
+    ],
+    "varWriterAssignments": [],
     "everyTasks": [
       {
         "taskName": "monitor",

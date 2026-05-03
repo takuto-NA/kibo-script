@@ -26,7 +26,7 @@ npm audit --audit-level=moderate
 
 ## 複数行 script を動かす
 
-ブラウザ上部の script textarea に次を入れて、`Compile & run on simulator` を押す。
+ブラウザ上部の script textarea に次を入れて、**Reset & run on simulator**（既存 runtime を置換）または **Add to runtime**（ambient シンボル解決付きでタスク等を追加）を押す。
 
 ```text
 ref led = led#0
@@ -64,7 +64,7 @@ task patrol loop {
 
 ## `button#0` を画面から押す（`task on`）
 
-右側パネルに **button#0** と **Press** ボタンがある。次の script を textarea に入れて `Compile & run on simulator` のあと、**Press** を押すと LED が切り替わる。
+右側パネルに **button#0** と **Press** ボタンがある。次の script を textarea に入れて **Reset & run on simulator**（または **Add to runtime**）のあと、**Press** を押すと LED が切り替わる。
 
 ```text
 ref led = led#0
@@ -367,7 +367,7 @@ do display#0.present()
 
 ## Circle を動かす（Phase 1: `var` / `set` 対応）
 
-ブラウザの **script textarea** に次を入れて `Compile & run` すると、座標が毎 tick 更新される。
+ブラウザの **script textarea** に次を入れて **Reset & run on simulator**（既存の登録を消してから流し込む）か **Add to runtime**（追記）すると、座標が毎 tick 更新される。
 
 ```text
 var circle_x = 20

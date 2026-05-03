@@ -7,7 +7,7 @@ import {
 import { createDiagnosticReport, type DiagnosticReport } from "../diagnostics/diagnostic";
 import { formatDiagnosticForTerminal } from "../diagnostics/format-diagnostic";
 import type { DeviceEffect } from "../core/device-bus";
-import { parseDeviceAddress } from "../core/device-address";
+import type { DeviceAddress } from "../core/device-address";
 import type { SimulationRuntime } from "../core/simulation-runtime";
 import { formatScriptValueForInteractiveEcho } from "../core/value";
 import {
@@ -39,20 +39,11 @@ function serialAddress() {
   return { kind: "serial" as const, id: 0 };
 }
 
-function ledAddress(ledId: number) {
-  return { kind: "led" as const, id: ledId };
-}
-
-function pwmAddress(pwmId: number) {
-  return { kind: "pwm" as const, id: pwmId };
-}
-
-function motorAddress(motorId: number) {
-  return { kind: "motor" as const, id: motorId };
-}
-
-function servoAddress(servoId: number) {
-  return { kind: "servo" as const, id: servoId };
+function tryResolveDeviceAddressForInteractive(
+  runtime: SimulationRuntime,
+  targetText: string,
+): DeviceAddress | undefined {
+  return runtime.resolveInteractiveTargetToDeviceAddress(targetText);
 }
 
 /**
@@ -77,7 +68,7 @@ export function evaluateInteractiveCommand(
         "  do display#0.line(x0,y0,x1,y1)",
         "  do display#0.circle(cx,cy,r)",
         "  do display#0.present()",
-        "  do led#0.on() | do led#0.off() | do led#0.toggle()",
+        "  do led#0.on() | do <ref>.toggle() (registered ref)",
         "  led#0.info",
         "  do pwm#0.level(percent)",
         "  pwm#0.info",
@@ -87,9 +78,10 @@ export function evaluateInteractiveCommand(
         "  read imu#0.roll",
         "  read motor#0.power",
         "  motor#0.info",
-        "  list tasks",
+        "  list tasks | list refs | list vars | list states",
         "  show task <name>",
-        "  start task <name> | stop task <name> | drop task <name>",
+        "  start task <name> | stop task <name>",
+        "  drop task <name> | drop ref <name> | drop var <name> | drop state <machine>",
         "  task <name> every <N>ms { ... }",
       ].join("\n"),
     );
@@ -97,8 +89,8 @@ export function evaluateInteractiveCommand(
   }
 
   if (command.kind === "read") {
-    const parsed = parseDeviceAddress(command.target);
-    if (!parsed.ok) {
+    const address = tryResolveDeviceAddressForInteractive(runtime, command.target);
+    if (address === undefined) {
       return {
         ok: false,
         report: createDiagnosticReport([
@@ -111,7 +103,7 @@ export function evaluateInteractiveCommand(
     }
     const bus = runtime.getDeviceBus();
     const value = bus.read({
-      address: parsed.address,
+      address,
       property: "",
     });
     if (value === undefined) {
@@ -119,21 +111,21 @@ export function evaluateInteractiveCommand(
         ok: false,
         report: createDiagnosticReport([
           buildDeviceUnknownTarget({
-            kindName: parsed.address.kind,
-            id: parsed.address.id,
+            kindName: address.kind,
+            id: address.id,
           }),
         ]),
       };
     }
-    const echoTarget = `${parsed.address.kind}#${parsed.address.id}`;
+    const echoTarget = `${address.kind}#${address.id}`;
     lines.push(`${echoTarget} = ${formatScriptValueForInteractiveEcho(value)}`);
     return { ok: true, lines };
   }
 
   if (command.kind === "property_read") {
     const base = command.target.replace(/\.info$/, "");
-    const parsed = parseDeviceAddress(base);
-    if (!parsed.ok) {
+    const address = tryResolveDeviceAddressForInteractive(runtime, base);
+    if (address === undefined) {
       return {
         ok: false,
         report: createDiagnosticReport([
@@ -146,7 +138,7 @@ export function evaluateInteractiveCommand(
     }
     const bus = runtime.getDeviceBus();
     const value = bus.read({
-      address: parsed.address,
+      address,
       property: command.property,
     });
     if (value === undefined) {
@@ -154,8 +146,8 @@ export function evaluateInteractiveCommand(
         ok: false,
         report: createDiagnosticReport([
           buildDeviceUnknownTarget({
-            kindName: parsed.address.kind,
-            id: parsed.address.id,
+            kindName: address.kind,
+            id: address.id,
           }),
         ]),
       };
@@ -240,7 +232,18 @@ export function evaluateInteractiveCommand(
   }
 
   if (command.kind === "do_led_effect") {
-    const address = ledAddress(command.ledId);
+    const address = tryResolveDeviceAddressForInteractive(runtime, command.ledTargetText);
+    if (address === undefined || address.kind !== "led") {
+      return {
+        ok: false,
+        report: createDiagnosticReport([
+          buildParseUnsupportedCommand({
+            file: "<interactive>",
+            inputLine: command.ledTargetText,
+          }),
+        ]),
+      };
+    }
     const deviceEffect =
       command.ledEffect === "on"
         ? ({ kind: "led.on" as const, address })
@@ -253,9 +256,21 @@ export function evaluateInteractiveCommand(
   }
 
   if (command.kind === "do_pwm_level") {
+    const address = tryResolveDeviceAddressForInteractive(runtime, command.pwmTargetText);
+    if (address === undefined || address.kind !== "pwm") {
+      return {
+        ok: false,
+        report: createDiagnosticReport([
+          buildParseUnsupportedCommand({
+            file: "<interactive>",
+            inputLine: command.pwmTargetText,
+          }),
+        ]),
+      };
+    }
     runtime.queueEffect({
       kind: "pwm.level",
-      address: pwmAddress(command.pwmId),
+      address,
       levelPercent: command.levelPercent,
     });
     runtime.tick(0);
@@ -263,9 +278,21 @@ export function evaluateInteractiveCommand(
   }
 
   if (command.kind === "do_motor_power") {
+    const address = tryResolveDeviceAddressForInteractive(runtime, command.motorTargetText);
+    if (address === undefined || address.kind !== "motor") {
+      return {
+        ok: false,
+        report: createDiagnosticReport([
+          buildParseUnsupportedCommand({
+            file: "<interactive>",
+            inputLine: command.motorTargetText,
+          }),
+        ]),
+      };
+    }
     runtime.queueEffect({
       kind: "motor.power",
-      address: motorAddress(command.motorId),
+      address,
       powerPercent: command.powerPercent,
     });
     runtime.tick(0);
@@ -273,13 +300,40 @@ export function evaluateInteractiveCommand(
   }
 
   if (command.kind === "do_servo_angle") {
+    const address = tryResolveDeviceAddressForInteractive(runtime, command.servoTargetText);
+    if (address === undefined || address.kind !== "servo") {
+      return {
+        ok: false,
+        report: createDiagnosticReport([
+          buildParseUnsupportedCommand({
+            file: "<interactive>",
+            inputLine: command.servoTargetText,
+          }),
+        ]),
+      };
+    }
     runtime.queueEffect({
       kind: "servo.angle",
-      address: servoAddress(command.servoId),
+      address,
       angleDegrees: command.angleDegrees,
     });
     runtime.tick(0);
     return { ok: true, lines: ["ok"] };
+  }
+
+  if (command.kind === "list_refs") {
+    lines.push(...runtime.formatRegisteredDeviceAliasesLines());
+    return { ok: true, lines };
+  }
+
+  if (command.kind === "list_vars") {
+    lines.push(...runtime.formatRegisteredVarsWithWritersLines());
+    return { ok: true, lines };
+  }
+
+  if (command.kind === "list_states") {
+    lines.push(...runtime.formatStateMachineInspectLines());
+    return { ok: true, lines };
   }
 
   if (command.kind === "list_tasks") {
@@ -334,8 +388,35 @@ export function evaluateInteractiveCommand(
   }
 
   if (command.kind === "drop_task") {
-    const removed = runtime.tasks.removeTask(command.name);
+    const removed = runtime.removeTaskAndReleaseRuntimeWriters(command.name);
     lines.push(removed ? "ok" : `unknown task ${command.name}`);
+    return { ok: true, lines };
+  }
+
+  if (command.kind === "drop_ref") {
+    const dropResult = runtime.tryDropRef(command.name);
+    if (dropResult.ok === false) {
+      return { ok: false, report: dropResult.report };
+    }
+    lines.push("ok");
+    return { ok: true, lines };
+  }
+
+  if (command.kind === "drop_var") {
+    const dropResult = runtime.tryDropVar(command.name);
+    if (dropResult.ok === false) {
+      return { ok: false, report: dropResult.report };
+    }
+    lines.push("ok");
+    return { ok: true, lines };
+  }
+
+  if (command.kind === "drop_state") {
+    const dropResult = runtime.tryDropStatePath(command.name);
+    if (dropResult.ok === false) {
+      return { ok: false, report: dropResult.report };
+    }
+    lines.push("ok");
     return { ok: true, lines };
   }
 

@@ -5,6 +5,7 @@ import type { InteractiveCommand } from "./interactive-command";
 const READ_DEVICE_DOT_PROPERTY_PATTERN = /^read\s+([a-z]+#\d+)\.([a-z_][a-z0-9_]*)\s*$/;
 const READ_PATTERN = /^read\s+(\S+)$/;
 const INFO_PATTERN = /^([a-z]+#\d+)\.info$/;
+const REF_INFO_PATTERN = /^([a-zA-Z_][a-zA-Z0-9_]*)\.info$/;
 const DO_SERIAL_PRINTLN_PATTERN = /^do\s+serial#0\.println\((.*)\)\s*$/;
 const DO_DISPLAY_CLEAR_PATTERN = /^do\s+display#0\.clear\(\)\s*$/;
 const DO_DISPLAY_PIXEL_PATTERN =
@@ -14,15 +15,21 @@ const DO_DISPLAY_LINE_PATTERN =
 const DO_DISPLAY_CIRCLE_PATTERN =
   /^do\s+display#0\.circle\(\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*\)\s*$/;
 const DO_DISPLAY_PRESENT_PATTERN = /^do\s+display#0\.present\(\)\s*$/;
-const DO_LED_EFFECT_PATTERN = /^do\s+led#(\d+)\.(on|off|toggle)\(\)\s*$/;
-const DO_PWM_LEVEL_PATTERN = /^do\s+pwm#(\d+)\.level\(\s*(-?\d+)\s*\)\s*$/;
-const DO_MOTOR_POWER_PATTERN = /^do\s+motor#(\d+)\.power\(\s*(-?\d+)\s*\)\s*$/;
-const DO_SERVO_ANGLE_PATTERN = /^do\s+servo#(\d+)\.angle\(\s*(-?\d+)\s*\)\s*$/;
+const DO_LED_EFFECT_PATTERN = /^do\s+(\S+)\.(on|off|toggle)\(\)\s*$/;
+const DO_PWM_LEVEL_PATTERN = /^do\s+(\S+)\.level\(\s*(-?\d+)\s*\)\s*$/;
+const DO_MOTOR_POWER_PATTERN = /^do\s+(\S+)\.power\(\s*(-?\d+)\s*\)\s*$/;
+const DO_SERVO_ANGLE_PATTERN = /^do\s+(\S+)\.angle\(\s*(-?\d+)\s*\)\s*$/;
 const LIST_TASKS_PATTERN = /^list\s+tasks\s*$/;
+const LIST_REFS_PATTERN = /^list\s+refs\s*$/;
+const LIST_VARS_PATTERN = /^list\s+vars\s*$/;
+const LIST_STATES_PATTERN = /^list\s+states\s*$/;
 const SHOW_TASK_PATTERN = /^show\s+task\s+(\S+)\s*$/;
 const STOP_TASK_PATTERN = /^stop\s+task\s+(\S+)\s*$/;
 const START_TASK_PATTERN = /^start\s+task\s+(\S+)\s*$/;
 const DROP_TASK_PATTERN = /^drop\s+task\s+(\S+)\s*$/;
+const DROP_REF_PATTERN = /^drop\s+ref\s+(\S+)\s*$/;
+const DROP_VAR_PATTERN = /^drop\s+var\s+(\S+)\s*$/;
+const DROP_STATE_PATTERN = /^drop\s+state\s+(\S+)\s*$/;
 const TASK_EVERY_PATTERN =
   /^task\s+(\S+)\s+every\s+(\d+)ms\s*\{([\s\S]*)\}\s*$/;
 
@@ -74,6 +81,15 @@ export function parseInteractiveCommandLine(line: string): ParseInteractiveComma
     return {
       ok: true,
       command: { kind: "property_read", target: full, property: "info" },
+    };
+  }
+
+  const refInfoMatch = REF_INFO_PATTERN.exec(trimmed);
+  if (refInfoMatch !== null) {
+    const refName = refInfoMatch[1] ?? "";
+    return {
+      ok: true,
+      command: { kind: "property_read", target: refName, property: "info" },
     };
   }
 
@@ -144,7 +160,7 @@ export function parseInteractiveCommandLine(line: string): ParseInteractiveComma
 
   const ledEffectMatch = DO_LED_EFFECT_PATTERN.exec(trimmed);
   if (ledEffectMatch !== null) {
-    const ledId = Number.parseInt(ledEffectMatch[1] ?? "0", 10);
+    const ledTargetText = ledEffectMatch[1] ?? "";
     const effectToken = ledEffectMatch[2] ?? "toggle";
     const ledEffect =
       effectToken === "on" ? ("on" as const) : effectToken === "off" ? ("off" as const) : ("toggle" as const);
@@ -152,7 +168,7 @@ export function parseInteractiveCommandLine(line: string): ParseInteractiveComma
       ok: true,
       command: {
         kind: "do_led_effect",
-        ledId,
+        ledTargetText,
         ledEffect,
       },
     };
@@ -164,7 +180,7 @@ export function parseInteractiveCommandLine(line: string): ParseInteractiveComma
       ok: true,
       command: {
         kind: "do_pwm_level",
-        pwmId: Number.parseInt(pwmLevelMatch[1] ?? "0", 10),
+        pwmTargetText: pwmLevelMatch[1] ?? "",
         levelPercent: Number.parseInt(pwmLevelMatch[2] ?? "0", 10),
       },
     };
@@ -176,7 +192,7 @@ export function parseInteractiveCommandLine(line: string): ParseInteractiveComma
       ok: true,
       command: {
         kind: "do_motor_power",
-        motorId: Number.parseInt(motorPowerMatch[1] ?? "0", 10),
+        motorTargetText: motorPowerMatch[1] ?? "",
         powerPercent: Number.parseInt(motorPowerMatch[2] ?? "0", 10),
       },
     };
@@ -188,7 +204,7 @@ export function parseInteractiveCommandLine(line: string): ParseInteractiveComma
       ok: true,
       command: {
         kind: "do_servo_angle",
-        servoId: Number.parseInt(servoAngleMatch[1] ?? "0", 10),
+        servoTargetText: servoAngleMatch[1] ?? "",
         angleDegrees: Number.parseInt(servoAngleMatch[2] ?? "0", 10),
       },
     };
@@ -196,6 +212,18 @@ export function parseInteractiveCommandLine(line: string): ParseInteractiveComma
 
   if (LIST_TASKS_PATTERN.test(trimmed)) {
     return { ok: true, command: { kind: "list_tasks" } };
+  }
+
+  if (LIST_REFS_PATTERN.test(trimmed)) {
+    return { ok: true, command: { kind: "list_refs" } };
+  }
+
+  if (LIST_VARS_PATTERN.test(trimmed)) {
+    return { ok: true, command: { kind: "list_vars" } };
+  }
+
+  if (LIST_STATES_PATTERN.test(trimmed)) {
+    return { ok: true, command: { kind: "list_states" } };
   }
 
   const showMatch = SHOW_TASK_PATTERN.exec(trimmed);
@@ -216,6 +244,21 @@ export function parseInteractiveCommandLine(line: string): ParseInteractiveComma
   const dropMatch = DROP_TASK_PATTERN.exec(trimmed);
   if (dropMatch !== null) {
     return { ok: true, command: { kind: "drop_task", name: dropMatch[1] ?? "" } };
+  }
+
+  const dropRefMatch = DROP_REF_PATTERN.exec(trimmed);
+  if (dropRefMatch !== null) {
+    return { ok: true, command: { kind: "drop_ref", name: dropRefMatch[1] ?? "" } };
+  }
+
+  const dropVarMatch = DROP_VAR_PATTERN.exec(trimmed);
+  if (dropVarMatch !== null) {
+    return { ok: true, command: { kind: "drop_var", name: dropVarMatch[1] ?? "" } };
+  }
+
+  const dropStateMatch = DROP_STATE_PATTERN.exec(trimmed);
+  if (dropStateMatch !== null) {
+    return { ok: true, command: { kind: "drop_state", name: dropStateMatch[1] ?? "" } };
   }
 
   const taskEveryMatch = TASK_EVERY_PATTERN.exec(trimmed);

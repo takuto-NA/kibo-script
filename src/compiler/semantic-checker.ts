@@ -17,7 +17,10 @@ import {
   buildOwnershipMultipleWriters,
 } from "../diagnostics/diagnostic-builder";
 
-export function semanticCheckBoundProgram(boundProgram: BoundProgram): DiagnosticReport {
+export function semanticCheckBoundProgram(
+  boundProgram: BoundProgram,
+  options?: { ambientStatePathPrefixes?: ReadonlySet<string> },
+): DiagnosticReport {
   const diagnostics: DiagnosticReport["diagnostics"] = [];
   const taskNameToFirstDeclarationRange = new Map<string, AstRange>();
 
@@ -99,7 +102,7 @@ export function semanticCheckBoundProgram(boundProgram: BoundProgram): Diagnosti
     taskNameToFirstDeclarationRange.set(task.taskName, task.range);
   }
 
-  const knownStatePathPrefixes = buildKnownStatePathPrefixSet(boundProgram);
+  const knownStatePathPrefixes = buildKnownStatePathPrefixSet(boundProgram, options?.ambientStatePathPrefixes);
   collectStateMembershipPathDiagnostics(boundProgram, knownStatePathPrefixes, diagnostics);
   collectStateElapsedPathDiagnostics(boundProgram, knownStatePathPrefixes, diagnostics);
   collectLifecycleMembershipDiagnostics(boundProgram, diagnostics);
@@ -117,11 +120,21 @@ function enumerateDotPathPrefixes(fullPath: string): string[] {
   return prefixes;
 }
 
-function buildKnownStatePathPrefixSet(boundProgram: BoundProgram): Set<string> {
+function buildKnownStatePathPrefixSet(
+  boundProgram: BoundProgram,
+  extraPathPrefixes?: ReadonlySet<string>,
+): Set<string> {
   const prefixes = new Set<string>();
   for (const stateMachine of boundProgram.stateMachinesInSourceOrder) {
     for (const nodePath of stateMachine.nodesByPath.keys()) {
       for (const prefix of enumerateDotPathPrefixes(nodePath)) {
+        prefixes.add(prefix);
+      }
+    }
+  }
+  if (extraPathPrefixes !== undefined) {
+    for (const path of extraPathPrefixes) {
+      for (const prefix of enumerateDotPathPrefixes(path)) {
         prefixes.add(prefix);
       }
     }

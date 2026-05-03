@@ -5,6 +5,16 @@
     "constInitializers": [],
     "stateMachines": [],
     "animatorDefinitions": [],
+    "deviceAliases": [
+      {
+        "refName": "led",
+        "deviceAddress": {
+          "kind": "led",
+          "id": 0
+        }
+      }
+    ],
+    "varWriterAssignments": [],
     "everyTasks": [
       {
         "taskName": "blink",

@@ -173,4 +173,59 @@ task fade every 10ms {
     const second = runtime.getDefaultDevices().pwm0.getLevelPercent();
     expect(second).toBeGreaterThanOrEqual(first);
   });
+
+  it("loads device alias registry on reset so refs resolve on runtime", () => {
+    const tasks = new TaskRegistry();
+    const runtime = new SimulationRuntime({ tasks });
+    const loadResult = compileSourceAndRegisterSimulationTasks({
+      sourceText: `ref led = led#0
+
+task blink every 1000ms {
+  do led.toggle()
+}
+`,
+      sourceFileName: "aliases.sc",
+      simulationRuntime: runtime,
+      registrationMode: "reset",
+    });
+    expect(loadResult.ok).toBe(true);
+    const resolved = runtime.resolveInteractiveTargetToDeviceAddress("led");
+    expect(resolved).toEqual({ kind: "led", id: 0 });
+    expect(runtime.getVarWriterTaskNameByVarNameMap().size).toBe(0);
+  });
+
+  it("reject additive registration when duplicate task exists without changing registry snapshot", () => {
+    const tasks = new TaskRegistry();
+    const runtime = new SimulationRuntime({ tasks });
+    const first = compileSourceAndRegisterSimulationTasks({
+      sourceText: `ref led = led#0
+task blink every 1000ms { do led.toggle() }
+`,
+      sourceFileName: "a.sc",
+      simulationRuntime: runtime,
+      registrationMode: "reset",
+    });
+    expect(first.ok).toBe(true);
+
+    const aliasSnapshotBefore = [...runtime.getRegisteredDeviceAliasMap().entries()].sort((a, b) =>
+      a[0].localeCompare(b[0]),
+    );
+    const taskCountBefore = runtime.tasks.listTasks().length;
+
+    const second = compileSourceAndRegisterSimulationTasks({
+      sourceText: `ref led = led#0
+task blink every 500ms { do led.toggle() }
+`,
+      sourceFileName: "b.sc",
+      simulationRuntime: runtime,
+      registrationMode: "add",
+    });
+    expect(second.ok).toBe(false);
+
+    const aliasSnapshotAfter = [...runtime.getRegisteredDeviceAliasMap().entries()].sort((a, b) =>
+      a[0].localeCompare(b[0]),
+    );
+    expect(aliasSnapshotAfter).toEqual(aliasSnapshotBefore);
+    expect(runtime.tasks.listTasks().length).toBe(taskCountBefore);
+  });
 });

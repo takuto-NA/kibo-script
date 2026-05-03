@@ -68,10 +68,33 @@ function astRangeToSourceRange(range: {
   };
 }
 
-export function bindProgram(ast: ProgramAst, sourceFileName: string): BindProgramResult {
+function createAmbientSyntheticAstRange(sourceFileName: string): import("../ast/script-ast").AstRange {
+  const zeroPosition = { line: 1, column: 1, offset: 0 };
+  return {
+    fileName: sourceFileName,
+    start: zeroPosition,
+    end: zeroPosition,
+  };
+}
+
+export type BindProgramAmbientWorld = {
+  /**
+   * 既に runtime に登録済みの ref（追加コンパイル時に script 側で `ref` 宣言なしで参照する）。
+   */
+  readonly existingRefDeviceAddressesByName: ReadonlyMap<string, DeviceAddress>;
+  readonly existingAmbientVarNames: readonly string[];
+  readonly existingAmbientConstNames: readonly string[];
+};
+
+export function bindProgram(
+  ast: ProgramAst,
+  sourceFileName: string,
+  ambientWorld?: BindProgramAmbientWorld,
+): BindProgramResult {
   const refSymbolTable = new RefSymbolTable();
   const varSymbols = new Map<string, BoundVarSymbol>();
   const diagnostics: DiagnosticReport["diagnostics"] = [];
+  const sourceDeclaredRefNames = new Set<string>();
 
   for (const declaration of ast.declarations) {
     if (declaration.kind !== "ref_declaration") {
@@ -105,11 +128,25 @@ export function bindProgram(ast: ProgramAst, sourceFileName: string): BindProgra
           secondaryRange: astRangeToSourceRange(registerResult.existing.declarationRange),
         }),
       );
+    } else {
+      sourceDeclaredRefNames.add(declaration.symbolName);
     }
   }
 
   if (diagnostics.length > 0) {
     return { ok: false, report: createDiagnosticReport(diagnostics) };
+  }
+
+  const ambientSyntheticAstRange = createAmbientSyntheticAstRange(sourceFileName);
+  for (const [symbolName, deviceAddress] of ambientWorld?.existingRefDeviceAddressesByName ?? []) {
+    if (refSymbolTable.lookup(symbolName) !== undefined) {
+      continue;
+    }
+    refSymbolTable.tryRegister({
+      symbolName,
+      deviceAddress,
+      declarationRange: ambientSyntheticAstRange,
+    });
   }
 
   const animatorSymbols = new Map<string, BoundAnimatorSymbol>();
@@ -278,6 +315,30 @@ export function bindProgram(ast: ProgramAst, sourceFileName: string): BindProgra
     }
   }
 
+  for (const ambientVarName of ambientWorld?.existingAmbientVarNames ?? []) {
+    if (varSymbols.has(ambientVarName) || constSymbols.has(ambientVarName)) {
+      continue;
+    }
+    varSymbols.set(ambientVarName, {
+      varName: ambientVarName,
+      initialValue: { kind: "integer", value: 0 },
+      range: ambientSyntheticAstRange,
+    });
+  }
+
+  for (const ambientConstName of ambientWorld?.existingAmbientConstNames ?? []) {
+    if (varSymbols.has(ambientConstName) || constSymbols.has(ambientConstName)) {
+      continue;
+    }
+    const ambientConstSymbol: BoundConstSymbol = {
+      constName: ambientConstName,
+      initialValue: { kind: "integer", value: 0 },
+      range: ambientSyntheticAstRange,
+    };
+    constSymbols.set(ambientConstName, ambientConstSymbol);
+    constSymbolsInSourceOrder.push(ambientConstSymbol);
+  }
+
   if (diagnostics.length > 0) {
     return { ok: false, report: createDiagnosticReport(diagnostics) };
   }
@@ -369,6 +430,7 @@ export function bindProgram(ast: ProgramAst, sourceFileName: string): BindProgra
   const boundProgram: BoundProgram = {
     sourceFileName,
     refSymbols,
+    sourceDeclaredRefNames,
     varSymbols,
     constSymbols,
     constSymbolsInSourceOrder,

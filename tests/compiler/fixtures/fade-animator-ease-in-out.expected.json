@@ -22,6 +22,21 @@
         "ease": "ease_in_out"
       }
     ],
+    "deviceAliases": [
+      {
+        "refName": "led",
+        "deviceAddress": {
+          "kind": "pwm",
+          "id": 0
+        }
+      }
+    ],
+    "varWriterAssignments": [
+      {
+        "varName": "led_level",
+        "writerTaskName": "fade"
+      }
+    ],
     "everyTasks": [
       {
         "taskName": "fade",

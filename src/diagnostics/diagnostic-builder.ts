@@ -494,6 +494,73 @@ export function buildSemanticLifecycleRequiresStateMembership(params: {
   };
 }
 
+export function buildRuntimeWorldDuplicateName(params: {
+  kind: "task" | "ref" | "var" | "const" | "state_machine" | "animator";
+  name: string;
+}): StructuredDiagnostic {
+  const kindLabel =
+    params.kind === "state_machine"
+      ? "State machine"
+      : params.kind === "task"
+        ? "Task"
+        : params.kind === "ref"
+          ? "Ref"
+          : params.kind === "var"
+            ? "Var"
+            : params.kind === "const"
+              ? "Const"
+              : "Animator";
+  return {
+    id: "runtime.world.duplicate_name",
+    severity: "error",
+    phase: "runtime",
+    message: `${kindLabel} "${params.name}" is already registered in the runtime world (additive registration rejected).`,
+  };
+}
+
+export function buildRuntimeWorldVarWriterConflict(params: {
+  varName: string;
+  existingWriterTaskName: string;
+  incomingWriterTaskName: string;
+}): StructuredDiagnostic {
+  return {
+    id: "runtime.world.var_writer_conflict",
+    severity: "error",
+    phase: "runtime",
+    message: `Var "${params.varName}" is already written by task "${params.existingWriterTaskName}"; cannot register writer "${params.incomingWriterTaskName}".`,
+  };
+}
+
+export function buildRuntimeWorldDropBlockedByTasks(params: {
+  resourceDescription: string;
+  dependentTaskNames: readonly string[];
+}): StructuredDiagnostic {
+  return {
+    id: "runtime.world.drop_blocked_by_tasks",
+    severity: "error",
+    phase: "runtime",
+    message: `Cannot ${params.resourceDescription}; still required by task(s): ${params.dependentTaskNames.join(", ")}.`,
+  };
+}
+
+export function buildRuntimeWorldUnknownName(params: {
+  kind: "ref" | "var" | "state_path";
+  name: string;
+}): StructuredDiagnostic {
+  const message =
+    params.kind === "ref"
+      ? `Unknown ref "${params.name}".`
+      : params.kind === "var"
+        ? `Unknown var "${params.name}".`
+        : `Unknown state path "${params.name}".`;
+  return {
+    id: "runtime.world.unknown_name",
+    severity: "error",
+    phase: "runtime",
+    message,
+  };
+}
+
 const MIN_PERCENT_LITERAL_BOUND = 0;
 const MAX_PERCENT_LITERAL_BOUND = 100;
 

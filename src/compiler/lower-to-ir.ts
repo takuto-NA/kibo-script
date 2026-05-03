@@ -12,12 +12,14 @@ import type {
   BoundTaskStateMembership,
 } from "./bound-program";
 import type {
+  CompiledDeviceAlias,
   CompiledEveryTask,
   CompiledLoopTask,
   CompiledOnEventTask,
   CompiledProgram,
   CompiledStateMachine,
   CompiledStateMachineNodeIr,
+  CompiledVarWriterAssignment,
   ExecutableExpression,
   ExecutableStatement,
 } from "../core/executable-task";
@@ -70,6 +72,13 @@ export function lowerBoundProgramToCompiledProgram(boundProgram: BoundProgram): 
 
   const stateMachines = boundProgram.stateMachinesInSourceOrder.map(lowerBoundStateMachineDefinition);
 
+  const deviceAliases = buildCompiledDeviceAliasesFromBoundRefs(boundProgram);
+  const varWriterAssignments = collectVarWriterAssignmentsFromCompiledTasks({
+    everyTasks,
+    loopTasks,
+    onEventTasks,
+  });
+
   return {
     varInitializers,
     constInitializers,
@@ -78,7 +87,81 @@ export function lowerBoundProgramToCompiledProgram(boundProgram: BoundProgram): 
     everyTasks,
     loopTasks,
     onEventTasks,
+    deviceAliases,
+    varWriterAssignments,
   };
+}
+
+function buildCompiledDeviceAliasesFromBoundRefs(boundProgram: BoundProgram): CompiledDeviceAlias[] {
+  const sortedRefNames = [...boundProgram.sourceDeclaredRefNames].sort((left, right) =>
+    left.localeCompare(right),
+  );
+  return sortedRefNames.map((refName) => {
+    const symbol = boundProgram.refSymbols.get(refName);
+    if (symbol === undefined) {
+      throw new Error(`Invariant: missing bound ref symbol for ${refName}`);
+    }
+    return {
+      refName: symbol.symbolName,
+      deviceAddress: symbol.deviceAddress,
+    };
+  });
+}
+
+function collectVarWriterAssignmentsFromCompiledTasks(params: {
+  everyTasks: CompiledEveryTask[];
+  loopTasks: CompiledLoopTask[];
+  onEventTasks: CompiledOnEventTask[];
+}): CompiledVarWriterAssignment[] {
+  const varNameToWriterTaskName = new Map<string, string>();
+  for (const task of params.everyTasks) {
+    recordVarWritersFromStatements(task.statements, task.taskName, varNameToWriterTaskName);
+  }
+  for (const task of params.loopTasks) {
+    recordVarWritersFromStatements(task.statements, task.taskName, varNameToWriterTaskName);
+  }
+  for (const task of params.onEventTasks) {
+    recordVarWritersFromStatements(task.statements, task.taskName, varNameToWriterTaskName);
+  }
+  return [...varNameToWriterTaskName.entries()]
+    .map(([varName, writerTaskName]) => ({ varName, writerTaskName }))
+    .sort((left, right) => left.varName.localeCompare(right.varName));
+}
+
+function recordVarWritersFromStatements(
+  statements: ExecutableStatement[],
+  writerTaskName: string,
+  varNameToWriterTaskName: Map<string, string>,
+): void {
+  for (const statement of statements) {
+    recordVarWritersFromStatement(statement, writerTaskName, varNameToWriterTaskName);
+  }
+}
+
+function recordVarWritersFromStatement(
+  statement: ExecutableStatement,
+  writerTaskName: string,
+  varNameToWriterTaskName: Map<string, string>,
+): void {
+  if (statement.kind === "assign_var") {
+    if (!varNameToWriterTaskName.has(statement.varName)) {
+      varNameToWriterTaskName.set(statement.varName, writerTaskName);
+    }
+    return;
+  }
+
+  if (statement.kind === "if_comparison") {
+    recordVarWritersFromStatements(statement.thenBranchStatements, writerTaskName, varNameToWriterTaskName);
+    recordVarWritersFromStatements(statement.elseBranchStatements, writerTaskName, varNameToWriterTaskName);
+    return;
+  }
+
+  if (statement.kind === "match_string") {
+    for (const stringCase of statement.stringCases) {
+      recordVarWritersFromStatements(stringCase.branchStatements, writerTaskName, varNameToWriterTaskName);
+    }
+    recordVarWritersFromStatements(statement.elseBranchStatements, writerTaskName, varNameToWriterTaskName);
+  }
 }
 
 function lowerStateMembershipToPath(membership: BoundTaskStateMembership): string | undefined {

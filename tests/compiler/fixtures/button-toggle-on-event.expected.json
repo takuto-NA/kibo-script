@@ -5,16 +5,21 @@
     "constInitializers": [],
     "stateMachines": [],
     "animatorDefinitions": [],
+    "deviceAliases": [
+      {
+        "refName": "led",
+        "deviceAddress": {
+          "kind": "led",
+          "id": 0
+        }
+      }
+    ],
+    "varWriterAssignments": [],
     "everyTasks": [],
     "onEventTasks": [
       {
         "taskName": "toggle_led",
         "triggerKind": "device_event",
-        "deviceAddress": {
-          "kind": "button",
-          "id": 0
-        },
-        "eventName": "pressed",
         "statements": [
           {
             "kind": "do_method_call",
@@ -25,7 +30,12 @@
             "methodName": "toggle",
             "arguments": []
           }
-        ]
+        ],
+        "deviceAddress": {
+          "kind": "button",
+          "id": 0
+        },
+        "eventName": "pressed"
       }
     ],
     "loopTasks": []

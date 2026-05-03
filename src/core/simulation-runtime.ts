@@ -1,6 +1,6 @@
 import { DeviceBus } from "./device-bus";
 import type { DeviceEffect } from "./device-bus";
-import type { DeviceAddress } from "./device-address";
+import { formatDeviceAddress, parseDeviceAddress, type DeviceAddress } from "./device-address";
 import {
   mapDoMethodCallToDeviceEffects,
   type ConcreteMethodArgument,
@@ -13,6 +13,19 @@ import type {
   ExecutableExpression,
   ExecutableStatement,
 } from "./executable-task";
+import type { BindProgramAmbientWorld } from "../compiler/binder";
+import {
+  buildRuntimeWorldDropBlockedByTasks,
+  buildRuntimeWorldDuplicateName,
+  buildRuntimeWorldUnknownName,
+  buildRuntimeWorldVarWriterConflict,
+} from "../diagnostics/diagnostic-builder";
+import { createDiagnosticReport, type DiagnosticReport, type StructuredDiagnostic } from "../diagnostics/diagnostic";
+import {
+  collectDeviceAddressKeysFromStatements,
+  collectStatePathTextsFromStatements,
+  collectVarNamesReferencedFromStatements,
+} from "./runtime-world-dependencies";
 import { createInitialAnimatorRuntimeState, type AnimatorRuntimeState } from "./animator-runtime-state";
 import {
   evaluateExecutableExpression,
@@ -41,6 +54,21 @@ export type SimulationTickResult = {
   appliedEffectCount: number;
 };
 
+export type RegisterCompiledProgramAdditiveResult =
+  | { ok: true }
+  | { ok: false; report: DiagnosticReport };
+
+export type DropRuntimeWorldEntityResult =
+  | { ok: true }
+  | { ok: false; report: DiagnosticReport };
+
+export type RuntimeWorldStateMachineInspectRow = {
+  machineName: string;
+  activeLeafPath: string;
+  tickIntervalMilliseconds: number;
+  elapsedMillisecondsByLeafPath: ReadonlyMap<string, number>;
+};
+
 export type DeviceEffectAppliedListener = (effect: DeviceEffect) => void;
 
 /**
@@ -63,6 +91,10 @@ export class SimulationRuntime {
   private readonly stateMachineTickAccumulatorMsByMachineName = new Map<string, number>();
   private readonly compiledStateMachineNodeIndexByMachineName = new Map<string, Map<string, CompiledStateMachineNodeIr>>();
   private readonly onAfterDeviceEffectApplied?: DeviceEffectAppliedListener;
+  /** `ref` 名 → 実デバイス（ターミナル・追加コンパイルの名前解決）。 */
+  private readonly deviceAliasByRefName = new Map<string, DeviceAddress>();
+  /** var → `assign_var` を持つ task 名（単一 writer メタデータ）。 */
+  private readonly varWriterTaskByVarName = new Map<string, string>();
 
   public constructor(params: {
     deviceBus?: DeviceBus;
@@ -101,6 +133,335 @@ export class SimulationRuntime {
     return this.scriptVarValues;
   }
 
+  public getScriptConstValues(): ReadonlyMap<string, number | string> {
+    return this.scriptConstValues;
+  }
+
+  public getRegisteredDeviceAliasMap(): ReadonlyMap<string, DeviceAddress> {
+    return this.deviceAliasByRefName;
+  }
+
+  public getVarWriterTaskNameByVarNameMap(): ReadonlyMap<string, string> {
+    return this.varWriterTaskByVarName;
+  }
+
+  public buildBinderAmbientWorld(): BindProgramAmbientWorld {
+    return {
+      existingRefDeviceAddressesByName: this.deviceAliasByRefName,
+      existingAmbientVarNames: [...this.scriptVarValues.keys()].sort((left, right) => left.localeCompare(right)),
+      existingAmbientConstNames: [...this.scriptConstValues.keys()].sort((left, right) => left.localeCompare(right)),
+    };
+  }
+
+  public getAmbientStatePathNodePathsForSemanticCheck(): ReadonlySet<string> {
+    const paths = new Set<string>();
+    for (const stateMachine of this.compiledStateMachines) {
+      for (const node of stateMachine.nodes) {
+        paths.add(node.path);
+      }
+    }
+    return paths;
+  }
+
+  public resolveInteractiveTargetToDeviceAddress(targetText: string): DeviceAddress | undefined {
+    const trimmed = targetText.trim();
+    const direct = parseDeviceAddress(trimmed);
+    if (direct.ok) {
+      return direct.address;
+    }
+    return this.deviceAliasByRefName.get(trimmed);
+  }
+
+  public formatRegisteredDeviceAliasesLines(): string[] {
+    if (this.deviceAliasByRefName.size === 0) {
+      return ["(no refs)"];
+    }
+    const lines: string[] = [];
+    const sortedNames = [...this.deviceAliasByRefName.keys()].sort((left, right) => left.localeCompare(right));
+    for (const refName of sortedNames) {
+      const address = this.deviceAliasByRefName.get(refName);
+      if (address === undefined) {
+        continue;
+      }
+      lines.push(`${refName} -> ${formatDeviceAddress(address)}`);
+    }
+    return lines;
+  }
+
+  public formatRegisteredVarsWithWritersLines(): string[] {
+    if (this.scriptVarValues.size === 0 && this.varWriterTaskByVarName.size === 0) {
+      return ["(no vars)"];
+    }
+    const lines: string[] = [];
+    const sortedVarNames = [...this.scriptVarValues.keys()].sort((left, right) => left.localeCompare(right));
+    for (const varName of sortedVarNames) {
+      const value = this.scriptVarValues.get(varName);
+      const writerTaskName = this.varWriterTaskByVarName.get(varName);
+      const writerLabel = writerTaskName !== undefined ? writerTaskName : "(no writer metadata)";
+      lines.push(`${varName}\t${String(value)}\twriter=${writerLabel}`);
+    }
+    return lines;
+  }
+
+  public listStateMachineInspectRows(): RuntimeWorldStateMachineInspectRow[] {
+    const rows: RuntimeWorldStateMachineInspectRow[] = [];
+    for (const stateMachine of this.compiledStateMachines) {
+      const activeLeafPath = this.activeLeafPathByMachineName.get(stateMachine.machineName);
+      if (activeLeafPath === undefined) {
+        continue;
+      }
+      const elapsedByLeaf = new Map<string, number>();
+      for (const node of stateMachine.nodes) {
+        if (node.childPaths.length > 0) {
+          continue;
+        }
+        elapsedByLeaf.set(node.path, this.getElapsedMsForStatePath(node.path));
+      }
+      rows.push({
+        machineName: stateMachine.machineName,
+        activeLeafPath,
+        tickIntervalMilliseconds: stateMachine.tickIntervalMilliseconds,
+        elapsedMillisecondsByLeafPath: elapsedByLeaf,
+      });
+    }
+    return rows;
+  }
+
+  public formatStateMachineInspectLines(): string[] {
+    const rows = this.listStateMachineInspectRows();
+    if (rows.length === 0) {
+      return ["(no state machines)"];
+    }
+    const lines: string[] = [];
+    for (const row of rows) {
+      lines.push(
+        `machine=${row.machineName}\tactiveLeaf=${row.activeLeafPath}\ttickMs=${row.tickIntervalMilliseconds}`,
+      );
+      const sortedLeaves = [...row.elapsedMillisecondsByLeafPath.keys()].sort((left, right) =>
+        left.localeCompare(right),
+      );
+      for (const leafPath of sortedLeaves) {
+        const elapsedMs = row.elapsedMillisecondsByLeafPath.get(leafPath) ?? 0;
+        lines.push(`  ${leafPath}\telapsedMs=${elapsedMs}`);
+      }
+    }
+    return lines;
+  }
+
+  public tryRegisterCompiledProgramAdditive(compiledProgram: CompiledProgram): RegisterCompiledProgramAdditiveResult {
+    const diagnostics = this.collectAdditiveRegistrationDiagnostics(compiledProgram);
+    if (diagnostics.length > 0) {
+      return { ok: false, report: createDiagnosticReport(diagnostics) };
+    }
+    this.applyAdditiveCompiledProgram(compiledProgram);
+    return { ok: true };
+  }
+
+  public removeTaskAndReleaseRuntimeWriters(taskName: string): boolean {
+    const removed = this.tasks.removeTask(taskName);
+    if (!removed) {
+      return false;
+    }
+    for (const [varName, writerTaskName] of [...this.varWriterTaskByVarName.entries()]) {
+      if (writerTaskName === taskName) {
+        this.varWriterTaskByVarName.delete(varName);
+      }
+    }
+    return true;
+  }
+
+  public tryDropRef(refName: string): DropRuntimeWorldEntityResult {
+    const address = this.deviceAliasByRefName.get(refName);
+    if (address === undefined) {
+      return {
+        ok: false,
+        report: createDiagnosticReport([
+          buildRuntimeWorldUnknownName({ kind: "ref", name: refName }),
+        ]),
+      };
+    }
+    const dependentTasks = this.findTasksDependingOnDeviceAddress(address);
+    if (dependentTasks.length > 0) {
+      return {
+        ok: false,
+        report: createDiagnosticReport([
+          buildRuntimeWorldDropBlockedByTasks({
+            resourceDescription: `drop ref "${refName}"`,
+            dependentTaskNames: dependentTasks.map((task) => task.name),
+          }),
+        ]),
+      };
+    }
+    this.deviceAliasByRefName.delete(refName);
+    return { ok: true };
+  }
+
+  public tryDropVar(varName: string): DropRuntimeWorldEntityResult {
+    if (!this.scriptVarValues.has(varName)) {
+      return {
+        ok: false,
+        report: createDiagnosticReport([
+          buildRuntimeWorldUnknownName({ kind: "var", name: varName }),
+        ]),
+      };
+    }
+    const dependentTasks = this.findTasksDependingOnVarName(varName);
+    if (dependentTasks.length > 0) {
+      return {
+        ok: false,
+        report: createDiagnosticReport([
+          buildRuntimeWorldDropBlockedByTasks({
+            resourceDescription: `drop var "${varName}"`,
+            dependentTaskNames: dependentTasks.map((task) => task.name),
+          }),
+        ]),
+      };
+    }
+    this.scriptVarValues.delete(varName);
+    this.varWriterTaskByVarName.delete(varName);
+    return { ok: true };
+  }
+
+  public tryDropStatePath(statePathPrefix: string): DropRuntimeWorldEntityResult {
+    const normalizedPrefix = statePathPrefix.trim();
+    if (normalizedPrefix.includes(".")) {
+      return {
+        ok: false,
+        report: createDiagnosticReport([
+          {
+            id: "runtime.world.state_drop_requires_machine_root",
+            severity: "error",
+            phase: "runtime",
+            message:
+              'drop state currently accepts only a state machine root name (e.g. "oled"), not a dotted child path.',
+          },
+        ]),
+      };
+    }
+    const dependentTasks = this.findTasksDependingOnStateMachineRoot(normalizedPrefix);
+    if (dependentTasks.length > 0) {
+      return {
+        ok: false,
+        report: createDiagnosticReport([
+          buildRuntimeWorldDropBlockedByTasks({
+            resourceDescription: `drop state prefix "${normalizedPrefix}"`,
+            dependentTaskNames: dependentTasks.map((task) => task.name),
+          }),
+        ]),
+      };
+    }
+    const removed = this.removeStateMachineRootByMachineName(normalizedPrefix);
+    if (!removed) {
+      return {
+        ok: false,
+        report: createDiagnosticReport([
+          buildRuntimeWorldUnknownName({ kind: "state_path", name: normalizedPrefix }),
+        ]),
+      };
+    }
+    return { ok: true };
+  }
+
+  private replaceRuntimeWorldMetadataFromProgram(compiledProgram: CompiledProgram): void {
+    this.deviceAliasByRefName.clear();
+    for (const alias of compiledProgram.deviceAliases) {
+      this.deviceAliasByRefName.set(alias.refName, alias.deviceAddress);
+    }
+    this.varWriterTaskByVarName.clear();
+    for (const row of compiledProgram.varWriterAssignments) {
+      this.varWriterTaskByVarName.set(row.varName, row.writerTaskName);
+    }
+  }
+
+  private applyAdditiveCompiledProgram(compiledProgram: CompiledProgram): void {
+    for (const definition of compiledProgram.animatorDefinitions) {
+      this.compiledAnimatorDefinitionsByName.set(definition.animatorName, definition);
+      if (!this.animatorRuntimeStatesByName.has(definition.animatorName)) {
+        this.animatorRuntimeStatesByName.set(
+          definition.animatorName,
+          createInitialAnimatorRuntimeState(definition),
+        );
+      }
+    }
+    for (const alias of compiledProgram.deviceAliases) {
+      this.deviceAliasByRefName.set(alias.refName, alias.deviceAddress);
+    }
+    for (const row of compiledProgram.varWriterAssignments) {
+      this.varWriterTaskByVarName.set(row.varName, row.writerTaskName);
+    }
+    this.mergeScriptStateFromAdditiveProgram(compiledProgram);
+    this.appendCompiledStateMachinesFromAdditiveProgram(compiledProgram);
+    registerCompiledProgramOnTaskRegistry({
+      taskRegistry: this.tasks,
+      compiledProgram,
+    });
+    this.dispatchInitialEnterLifecycleForNewStateMachines(compiledProgram.stateMachines);
+    this.startRunnableLoopTasks();
+    this.flushPendingEffects();
+  }
+
+  private mergeScriptStateFromAdditiveProgram(compiledProgram: CompiledProgram): void {
+    const evaluationContextBase = this.createEvaluationContextForStateInitialization();
+    for (const initializer of compiledProgram.varInitializers) {
+      if (this.scriptVarValues.has(initializer.varName)) {
+        continue;
+      }
+      const scriptValue = evaluateExecutableExpression(initializer.expression, evaluationContextBase);
+      if (scriptValue === undefined) {
+        continue;
+      }
+      if (scriptValue.tag === "integer") {
+        this.scriptVarValues.set(initializer.varName, scriptValue.value);
+        continue;
+      }
+      if (scriptValue.tag === "string") {
+        this.scriptVarValues.set(initializer.varName, scriptValue.value);
+      }
+    }
+
+    const evaluationContextWithConsts = this.createEvaluationContextForStateInitialization();
+    for (const initializer of compiledProgram.constInitializers) {
+      if (this.scriptConstValues.has(initializer.constName)) {
+        continue;
+      }
+      const scriptValue = evaluateExecutableExpression(initializer.expression, evaluationContextWithConsts);
+      if (scriptValue === undefined) {
+        continue;
+      }
+      if (scriptValue.tag === "integer") {
+        this.scriptConstValues.set(initializer.constName, scriptValue.value);
+        continue;
+      }
+      if (scriptValue.tag === "string") {
+        this.scriptConstValues.set(initializer.constName, scriptValue.value);
+      }
+    }
+  }
+
+  private appendCompiledStateMachinesFromAdditiveProgram(compiledProgram: CompiledProgram): void {
+    for (const stateMachine of compiledProgram.stateMachines) {
+      const nodeIndex = buildCompiledStateMachineNodeIndex(stateMachine.nodes);
+      this.compiledStateMachineNodeIndexByMachineName.set(stateMachine.machineName, nodeIndex);
+      this.activeLeafPathByMachineName.set(stateMachine.machineName, stateMachine.initialLeafPath);
+      this.stateMachineTickAccumulatorMsByMachineName.set(stateMachine.machineName, 0);
+      this.seedStatePathEntryTimesForLeafPath(stateMachine.initialLeafPath);
+    }
+    this.compiledStateMachines = [...this.compiledStateMachines, ...compiledProgram.stateMachines];
+  }
+
+  private dispatchInitialEnterLifecycleForNewStateMachines(newStateMachines: CompiledStateMachine[]): void {
+    for (const stateMachine of newStateMachines) {
+      const activeLeafPath = this.activeLeafPathByMachineName.get(stateMachine.machineName);
+      if (activeLeafPath === undefined) {
+        continue;
+      }
+      const enterPathSequence = computeEnterPathSequence(undefined, activeLeafPath);
+      for (const enterPath of enterPathSequence) {
+        this.dispatchLifecycleEnterTasksForExactMembershipPath(enterPath);
+      }
+    }
+  }
+
   /**
    * 登録済み task を破棄し、CompiledProgram の var 初期化と task 再登録を行う。
    */
@@ -114,6 +475,7 @@ export class SimulationRuntime {
     }
     this.tasks.clearAllTasks();
     this.initializeScriptStateFromCompiledProgram(compiledProgram);
+    this.replaceRuntimeWorldMetadataFromProgram(compiledProgram);
     this.initializeCompiledStateMachines(compiledProgram);
     registerCompiledProgramOnTaskRegistry({
       taskRegistry: this.tasks,
@@ -832,6 +1194,156 @@ export class SimulationRuntime {
       };
       this.drainTaskExecution(task);
     }
+  }
+
+  private collectAdditiveRegistrationDiagnostics(compiledProgram: CompiledProgram): StructuredDiagnostic[] {
+    const diagnostics: StructuredDiagnostic[] = [];
+    const existingTaskNames = new Set(this.tasks.listTasks().map((taskRecord) => taskRecord.name));
+
+    for (const everyTask of compiledProgram.everyTasks) {
+      if (existingTaskNames.has(everyTask.taskName)) {
+        diagnostics.push(buildRuntimeWorldDuplicateName({ kind: "task", name: everyTask.taskName }));
+      }
+    }
+    for (const loopTask of compiledProgram.loopTasks) {
+      if (existingTaskNames.has(loopTask.taskName)) {
+        diagnostics.push(buildRuntimeWorldDuplicateName({ kind: "task", name: loopTask.taskName }));
+      }
+    }
+    for (const onTask of compiledProgram.onEventTasks) {
+      if (existingTaskNames.has(onTask.taskName)) {
+        diagnostics.push(buildRuntimeWorldDuplicateName({ kind: "task", name: onTask.taskName }));
+      }
+    }
+
+    for (const alias of compiledProgram.deviceAliases) {
+      if (this.deviceAliasByRefName.has(alias.refName)) {
+        diagnostics.push(buildRuntimeWorldDuplicateName({ kind: "ref", name: alias.refName }));
+      }
+    }
+
+    for (const initializer of compiledProgram.varInitializers) {
+      if (this.scriptVarValues.has(initializer.varName)) {
+        diagnostics.push(buildRuntimeWorldDuplicateName({ kind: "var", name: initializer.varName }));
+      }
+    }
+
+    for (const initializer of compiledProgram.constInitializers) {
+      if (this.scriptConstValues.has(initializer.constName)) {
+        diagnostics.push(buildRuntimeWorldDuplicateName({ kind: "const", name: initializer.constName }));
+      }
+    }
+
+    for (const stateMachine of compiledProgram.stateMachines) {
+      if (this.compiledStateMachines.some((existing) => existing.machineName === stateMachine.machineName)) {
+        diagnostics.push(
+          buildRuntimeWorldDuplicateName({ kind: "state_machine", name: stateMachine.machineName }),
+        );
+      }
+    }
+
+    for (const definition of compiledProgram.animatorDefinitions) {
+      if (this.compiledAnimatorDefinitionsByName.has(definition.animatorName)) {
+        diagnostics.push(buildRuntimeWorldDuplicateName({ kind: "animator", name: definition.animatorName }));
+      }
+    }
+
+    for (const row of compiledProgram.varWriterAssignments) {
+      const existingWriterTaskName = this.varWriterTaskByVarName.get(row.varName);
+      if (existingWriterTaskName !== undefined && existingWriterTaskName !== row.writerTaskName) {
+        diagnostics.push(
+          buildRuntimeWorldVarWriterConflict({
+            varName: row.varName,
+            existingWriterTaskName,
+            incomingWriterTaskName: row.writerTaskName,
+          }),
+        );
+      }
+    }
+
+    return diagnostics;
+  }
+
+  private findTasksDependingOnDeviceAddress(deviceAddress: DeviceAddress): TaskRecord[] {
+    const addressKey = formatDeviceAddress(deviceAddress);
+    const dependents: TaskRecord[] = [];
+    for (const task of this.tasks.listTasks()) {
+      const statements = task.compiledStatements;
+      if (statements === undefined) {
+        continue;
+      }
+      const keys = collectDeviceAddressKeysFromStatements(statements);
+      if (keys.has(addressKey)) {
+        dependents.push(task);
+      }
+    }
+    return dependents;
+  }
+
+  private findTasksDependingOnVarName(varName: string): TaskRecord[] {
+    const dependents: TaskRecord[] = [];
+    for (const task of this.tasks.listTasks()) {
+      const statements = task.compiledStatements;
+      if (statements === undefined) {
+        continue;
+      }
+      const names = collectVarNamesReferencedFromStatements(statements);
+      if (names.has(varName)) {
+        dependents.push(task);
+      }
+    }
+    return dependents;
+  }
+
+  private findTasksDependingOnStateMachineRoot(machineName: string): TaskRecord[] {
+    const dependents: TaskRecord[] = [];
+    for (const task of this.tasks.listTasks()) {
+      const membershipPath = task.stateMembershipPath;
+      if (membershipPath !== undefined) {
+        const firstSegment = membershipPath.split(".")[0];
+        if (
+          firstSegment === machineName ||
+          membershipPath === machineName ||
+          membershipPath.startsWith(`${machineName}.`)
+        ) {
+          dependents.push(task);
+          continue;
+        }
+      }
+      const statements = task.compiledStatements;
+      if (statements === undefined) {
+        continue;
+      }
+      const paths = collectStatePathTextsFromStatements(statements);
+      for (const path of paths) {
+        if (path === machineName || path.startsWith(`${machineName}.`)) {
+          dependents.push(task);
+          break;
+        }
+      }
+    }
+    return dependents;
+  }
+
+  private removeStateMachineRootByMachineName(machineName: string): boolean {
+    const foundIndex = this.compiledStateMachines.findIndex((sm) => sm.machineName === machineName);
+    if (foundIndex === -1) {
+      return false;
+    }
+    const removedMachine = this.compiledStateMachines[foundIndex];
+    if (removedMachine === undefined) {
+      return false;
+    }
+    this.compiledStateMachines = this.compiledStateMachines.filter((sm) => sm.machineName !== machineName);
+    this.compiledStateMachineNodeIndexByMachineName.delete(machineName);
+    this.activeLeafPathByMachineName.delete(machineName);
+    this.stateMachineTickAccumulatorMsByMachineName.delete(machineName);
+    for (const node of removedMachine.nodes) {
+      for (const prefixPath of enumerateDotPathPrefixes(node.path)) {
+        this.statePathEntrySimulationMs.delete(prefixPath);
+      }
+    }
+    return true;
   }
 }
 

@@ -55,7 +55,7 @@ describe("parseInteractiveCommandLine", () => {
     }
     expect(parsed.command).toEqual({
       kind: "do_pwm_level",
-      pwmId: 0,
+      pwmTargetText: "pwm#0",
       levelPercent: 20,
     });
 
@@ -69,5 +69,25 @@ describe("parseInteractiveCommandLine", () => {
   it("returns unsupported for garbage", () => {
     const bad = parseInteractiveCommandLine("not_a_command");
     expect(bad.ok).toBe(false);
+  });
+
+  it("parses list refs, list vars, list states, ref-style info, and drop commands", () => {
+    expect(parseInteractiveCommandLine("list refs").ok).toBe(true);
+    expect(parseInteractiveCommandLine("list vars").ok).toBe(true);
+    expect(parseInteractiveCommandLine("list states").ok).toBe(true);
+    const refInfo = parseInteractiveCommandLine("led.info");
+    expect(refInfo.ok).toBe(true);
+    if (refInfo.ok) {
+      expect(refInfo.command).toEqual({
+        kind: "property_read",
+        target: "led",
+        property: "info",
+      });
+    }
+    const dropRef = parseInteractiveCommandLine("drop ref myled");
+    expect(dropRef.ok).toBe(true);
+    if (dropRef.ok) {
+      expect(dropRef.command).toEqual({ kind: "drop_ref", name: "myled" });
+    }
   });
 });

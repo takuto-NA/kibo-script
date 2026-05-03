@@ -27,6 +27,21 @@
         "ease": "linear"
       }
     ],
+    "deviceAliases": [
+      {
+        "refName": "led",
+        "deviceAddress": {
+          "kind": "pwm",
+          "id": 0
+        }
+      }
+    ],
+    "varWriterAssignments": [
+      {
+        "varName": "led_level",
+        "writerTaskName": "apply"
+      }
+    ],
     "everyTasks": [
       {
         "taskName": "apply",

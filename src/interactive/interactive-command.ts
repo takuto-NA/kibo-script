@@ -38,26 +38,36 @@ export type InteractiveCommand =
     }
   | {
       kind: "do_led_effect";
-      ledId: number;
+      /** `led#0` 形式または登録 ref 名。 */
+      ledTargetText: string;
       ledEffect: "on" | "off" | "toggle";
     }
   | {
       kind: "do_pwm_level";
-      pwmId: number;
+      pwmTargetText: string;
       levelPercent: number;
     }
   | {
       kind: "do_motor_power";
-      motorId: number;
+      motorTargetText: string;
       powerPercent: number;
     }
   | {
       kind: "do_servo_angle";
-      servoId: number;
+      servoTargetText: string;
       angleDegrees: number;
     }
   | {
       kind: "list_tasks";
+    }
+  | {
+      kind: "list_refs";
+    }
+  | {
+      kind: "list_vars";
+    }
+  | {
+      kind: "list_states";
     }
   | {
       kind: "show_task";
@@ -73,6 +83,18 @@ export type InteractiveCommand =
     }
   | {
       kind: "drop_task";
+      name: string;
+    }
+  | {
+      kind: "drop_ref";
+      name: string;
+    }
+  | {
+      kind: "drop_var";
+      name: string;
+    }
+  | {
+      kind: "drop_state";
       name: string;
     }
   | {

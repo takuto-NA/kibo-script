@@ -216,6 +216,13 @@ body {
   font: inherit;
 }
 
+.script-runner-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
 .script-runner-button {
   align-self: flex-start;
   background: #238636;
@@ -229,6 +236,16 @@ body {
 
 .script-runner-button:hover {
   background: #2ea043;
+}
+
+.script-runner-button-secondary {
+  background: #21262d;
+  color: #c9d1d9;
+  border: 1px solid #30363d;
+}
+
+.script-runner-button-secondary:hover {
+  background: #30363d;
 }
 
 .script-runner-result {

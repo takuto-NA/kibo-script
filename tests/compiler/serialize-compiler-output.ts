@@ -38,6 +38,8 @@ export function serializeCompileScriptResultForGoldenTest(
       constInitializers: compileScriptResult.program.constInitializers,
       stateMachines: compileScriptResult.program.stateMachines,
       animatorDefinitions: compileScriptResult.program.animatorDefinitions,
+      deviceAliases: compileScriptResult.program.deviceAliases,
+      varWriterAssignments: compileScriptResult.program.varWriterAssignments,
       everyTasks: compileScriptResult.program.everyTasks.map((everyTask) => {
         const row: Record<string, unknown> = {
           taskName: everyTask.taskName,

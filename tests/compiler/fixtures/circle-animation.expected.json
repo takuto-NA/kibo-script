@@ -13,6 +13,13 @@
     "constInitializers": [],
     "stateMachines": [],
     "animatorDefinitions": [],
+    "deviceAliases": [],
+    "varWriterAssignments": [
+      {
+        "varName": "circle_x",
+        "writerTaskName": "move_circle"
+      }
+    ],
     "everyTasks": [
       {
         "taskName": "move_circle",

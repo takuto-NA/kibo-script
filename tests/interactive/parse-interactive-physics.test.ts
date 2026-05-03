@@ -23,7 +23,7 @@ describe("parseInteractiveCommandLine physics MVP", () => {
     }
     expect(parsed.command).toEqual({
       kind: "do_motor_power",
-      motorId: 0,
+      motorTargetText: "motor#0",
       powerPercent: -40,
     });
   });
@@ -36,7 +36,7 @@ describe("parseInteractiveCommandLine physics MVP", () => {
     }
     expect(parsed.command).toEqual({
       kind: "do_servo_angle",
-      servoId: 0,
+      servoTargetText: "servo#0",
       angleDegrees: 12,
     });
   });

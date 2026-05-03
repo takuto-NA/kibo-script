@@ -13,16 +13,21 @@
     "constInitializers": [],
     "stateMachines": [],
     "animatorDefinitions": [],
+    "deviceAliases": [
+      {
+        "refName": "led",
+        "deviceAddress": {
+          "kind": "led",
+          "id": 0
+        }
+      }
+    ],
+    "varWriterAssignments": [],
     "everyTasks": [],
     "onEventTasks": [
       {
         "taskName": "apply_command",
         "triggerKind": "device_event",
-        "deviceAddress": {
-          "kind": "button",
-          "id": 0
-        },
-        "eventName": "pressed",
         "statements": [
           {
             "kind": "match_string",
@@ -77,7 +82,12 @@
               }
             ]
           }
-        ]
+        ],
+        "deviceAddress": {
+          "kind": "button",
+          "id": 0
+        },
+        "eventName": "pressed"
       }
     ],
     "loopTasks": []

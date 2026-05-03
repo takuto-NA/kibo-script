@@ -143,6 +143,21 @@ export type CompiledStateMachine = {
   nodes: CompiledStateMachineNodeIr[];
 };
 
+/** `ref name = device#id` を IR に残し、ターミナルやランタイム registry と同期する。 */
+export type CompiledDeviceAlias = {
+  refName: string;
+  deviceAddress: DeviceAddress;
+};
+
+/**
+ * `set` で var を書く task（semantic で複数 writer はコンパイル拒否）。
+ * ランタイムの所有権メタデータと突き合わせる。
+ */
+export type CompiledVarWriterAssignment = {
+  varName: string;
+  writerTaskName: string;
+};
+
 export type CompiledProgram = {
   varInitializers: { varName: string; expression: ExecutableExpression }[];
   constInitializers: { constName: string; expression: ExecutableExpression }[];
@@ -151,4 +166,8 @@ export type CompiledProgram = {
   everyTasks: CompiledEveryTask[];
   loopTasks: CompiledLoopTask[];
   onEventTasks: CompiledOnEventTask[];
+  /** ソース順の ref。インタラクティブの名前解決とデバイスエイリアス registry 用。 */
+  deviceAliases: CompiledDeviceAlias[];
+  /** `assign_var` を持つ task ごとの var writer（決定的な並び: varName 昇順）。 */
+  varWriterAssignments: CompiledVarWriterAssignment[];
 };

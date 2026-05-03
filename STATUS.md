@@ -32,7 +32,7 @@ npm audit --audit-level=moderate
 直近確認:
 
 - `npm run typecheck`: 成功
-- `npm test`: 成功（35 files / 98 tests）
+- `npm test`: 成功（37 files / 109 tests）
 - `npm run build`: 成功
 - `npm run test:e2e`: 成功（5 tests）
 - Script ergonomics: `const` / `temp`、算術・比較、`match` 式（数値・範囲）、`if`、`task loop`、`wait`（整数式）を追加済み。
@@ -41,8 +41,8 @@ npm audit --audit-level=moderate
 
 ブラウザ上で次を操作できる。
 
-- Interactive terminal: 1 行 command、task 操作、diagnostics 表示。
-- StaticCore Script textarea: 複数行 script を compile して runtime に登録。
+- Interactive terminal: 1 行 command、task 操作、**`list refs` / `list vars` / `list states`**、登録 `ref` 名による `read` / `do` / `.info`、diagnostics 表示。
+- StaticCore Script textarea: 複数行 script を **Reset & run** または **Add to runtime** で `compileSourceAndRegisterSimulationTasks` 経由で runtime に登録。
 - `serial#0.println(...)`: task / interactive command の出力を terminal に表示。
 - `display#0`: 128x64 の 1bit framebuffer を OLED 風 canvas に描画。右パネルに **three.js** の簡易 3D ビュー（車体 + 床 + 筐体上 LED、`led#0` と同期）を表示。
 - `led#0`: on/off をランプで表示。
@@ -65,35 +65,27 @@ npm audit --audit-level=moderate
 端末欄では、主に 1 行単位の確認と task 操作ができる。
 
 ```text
-read adc#0
-adc#0.info
-display#0.info
-led#0.info
-button#0.info
-pwm#0.info
+list tasks | list refs | list vars | list states
+read adc#0 | read <ref名>
+adc#0.info | <ref名>.info
 do serial#0.println("text")
 do display#0.clear()
 do display#0.pixel(x, y)
 do display#0.line(x0, y0, x1, y1)
 do display#0.circle(x, y, radius)
 do display#0.present()
-do led#0.on()
-do led#0.off()
-do led#0.toggle()
-do pwm#0.level(percent)
+do led#0.on() | do led#0.off() | do led#0.toggle() | do <ref名>.toggle()
+do pwm#0.level(percent) | do <ref名>.level(n)
 pwm#0.info
 do motor#0.power(percent)
 do motor#1.power(percent)
 do servo#0.angle(degrees)
-read imu#0.roll
-read motor#0.power
+read imu#0.roll | read motor#0.power
 motor#0.info
 task <name> every <N>ms { do ... }
-list tasks
 show task <name>
-start task <name>
-stop task <name>
-drop task <name>
+start task <name> | stop task <name>
+drop task <name> | drop ref <name> | drop var <name> | drop state <stateMachineRoot>
 ```
 
 制限:
@@ -124,7 +116,7 @@ drop task <name>
 
 入口は `src/compiler/compile-script.ts` の `compileScript(sourceText, fileName)`。
 
-成功時は `src/core/executable-task.ts` の `CompiledProgram`（`everyTasks` / `loopTasks` / `onEventTasks` など）を返し、`SimulationRuntime.replaceCompiledProgram()` が var 初期化と task 登録を行う。失敗時は `DiagnosticReport` を返す。
+成功時は `src/core/executable-task.ts` の `CompiledProgram`（`everyTasks` / `loopTasks` / `onEventTasks` / **`deviceAliases`** / **`varWriterAssignments`** など）を返し、`SimulationRuntime.replaceCompiledProgram()` が var 初期化と task 登録を行う。増分登録は `compileScriptAgainstRuntimeWorld()` と `tryRegisterCompiledProgramAdditive()` を使う。失敗時は `DiagnosticReport` を返す。
 
 実装済みの主な構文:
 
@@ -172,6 +164,10 @@ drop task <name>
 ## Runtime
 
 `SimulationRuntime` は compiled task を cooperative に進める。
+
+- **`replaceCompiledProgram`** で runtime world をまとめて初期化（task / ref alias / var writer メタデータ / 状態機械）。
+- **`tryRegisterCompiledProgramAdditive`** で既存 world に衝突チェック付きで追加（atomic に失敗時は変更なし）。
+- **`deviceAliases`** はソースの `ref` 宣言のみ IR に載せる（ambient のみの ref はメタデータに重複登録しない）。
 
 - `every` task は `tick(elapsedMilliseconds)` で時間を進める。
 - `loop` task は周期タイマを持たず、`wait` で協調的に時間を渡す（tick ごとに継続実行される）。
@@ -238,7 +234,11 @@ response は成功時 `ok: true`、失敗時 `ok: false` と structured diagnost
 - `semantic.duplicate_task_name`
 - `semantic.invalid_task_interval`
 - `semantic.loop_task_requires_wait`
-- `runtime.out_of_range`
+- `runtime.world.duplicate_name`
+- `runtime.world.var_writer_conflict`
+- `runtime.world.drop_blocked_by_tasks`
+- `runtime.world.unknown_name`
+- `runtime.world.state_drop_requires_machine_root`
 - `task.unknown`
 
 例:
