@@ -4,7 +4,7 @@
 
 このドキュメントは、Kibo Script の現在地と、将来的に Raspberry Pi Pico 系ボード上で動作させるための方向性を共有するための入口である。
 
-詳細な現状は [`STATUS.md`](STATUS.md)、言語の使い方は [`CHEATSHEET.md`](CHEATSHEET.md)、仕様メモは [`draft.md`](draft.md) を参照する。
+詳細な現状は [`STATUS.md`](STATUS.md)、言語の使い方は [`CHEATSHEET.md`](CHEATSHEET.md)、仕様メモは [`draft.md`](draft.md)、Pico 実機確認メモは [`docs/pico-bringup.md`](docs/pico-bringup.md) を参照する。
 
 ## 現在の位置づけ
 
@@ -44,6 +44,8 @@ Kibo Script source
 
 - Raspberry Pi Pico / Pico W などの RP2040 系
 - Raspberry Pi Pico 2 などの RP2350 系
+
+初期 bring-up では、Raspberry Pi Pico + SSD1306 128x64 OLED + ボタン入力の最小実機確認が済んでいる。確認済みのピン割り当てと未確認事項は [`docs/pico-bringup.md`](docs/pico-bringup.md) に記録する。
 
 Pico 上で TypeScript の compiler を直接動かすのではなく、PC / ブラウザ / CLI 側で検証済みの中間表現へ変換し、Pico 側では小さな runtime がそれを実行する方針とする。
 
