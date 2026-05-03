@@ -3,3 +3,9 @@ dist/
 dist-tsc/
 *.local
 .DS_Store
+
+# Isolated Pico bring-up / PlatformIO working directory (uv venv + PlatformIO core).
+.pico-work/
+
+# PlatformIO build artifacts for the Pico C++17 probe project (generated locally).
+scripts/pico/cpp17_probe/.pio/
