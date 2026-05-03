@@ -9,3 +9,9 @@ dist-tsc/
 
 # PlatformIO build artifacts for the Pico C++17 probe project (generated locally).
 scripts/pico/cpp17_probe/.pio/
+
+# CMake build directory for the C++ host runtime replay tool (generated locally).
+runtime/cpp/build/
+
+# PlatformIO build artifacts for the Pico runtime vertical slice (generated locally).
+runtime/pico/vertical_slice/.pio/

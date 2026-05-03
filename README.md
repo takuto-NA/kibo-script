@@ -4,7 +4,7 @@
 
 このドキュメントは、Kibo Script の現在地と、将来的に Raspberry Pi Pico 系ボード上で動作させるための方向性を共有するための入口である。
 
-詳細な現状は [`STATUS.md`](STATUS.md)、言語の使い方は [`CHEATSHEET.md`](CHEATSHEET.md)、仕様メモは [`draft.md`](draft.md)、Pico 実機確認メモは [`docs/pico-bringup.md`](docs/pico-bringup.md) を参照する。
+詳細な現状は [`STATUS.md`](STATUS.md)、言語の使い方は [`CHEATSHEET.md`](CHEATSHEET.md)、仕様メモは [`draft.md`](draft.md)、Pico 実機確認メモは [`docs/pico-bringup.md`](docs/pico-bringup.md)、runtime conformance（trace / IR contract / C++ host replay）の入口は [`docs/runtime-conformance.md`](docs/runtime-conformance.md) を参照する。
 
 ## 現在の位置づけ
 

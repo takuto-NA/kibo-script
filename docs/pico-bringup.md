@@ -38,6 +38,7 @@
   - `platform = https://github.com/maxgerhardt/platform-raspberrypi.git`
   - `board_build.core = earlephilhower`（ArduinoCore-mbed ではなく Arduino-Pico 系 toolchain を使う）
   - `build_unflags = -std=gnu++11` と `-std=gnu++14` を外し、`build_flags` で `-std=c++17`
+- Kibo Script 用の **runtime vertical slice**（host と同じ IR を実機で replay）: [`runtime/pico/vertical_slice/`](../runtime/pico/vertical_slice/README.md)
 - ビルド例（リポジトリルートの PowerShell。`venv` と core の実パスは環境に合わせて読み替える）:
 
 ```powershell

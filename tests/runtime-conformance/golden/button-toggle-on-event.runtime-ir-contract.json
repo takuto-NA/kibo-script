@@ -1,0 +1,43 @@
+{
+  "runtimeIrContractSchemaVersion": 1,
+  "compiledProgram": {
+    "animatorDefinitions": [],
+    "constInitializers": [],
+    "deviceAliases": [
+      {
+        "deviceAddress": {
+          "id": 0,
+          "kind": "led"
+        },
+        "refName": "led"
+      }
+    ],
+    "everyTasks": [],
+    "loopTasks": [],
+    "onEventTasks": [
+      {
+        "deviceAddress": {
+          "id": 0,
+          "kind": "button"
+        },
+        "eventName": "pressed",
+        "statements": [
+          {
+            "arguments": [],
+            "deviceAddress": {
+              "id": 0,
+              "kind": "led"
+            },
+            "kind": "do_method_call",
+            "methodName": "toggle"
+          }
+        ],
+        "taskName": "toggle_led",
+        "triggerKind": "device_event"
+      }
+    ],
+    "stateMachines": [],
+    "varInitializers": [],
+    "varWriterAssignments": []
+  }
+}

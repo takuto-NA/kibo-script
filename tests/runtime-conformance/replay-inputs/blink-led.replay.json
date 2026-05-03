@@ -1,0 +1,63 @@
+{
+  "replaySchemaVersion": 1,
+  "runtimeIrContract": {
+    "compiledProgram": {
+      "animatorDefinitions": [],
+      "constInitializers": [],
+      "deviceAliases": [
+        {
+          "deviceAddress": {
+            "id": 0,
+            "kind": "led"
+          },
+          "refName": "led"
+        }
+      ],
+      "everyTasks": [
+        {
+          "intervalMilliseconds": 1000,
+          "statements": [
+            {
+              "arguments": [],
+              "deviceAddress": {
+                "id": 0,
+                "kind": "led"
+              },
+              "kind": "do_method_call",
+              "methodName": "toggle"
+            }
+          ],
+          "taskName": "blink"
+        }
+      ],
+      "loopTasks": [],
+      "onEventTasks": [],
+      "stateMachines": [],
+      "varInitializers": [],
+      "varWriterAssignments": []
+    },
+    "runtimeIrContractSchemaVersion": 1
+  },
+  "steps": [
+    {
+      "kind": "collect_trace"
+    },
+    {
+      "elapsedMilliseconds": 1000,
+      "kind": "tick_ms"
+    },
+    {
+      "kind": "collect_trace"
+    },
+    {
+      "elapsedMilliseconds": 1000,
+      "kind": "tick_ms"
+    },
+    {
+      "kind": "collect_trace"
+    }
+  ],
+  "traceObservation": {
+    "scriptVarNamesToIncludeInTrace": []
+  }
+}

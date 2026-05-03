@@ -1,0 +1,72 @@
+{
+  "replaySchemaVersion": 1,
+  "runtimeIrContract": {
+    "compiledProgram": {
+      "animatorDefinitions": [],
+      "constInitializers": [],
+      "deviceAliases": [
+        {
+          "deviceAddress": {
+            "id": 0,
+            "kind": "led"
+          },
+          "refName": "led"
+        }
+      ],
+      "everyTasks": [],
+      "loopTasks": [],
+      "onEventTasks": [
+        {
+          "deviceAddress": {
+            "id": 0,
+            "kind": "button"
+          },
+          "eventName": "pressed",
+          "statements": [
+            {
+              "arguments": [],
+              "deviceAddress": {
+                "id": 0,
+                "kind": "led"
+              },
+              "kind": "do_method_call",
+              "methodName": "toggle"
+            }
+          ],
+          "taskName": "toggle_led",
+          "triggerKind": "device_event"
+        }
+      ],
+      "stateMachines": [],
+      "varInitializers": [],
+      "varWriterAssignments": []
+    },
+    "runtimeIrContractSchemaVersion": 1
+  },
+  "steps": [
+    {
+      "kind": "collect_trace"
+    },
+    {
+      "deviceId": 0,
+      "deviceKind": "button",
+      "eventName": "pressed",
+      "kind": "dispatch_device_event"
+    },
+    {
+      "kind": "collect_trace"
+    },
+    {
+      "deviceId": 0,
+      "deviceKind": "button",
+      "eventName": "pressed",
+      "kind": "dispatch_device_event"
+    },
+    {
+      "kind": "collect_trace"
+    }
+  ],
+  "traceObservation": {
+    "scriptVarNamesToIncludeInTrace": []
+  }
+}

@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "build:host-runtime": "cmake -S runtime/cpp -B runtime/cpp/build -DCMAKE_BUILD_TYPE=Release && cmake --build runtime/cpp/build --config Release --parallel",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit"
