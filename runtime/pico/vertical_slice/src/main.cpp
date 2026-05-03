@@ -12,6 +12,7 @@
 
 #include <cstddef>
 #include <exception>
+#include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
@@ -29,11 +30,16 @@ constexpr int kOledI2cSclPin = 17;
 constexpr uint8_t kOledI2cAddressSevenBit = 0x3C;
 constexpr unsigned long kTraceReplayRepeatIntervalMilliseconds = 5000;
 constexpr unsigned long kButtonPollIntervalMilliseconds = 1000;
+constexpr unsigned long kLiveAnimationTickIntervalMilliseconds = 100;
+constexpr unsigned long kLiveAnimationResetIntervalMilliseconds = 3200;
 
 constexpr int kOnboardLedPin = LED_BUILTIN;
 constexpr int kButton0Pin = 18;
 unsigned long g_last_trace_replay_milliseconds = 0;
 unsigned long g_last_button_poll_milliseconds = 0;
+unsigned long g_last_live_animation_tick_milliseconds = 0;
+unsigned long g_live_animation_started_milliseconds = 0;
+std::unique_ptr<kibo::runtime::KiboHostRuntime> g_live_animation_runtime;
 
 Adafruit_SSD1306 g_oled_display(
     kOledScreenWidthPixels,
@@ -95,8 +101,6 @@ void replay_circle_animation_and_emit_trace_lines() {
         const std::string trace_line =
             host_runtime.collect_conformance_trace_line(script_var_names_to_include_in_trace);
         Serial.println(trace_line.c_str());
-        apply_onboard_led_visual_from_host_runtime_or_ignore(host_runtime);
-        render_presented_framebuffer_pixels_to_oled_or_ignore(host_runtime);
         continue;
       }
       if (step_kind == "tick_ms") {
@@ -117,6 +121,36 @@ void replay_circle_animation_and_emit_trace_lines() {
     Serial.print("trace schema=1 diag=exception msg=");
     Serial.println(exception.what());
   }
+}
+
+void reset_live_circle_animation_runtime() {
+  const nlohmann::json runtime_ir_contract =
+      nlohmann::json::parse(kibo::pico::embedded_runtime_ir::kCircleAnimationRuntimeIrContractJson);
+  g_live_animation_runtime = std::make_unique<kibo::runtime::KiboHostRuntime>(runtime_ir_contract);
+  g_live_animation_started_milliseconds = millis();
+  g_last_live_animation_tick_milliseconds = millis();
+  Serial.println("kibo_pico_vertical_slice_live_animation_reset fixture=circle-animation");
+}
+
+void tick_live_circle_animation_if_due(unsigned long now_milliseconds) {
+  if (!g_live_animation_runtime) {
+    reset_live_circle_animation_runtime();
+    return;
+  }
+
+  if (now_milliseconds - g_live_animation_started_milliseconds >= kLiveAnimationResetIntervalMilliseconds) {
+    reset_live_circle_animation_runtime();
+    return;
+  }
+
+  if (now_milliseconds - g_last_live_animation_tick_milliseconds < kLiveAnimationTickIntervalMilliseconds) {
+    return;
+  }
+
+  g_live_animation_runtime->tick_milliseconds(static_cast<int>(kLiveAnimationTickIntervalMilliseconds));
+  apply_onboard_led_visual_from_host_runtime_or_ignore(*g_live_animation_runtime);
+  render_presented_framebuffer_pixels_to_oled_or_ignore(*g_live_animation_runtime);
+  g_last_live_animation_tick_milliseconds = now_milliseconds;
 }
 
 }  // namespace
@@ -144,12 +178,15 @@ void setup() {
 
   Serial.println("kibo_pico_vertical_slice_boot fixture=circle-animation");
   replay_circle_animation_and_emit_trace_lines();
+  reset_live_circle_animation_runtime();
   g_last_trace_replay_milliseconds = millis();
   g_last_button_poll_milliseconds = millis();
 }
 
 void loop() {
   const unsigned long now_milliseconds = millis();
+  tick_live_circle_animation_if_due(now_milliseconds);
+
   if (now_milliseconds - g_last_trace_replay_milliseconds >= kTraceReplayRepeatIntervalMilliseconds) {
     Serial.println("kibo_pico_vertical_slice_trace_replay_repeat fixture=circle-animation");
     replay_circle_animation_and_emit_trace_lines();

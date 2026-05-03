@@ -3,8 +3,10 @@
 ## 何をする firmware か
 
 - `tests/runtime-conformance/golden/circle-animation.runtime-ir-contract.json` と同一内容の runtime IR を **埋め込み文字列**として保持し、起動時に `KiboHostRuntime`（`runtime/cpp`）で replay steps を実行する。
-- `collect_trace` のたびに `trace ...` 行を USB Serial へ出し、SSD1306（`GP16`/`GP17`）へ `presented` framebuffer を反映する。
+- `collect_trace` のたびに `trace ...` 行を USB Serial へ出す（acceptance 用）。
+- OLED（`GP16`/`GP17`）では、同じ `circle-animation` IR を live runtime として 100ms ごとに tick し、円が右へ動いて見えるようにする。
 - USB CDC の attach 遅れで起動直後の trace を取りこぼさないよう、`loop()` でも約 5 秒ごとに同じ trace sequence を再送する。
+- Circle は画面外へ出ると分かりにくいため、live runtime は約 3.2 秒ごとにリセットして再び左側から動かす。
 - `loop()` は `button#0` 相当として `GP18` をポーリングし、押下の raw レベルをログへ出す（acceptance の補助）。
 
 ## ビルド（Windows / PowerShell の例）
