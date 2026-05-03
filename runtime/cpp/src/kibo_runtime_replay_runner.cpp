@@ -13,7 +13,7 @@ namespace kibo::runtime {
 
 void run_runtime_conformance_replay_document(
     const nlohmann::json& replay_document,
-    const std::function<void(const std::string&)>& emit_line,
+    const std::function<void(const std::string&)>& emit_line
 ) {
   const int replay_schema_version = read_json_number_as_int_or_throw(replay_document.at("replaySchemaVersion"));
   if (replay_schema_version != 1) {

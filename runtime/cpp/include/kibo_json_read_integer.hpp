@@ -20,7 +20,11 @@ inline std::int64_t read_json_number_as_int64_or_throw(const nlohmann::json& jso
     return json_value.get<std::int64_t>();
   }
   if (json_value.is_number_unsigned()) {
-    return static_cast<std::int64_t>(json_value.get<std::uint64_t>());
+    const std::uint64_t unsigned_value = json_value.get<std::uint64_t>();
+    if (unsigned_value > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+      throw std::runtime_error("JSON unsigned integer does not fit in int64_t.");
+    }
+    return static_cast<std::int64_t>(unsigned_value);
   }
   if (json_value.is_number_float()) {
     const double floating = json_value.get<double>();

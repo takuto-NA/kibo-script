@@ -4,6 +4,7 @@
 
 - `tests/runtime-conformance/golden/circle-animation.runtime-ir-contract.json` と同一内容の runtime IR を **埋め込み文字列**として保持し、起動時に `KiboHostRuntime`（`runtime/cpp`）で replay steps を実行する。
 - `collect_trace` のたびに `trace ...` 行を USB Serial へ出し、SSD1306（`GP16`/`GP17`）へ `presented` framebuffer を反映する。
+- USB CDC の attach 遅れで起動直後の trace を取りこぼさないよう、`loop()` でも約 5 秒ごとに同じ trace sequence を再送する。
 - `loop()` は `button#0` 相当として `GP18` をポーリングし、押下の raw レベルをログへ出す（acceptance の補助）。
 
 ## ビルド（Windows / PowerShell の例）
@@ -36,3 +37,15 @@ node -e "const fs=require('fs');const j=JSON.parse(fs.readFileSync('tests/runtim
 ## USB Serial trace の比較
 
 `scripts/pico/runtime_vertical_slice/tools/compare_usb_serial_trace_lines.mjs` を参照。
+
+## 実機確認メモ
+
+- `pio run` は成功し、Flash 約 20.4%、RAM 約 6.9%。
+- `pio run -t upload` は BOOTSEL には入ったが、Windows の `picotool` driver 権限で失敗したため、`RPI-RP2` ドライブへ `firmware.uf2` をコピーして書き込んだ。
+- 書き込み後は USB Serial が `COM11` として再認識され、次の trace 3 行が繰り返し出ることを確認した。
+
+```text
+trace schema=1 sim_ms=0 led0=0 btn0=0 dpy_fp=b9d103fd6854a325 vars=circle_x=20 sm=-
+trace schema=1 sim_ms=100 led0=0 btn0=0 dpy_fp=abb0ec954afd3205 vars=circle_x=24 sm=-
+trace schema=1 sim_ms=200 led0=0 btn0=0 dpy_fp=317a917e19c73405 vars=circle_x=28 sm=-
+```

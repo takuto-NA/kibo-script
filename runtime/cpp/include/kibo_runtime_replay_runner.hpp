@@ -11,7 +11,7 @@ namespace kibo::runtime {
  */
 void run_runtime_conformance_replay_document(
     const nlohmann::json& replay_document,
-    const std::function<void(const std::string&)>& emit_line,
+    const std::function<void(const std::string&)>& emit_line
 );
 
 }  // namespace kibo::runtime

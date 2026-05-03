@@ -43,7 +43,7 @@ inline void plot_circle_points(
     int center_x,
     int center_y,
     int x,
-    int y,
+    int y
 ) {
   set_pixel(pixels, center_x + x, center_y + y, true);
   set_pixel(pixels, center_x - x, center_y + y, true);
@@ -62,7 +62,7 @@ inline void draw_circle_midpoint(
     std::array<std::uint8_t, kDisplayPixelCount>& pixels,
     int center_x,
     int center_y,
-    int radius,
+    int radius
 ) {
   if (radius < 0) {
     return;

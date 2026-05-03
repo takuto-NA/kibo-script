@@ -201,7 +201,7 @@ void KiboHostRuntime::advance_every_tasks(int elapsed_milliseconds) {
 void KiboHostRuntime::dispatch_device_event(
     const std::string& device_kind,
     int device_id,
-    const std::string& event_name,
+    const std::string& event_name
 ) {
   for (auto& task : on_event_tasks_) {
     if (task.device_kind != device_kind) {
@@ -280,7 +280,7 @@ void KiboHostRuntime::drain_every_task_body(EveryTaskRuntime& task) {
 
 void KiboHostRuntime::execute_statements_json_array(
     const nlohmann::json& statements_json_array,
-    EvaluationContext& evaluation_context,
+    EvaluationContext& evaluation_context
 ) {
   if (!statements_json_array.is_array()) {
     throw_unsupported_runtime_ir("Statement list must be a JSON array.");
@@ -292,7 +292,7 @@ void KiboHostRuntime::execute_statements_json_array(
 
 void KiboHostRuntime::execute_statement_json(
     const nlohmann::json& statement_json,
-    EvaluationContext& evaluation_context,
+    EvaluationContext& evaluation_context
 ) {
   const std::string statement_kind = statement_json.at("kind").get<std::string>();
   if (statement_kind == "do_method_call") {
@@ -367,7 +367,7 @@ void KiboHostRuntime::execute_statement_json(
 
 std::int64_t KiboHostRuntime::evaluate_expression_json(
     const nlohmann::json& expression_json,
-    EvaluationContext& evaluation_context,
+    EvaluationContext& evaluation_context
 ) {
   const std::string kind = expression_json.at("kind").get<std::string>();
   if (kind == "integer_literal") {
@@ -477,7 +477,7 @@ void KiboHostRuntime::apply_display_present() {
 }
 
 std::string KiboHostRuntime::collect_conformance_trace_line(
-    const std::vector<std::string>& script_var_names_to_include_in_trace,
+    const std::vector<std::string>& script_var_names_to_include_in_trace
 ) const {
   const std::uint64_t fingerprint = compute_fnv1a64_over_presented_frame_bytes(presented_pixels_);
   const std::string fingerprint_hex = format_fnv1a64_as_lower_hex16(fingerprint);

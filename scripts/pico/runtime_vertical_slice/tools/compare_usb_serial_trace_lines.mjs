@@ -77,6 +77,22 @@ function extract_trace_lines_from_serial_lines(serial_lines) {
   return trace_lines;
 }
 
+function contains_expected_trace_sequence(actual_trace_lines, expected_trace_lines) {
+  if (expected_trace_lines.length === 0) {
+    return actual_trace_lines.length === 0;
+  }
+
+  const last_start_index = actual_trace_lines.length - expected_trace_lines.length;
+  for (let start_index = 0; start_index <= last_start_index; start_index += 1) {
+    const candidate_lines = actual_trace_lines.slice(start_index, start_index + expected_trace_lines.length);
+    if (candidate_lines.join("\n") === expected_trace_lines.join("\n")) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function load_serialport_constructors_or_exit() {
   try {
     // serialport はこのリポジトリの package.json には未追加のため、実行環境にインストールされている場合のみ動く。
@@ -142,9 +158,9 @@ async function main() {
 
   const actual_trace_lines = extract_trace_lines_from_serial_lines(captured_lines);
 
-  if (actual_trace_lines.join("\n") !== expected_trace_lines.join("\n")) {
+  if (!contains_expected_trace_sequence(actual_trace_lines, expected_trace_lines)) {
     // eslint-disable-next-line no-console
-    console.error("Mismatch: expected trace lines !== captured trace lines");
+    console.error("Mismatch: expected trace sequence was not found in captured trace lines");
     // eslint-disable-next-line no-console
     console.error("--- expected ---");
     // eslint-disable-next-line no-console
@@ -157,7 +173,7 @@ async function main() {
   }
 
   // eslint-disable-next-line no-console
-  console.log("OK: captured trace lines match expected file.");
+  console.log("OK: captured trace lines contain expected trace sequence.");
 }
 
 function extract_trace_lines_from_text_file(file_text) {

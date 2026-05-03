@@ -17,7 +17,7 @@ inline constexpr std::uint64_t kFnv1a64Prime = 0x100000001b3ULL;
  * 注意: TypeScript の `computePresentedFrameFingerprintFnv1a64FromPresentedFrameBytes` と同じ定義である。
  */
 inline std::uint64_t compute_fnv1a64_over_presented_frame_bytes(
-    const std::array<std::uint8_t, kDisplayPixelCount>& presented_frame_bytes,
+    const std::array<std::uint8_t, kDisplayPixelCount>& presented_frame_bytes
 ) {
   std::uint64_t hash = kFnv1a64OffsetBasis;
   for (const std::uint8_t byte_value : presented_frame_bytes) {

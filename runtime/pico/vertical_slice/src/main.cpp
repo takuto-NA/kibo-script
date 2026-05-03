@@ -10,10 +10,15 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
+#include <cstddef>
+#include <exception>
 #include <nlohmann/json.hpp>
+#include <string>
+#include <vector>
 
 #include "embedded_circle_runtime_ir_contract.hpp"
 #include "kibo_host_runtime.hpp"
+#include "kibo_json_read_integer.hpp"
 
 namespace {
 
@@ -22,15 +27,19 @@ constexpr int kOledScreenHeightPixels = 64;
 constexpr int kOledI2cSdaPin = 16;
 constexpr int kOledI2cSclPin = 17;
 constexpr uint8_t kOledI2cAddressSevenBit = 0x3C;
+constexpr unsigned long kTraceReplayRepeatIntervalMilliseconds = 5000;
+constexpr unsigned long kButtonPollIntervalMilliseconds = 1000;
 
 constexpr int kOnboardLedPin = LED_BUILTIN;
 constexpr int kButton0Pin = 18;
+unsigned long g_last_trace_replay_milliseconds = 0;
+unsigned long g_last_button_poll_milliseconds = 0;
 
 Adafruit_SSD1306 g_oled_display(
     kOledScreenWidthPixels,
     kOledScreenHeightPixels,
     &Wire,
-    -1,
+    -1
 );
 
 void render_presented_framebuffer_pixels_to_oled_or_ignore(const kibo::runtime::KiboHostRuntime& host_runtime) {
@@ -71,6 +80,45 @@ nlohmann::json build_circle_animation_replay_document_json() {
   return replay_document;
 }
 
+void replay_circle_animation_and_emit_trace_lines() {
+  const nlohmann::json replay_document = build_circle_animation_replay_document_json();
+
+  try {
+    kibo::runtime::KiboHostRuntime host_runtime(replay_document.at("runtimeIrContract"));
+    const std::vector<std::string> script_var_names_to_include_in_trace =
+        replay_document.at("traceObservation").at("scriptVarNamesToIncludeInTrace").get<std::vector<std::string>>();
+
+    const nlohmann::json& steps = replay_document.at("steps");
+    for (const auto& step : steps) {
+      const std::string step_kind = step.at("kind").get<std::string>();
+      if (step_kind == "collect_trace") {
+        const std::string trace_line =
+            host_runtime.collect_conformance_trace_line(script_var_names_to_include_in_trace);
+        Serial.println(trace_line.c_str());
+        apply_onboard_led_visual_from_host_runtime_or_ignore(host_runtime);
+        render_presented_framebuffer_pixels_to_oled_or_ignore(host_runtime);
+        continue;
+      }
+      if (step_kind == "tick_ms") {
+        const int elapsed_milliseconds =
+            kibo::runtime::read_json_number_as_int_or_throw(step.at("elapsedMilliseconds"));
+        host_runtime.tick_milliseconds(elapsed_milliseconds);
+        continue;
+      }
+      if (step_kind == "dispatch_device_event") {
+        const std::string device_kind = step.at("deviceKind").get<std::string>();
+        const int device_id = kibo::runtime::read_json_number_as_int_or_throw(step.at("deviceId"));
+        const std::string event_name = step.at("eventName").get<std::string>();
+        host_runtime.dispatch_device_event(device_kind, device_id, event_name);
+        continue;
+      }
+    }
+  } catch (const std::exception& exception) {
+    Serial.print("trace schema=1 diag=exception msg=");
+    Serial.println(exception.what());
+  }
+}
+
 }  // namespace
 
 void setup() {
@@ -95,47 +143,23 @@ void setup() {
   g_oled_display.display();
 
   Serial.println("kibo_pico_vertical_slice_boot fixture=circle-animation");
-
-  const nlohmann::json replay_document = build_circle_animation_replay_document_json();
-
-  try {
-    kibo::runtime::KiboHostRuntime host_runtime(replay_document.at("runtimeIrContract"));
-    const std::vector<std::string> script_var_names_to_include_in_trace =
-        replay_document.at("traceObservation").at("scriptVarNamesToIncludeInTrace").get<std::vector<std::string>>();
-
-    const nlohmann::json& steps = replay_document.at("steps");
-    for (const auto& step : steps) {
-      const std::string step_kind = step.at("kind").get<std::string>();
-      if (step_kind == "collect_trace") {
-        const std::string trace_line =
-            host_runtime.collect_conformance_trace_line(script_var_names_to_include_in_trace);
-        Serial.println(trace_line.c_str());
-        apply_onboard_led_visual_from_host_runtime_or_ignore(host_runtime);
-        render_presented_framebuffer_pixels_to_oled_or_ignore(host_runtime);
-        continue;
-      }
-      if (step_kind == "tick_ms") {
-        const int elapsed_milliseconds = step.at("elapsedMilliseconds").get<int>();
-        host_runtime.tick_milliseconds(elapsed_milliseconds);
-        continue;
-      }
-      if (step_kind == "dispatch_device_event") {
-        const std::string device_kind = step.at("deviceKind").get<std::string>();
-        const int device_id = step.at("deviceId").get<int>();
-        const std::string event_name = step.at("eventName").get<std::string>();
-        host_runtime.dispatch_device_event(device_kind, device_id, event_name);
-        continue;
-      }
-    }
-  } catch (const std::exception& exception) {
-    Serial.print("trace schema=1 diag=exception msg=");
-    Serial.println(exception.what());
-  }
+  replay_circle_animation_and_emit_trace_lines();
+  g_last_trace_replay_milliseconds = millis();
+  g_last_button_poll_milliseconds = millis();
 }
 
 void loop() {
-  const int button_raw_level = digitalRead(kButton0Pin);
-  Serial.print("kibo_pico_vertical_slice_button_poll raw_level=");
-  Serial.println(button_raw_level);
-  delay(1000);
+  const unsigned long now_milliseconds = millis();
+  if (now_milliseconds - g_last_trace_replay_milliseconds >= kTraceReplayRepeatIntervalMilliseconds) {
+    Serial.println("kibo_pico_vertical_slice_trace_replay_repeat fixture=circle-animation");
+    replay_circle_animation_and_emit_trace_lines();
+    g_last_trace_replay_milliseconds = now_milliseconds;
+  }
+
+  if (now_milliseconds - g_last_button_poll_milliseconds >= kButtonPollIntervalMilliseconds) {
+    const int button_raw_level = digitalRead(kButton0Pin);
+    Serial.print("kibo_pico_vertical_slice_button_poll raw_level=");
+    Serial.println(button_raw_level);
+    g_last_button_poll_milliseconds = now_milliseconds;
+  }
 }
