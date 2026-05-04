@@ -5,12 +5,13 @@
 import { compileScriptAgainstRuntimeWorld } from "../compiler/compile-script-against-runtime-world";
 import { compileScript } from "../compiler/compile-script";
 import type { DiagnosticReport } from "../diagnostics/diagnostic";
+import type { CompiledProgram } from "./executable-task";
 import type { SimulationRuntime } from "./simulation-runtime";
 
 export type SimulationScriptRegistrationMode = "reset" | "add";
 
 export type CompileAndRegisterSimulationTasksResult =
-  | { ok: true; registeredTaskNames: string[] }
+  | { ok: true; registeredTaskNames: string[]; compiledProgram: CompiledProgram }
   | { ok: false; report: DiagnosticReport };
 
 export function compileSourceAndRegisterSimulationTasks(params: {
@@ -40,7 +41,7 @@ export function compileSourceAndRegisterSimulationTasks(params: {
     const loopNames = compileResult.program.loopTasks.map((loopTask) => loopTask.taskName);
     const onEventNames = compileResult.program.onEventTasks.map((task) => task.taskName);
     const registeredTaskNames = [...everyNames, ...loopNames, ...onEventNames];
-    return { ok: true, registeredTaskNames };
+    return { ok: true, registeredTaskNames, compiledProgram: compileResult.program };
   }
 
   const compileResult = compileScript(params.sourceText, params.sourceFileName);
@@ -54,5 +55,5 @@ export function compileSourceAndRegisterSimulationTasks(params: {
   const loopNames = compileResult.program.loopTasks.map((loopTask) => loopTask.taskName);
   const onEventNames = compileResult.program.onEventTasks.map((task) => task.taskName);
   const registeredTaskNames = [...everyNames, ...loopNames, ...onEventNames];
-  return { ok: true, registeredTaskNames };
+  return { ok: true, registeredTaskNames, compiledProgram: compileResult.program };
 }

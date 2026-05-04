@@ -1,13 +1,20 @@
-# 責務: `runtime/pico/vertical_slice` のビルド方法と、USB Serial trace の取り方を記す。
+# 責務: `runtime/pico/vertical_slice` のビルド方法と、USB Serial trace / `PicoRuntimePackage` 転送の取り方を記す。
 
 ## 何をする firmware か
 
-- `tests/runtime-conformance/golden/circle-animation.runtime-ir-contract.json` と同一内容の runtime IR を **埋め込み文字列**として保持し、起動時に `KiboHostRuntime`（`runtime/cpp`）で replay steps を実行する。
+- 既定では `tests/runtime-conformance/golden/pico-runtime-packages/circle-animation.pico-runtime-package.json` と同一内容の **`PicoRuntimePackage`** を `include/embedded_default_pico_runtime_package.hpp` に **minify 埋め込み**し、起動時に `KiboHostRuntime`（`runtime/cpp`）で replay steps を実行する。
 - `collect_trace` のたびに `trace ...` 行を USB Serial へ出す（acceptance 用）。
-- OLED（`GP16`/`GP17`）では、同じ `circle-animation` IR を live runtime として 100ms ごとに tick し、円が右へ動いて見えるようにする。
+- OLED（`GP16`/`GP17`）では package 内の `runtimeIrContract` を live runtime として `live.tickIntervalMilliseconds` ごとに tick し、円が右へ動いて見えるようにする。
 - USB CDC の attach 遅れで起動直後の trace を取りこぼさないよう、`loop()` でも約 5 秒ごとに同じ trace sequence を再送する。
 - Circle は画面外へ出ると分かりにくいため、live runtime は約 3.2 秒ごとにリセットして再び左側から動かす。
 - `loop()` は `button#0` 相当として `GP18` をポーリングし、押下の raw レベルをログへ出す（acceptance の補助）。
+- **開発用**: USB Serial に次の 1 行 frame を送ると、`PicoRuntimePackage` を RAM 上で差し替えられる（firmware rebuild 不要）。
+
+```text
+KIBO_PKG schema=1 bytes=<n> crc32=<8 hex lower> b64=<base64 UTF-8 minified JSON>
+```
+
+- 受信結果は `kibo_pkg_ack status=ok` または `kibo_pkg_ack status=error reason=...` で返る。
 
 ## ビルド（Windows / PowerShell の例）
 
@@ -34,22 +41,46 @@ Push-Location (Join-Path $repoRoot 'runtime\pico\vertical_slice')
 Pop-Location
 ```
 
-確認用に serial を読むときも、同じ venv の Python を使う。
+ビルド後、`pio run` の **Flash / RAM 使用量**を前回 baseline と比較する（リグレッション検知用）。
+
+## 実機 baseline（接続直後）
+
+`pyserial` が入った venv の Pythonで:
 
 ```powershell
-& $picoVenvPython scripts\pico\cpp17_probe\tools\capture_serial_log.py --port COM11 --baud 115200 --seconds 8
+& $picoVenvPython scripts\pico\runtime_vertical_slice\tools\check_pico_baseline.py --port COM11 --capture-seconds 8 --expected-trace-file tests\runtime-conformance\golden\circle-animation.conformance.trace.txt
+```
+
+## package の転送（開発用）
+
+```powershell
+& $picoVenvPython scripts\pico\runtime_vertical_slice\tools\upload_pico_runtime_package.py --port COM11 --package-file tests\runtime-conformance\golden\pico-runtime-packages\blink-led.pico-runtime-package.json
+```
+
+## 一括 hardware acceptance（任意）
+
+Node.js と `pyserial` が必要。`--port` を実機の COM に合わせる。
+
+```powershell
+& $picoVenvPython scripts\pico\runtime_vertical_slice\tools\run_mvp_hardware_acceptance.py --port COM11 --repo-root .
+```
+
+## negative gate（長さ不一致）
+
+```powershell
+& $picoVenvPython scripts\pico\runtime_vertical_slice\tools\send_invalid_kibo_pkg_length.py --port COM11
 ```
 
 ## golden 埋め込みの更新手順
 
-1. TypeScript 側で `circle-animation.runtime-ir-contract.json` golden を更新する。
+1. TypeScript 側で `tests/runtime-conformance/golden/pico-runtime-packages/circle-animation.pico-runtime-package.json` を更新する（`KIBO_WRITE_RUNTIME_CONFORMANCE_GOLDENS=1` で Vitest から書き出し可）。
 2. 次を実行して minify JSON を作る（例）:
 
 ```powershell
-node -e "const fs=require('fs');const j=JSON.parse(fs.readFileSync('tests/runtime-conformance/golden/circle-animation.runtime-ir-contract.json','utf8'));console.log(JSON.stringify(j));"
+node -e "const fs=require('fs');const j=JSON.parse(fs.readFileSync('tests/runtime-conformance/golden/pico-runtime-packages/circle-animation.pico-runtime-package.json','utf8'));console.log(JSON.stringify(j));"
 ```
 
-3. 出力文字列を `include/embedded_circle_runtime_ir_contract.hpp` の raw string に反映する。
+3. 出力文字列を `include/embedded_default_pico_runtime_package.hpp` の raw string に反映する。
 
 ## USB Serial trace の比較
 
@@ -59,26 +90,17 @@ node -e "const fs=require('fs');const j=JSON.parse(fs.readFileSync('tests/runtim
 
 この firmware では、**見た目の分かりやすさ**と **conformance の安定性**を分けている。
 
-- OLED 表示: `circle-animation` を live runtime として 100ms ごとに tick し、円が右へ動いて見える。約 3.2 秒ごとに runtime をリセットし、左側から再開する。
-- USB Serial trace: acceptance 用に、固定 replay steps（`sim_ms=0`、`100`、`200`）の trace sequence を出す。約 5 秒ごとに再送するため、Serial attach が遅れても確認できる。
+- OLED 表示: active package の `runtimeIrContract` を live runtime として tick し、円が右へ動いて見える。約 3.2 秒ごとに runtime をリセットし、左側から再開する。
+- USB Serial trace: acceptance 用に、active package の replay steps に従った trace sequence を出す。約 5 秒ごとに再送するため、Serial attach が遅れても確認できる。
 
-そのため、OLED 上の円は動き続けるが、Serial の trace は常に同じ 3 行を繰り返す。これは意図した挙動である。
+`packageSchemaVersion` や IR が Pico runtime 未対応の場合は `kibo_pkg_ack status=error` となり、**active package は更新されない**（dry-run で検証してから commit する）。
 
 ## 実機確認メモ
 
 確認日: 2026-05-04
 
-- `pio run` は成功し、Flash 約 20.4%、RAM 約 6.9%。
-- `pio run -t upload` は BOOTSEL には入ったが、Windows の `picotool` driver 権限で失敗したため、`RPI-RP2` ドライブへ `firmware.uf2` をコピーして書き込んだ。
-- 書き込み後は USB Serial が `COM11` として再認識された。
-- OLED 上では circle が右へ動き、約 3.2 秒ごとに左側から再開することを目視確認した。
-- USB Serial では次の trace 3 行が繰り返し出ることを確認した。
-
-```text
-trace schema=1 sim_ms=0 led0=0 btn0=0 dpy_fp=b9d103fd6854a325 vars=circle_x=20 sm=-
-trace schema=1 sim_ms=100 led0=0 btn0=0 dpy_fp=abb0ec954afd3205 vars=circle_x=24 sm=-
-trace schema=1 sim_ms=200 led0=0 btn0=0 dpy_fp=317a917e19c73405 vars=circle_x=28 sm=-
-```
+- `pio run` は成功し、直近ビルドでは Flash 約 21.3%、RAM 約 7.0%（ツールチェーン更新で変動し得る）。
+- `pio run -t upload` は Windows の `picotool` driver 権限で失敗することがあるため、`RPI-RP2` ドライブへ `firmware.uf2` をコピーする手順を正とする。
 
 代表 capture:
 

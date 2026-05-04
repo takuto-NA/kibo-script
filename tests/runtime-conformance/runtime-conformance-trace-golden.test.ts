@@ -17,6 +17,10 @@ const compilerFixturesDirectory = join(testsRuntimeConformanceDirectory, "..", "
 const goldenDirectory = join(testsRuntimeConformanceDirectory, "golden");
 const replayInputsDirectory = join(testsRuntimeConformanceDirectory, "replay-inputs");
 
+function normalize_line_endings_to_lf(text: string): string {
+  return text.replace(/\r\n/g, "\n");
+}
+
 describe("runtime conformance trace golden tests (TypeScript SimulationRuntime)", () => {
   it("blink-led.sc: tick 1000ms twice toggles led#0 and matches golden trace lines", () => {
     const fixturePath = join(compilerFixturesDirectory, "blink-led.sc");
@@ -48,8 +52,8 @@ describe("runtime conformance trace golden tests (TypeScript SimulationRuntime)"
       absoluteFilePath: traceGoldenPath,
       fileText: actualTraceText,
     });
-    const expectedTraceText = readFileSync(traceGoldenPath, "utf-8");
-    expect(actualTraceText).toBe(expectedTraceText);
+    const expectedTraceText = normalize_line_endings_to_lf(readFileSync(traceGoldenPath, "utf-8"));
+    expect(normalize_line_endings_to_lf(actualTraceText)).toBe(expectedTraceText);
 
     const replayJsonText = serializeRuntimeConformanceReplayDocumentToJsonText({
       compiledProgram: compileResult.program,
@@ -61,8 +65,8 @@ describe("runtime conformance trace golden tests (TypeScript SimulationRuntime)"
       absoluteFilePath: replayJsonPath,
       fileText: replayJsonText,
     });
-    const expectedReplayJsonText = readFileSync(replayJsonPath, "utf-8");
-    expect(replayJsonText).toBe(expectedReplayJsonText);
+    const expectedReplayJsonText = normalize_line_endings_to_lf(readFileSync(replayJsonPath, "utf-8"));
+    expect(normalize_line_endings_to_lf(replayJsonText)).toBe(expectedReplayJsonText);
   });
 
   it("button-toggle-on-event.sc: two pressed events toggle led#0 twice and matches golden trace lines", () => {
@@ -105,8 +109,8 @@ describe("runtime conformance trace golden tests (TypeScript SimulationRuntime)"
       absoluteFilePath: traceGoldenPath,
       fileText: actualTraceText,
     });
-    const expectedTraceText = readFileSync(traceGoldenPath, "utf-8");
-    expect(actualTraceText).toBe(expectedTraceText);
+    const expectedTraceText = normalize_line_endings_to_lf(readFileSync(traceGoldenPath, "utf-8"));
+    expect(normalize_line_endings_to_lf(actualTraceText)).toBe(expectedTraceText);
 
     const replayJsonText = serializeRuntimeConformanceReplayDocumentToJsonText({
       compiledProgram: compileResult.program,
@@ -118,8 +122,8 @@ describe("runtime conformance trace golden tests (TypeScript SimulationRuntime)"
       absoluteFilePath: replayJsonPath,
       fileText: replayJsonText,
     });
-    const expectedReplayJsonText = readFileSync(replayJsonPath, "utf-8");
-    expect(replayJsonText).toBe(expectedReplayJsonText);
+    const expectedReplayJsonText = normalize_line_endings_to_lf(readFileSync(replayJsonPath, "utf-8"));
+    expect(normalize_line_endings_to_lf(replayJsonText)).toBe(expectedReplayJsonText);
   });
 
   it("circle-animation.sc: every 100ms updates circle_x and presented framebuffer fingerprint", () => {
@@ -152,8 +156,8 @@ describe("runtime conformance trace golden tests (TypeScript SimulationRuntime)"
       absoluteFilePath: traceGoldenPath,
       fileText: actualTraceText,
     });
-    const expectedTraceText = readFileSync(traceGoldenPath, "utf-8");
-    expect(actualTraceText).toBe(expectedTraceText);
+    const expectedTraceText = normalize_line_endings_to_lf(readFileSync(traceGoldenPath, "utf-8"));
+    expect(normalize_line_endings_to_lf(actualTraceText)).toBe(expectedTraceText);
 
     const replayJsonText = serializeRuntimeConformanceReplayDocumentToJsonText({
       compiledProgram: compileResult.program,
@@ -165,7 +169,7 @@ describe("runtime conformance trace golden tests (TypeScript SimulationRuntime)"
       absoluteFilePath: replayJsonPath,
       fileText: replayJsonText,
     });
-    const expectedReplayJsonText = readFileSync(replayJsonPath, "utf-8");
-    expect(replayJsonText).toBe(expectedReplayJsonText);
+    const expectedReplayJsonText = normalize_line_endings_to_lf(readFileSync(replayJsonPath, "utf-8"));
+    expect(normalize_line_endings_to_lf(replayJsonText)).toBe(expectedReplayJsonText);
   });
 });

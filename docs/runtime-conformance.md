@@ -54,6 +54,8 @@ C++ `kibo_runtime_replay` と将来の Pico acceptance が共有する入力。
 - `traceObservation.scriptVarNamesToIncludeInTrace`: `vars` に載せる script var 名（配列）
 - `steps`: 実行ステップの配列
 
+Pico 向けの開発用転送では、上記に加えて `live.tickIntervalMilliseconds` を含む **`PicoRuntimePackage`**（`src/runtime-conformance/build-pico-runtime-package.ts`）を使い、golden は `tests/runtime-conformance/golden/pico-runtime-packages/` に置く。
+
 ### `steps` の要素
 
 - `{ "kind": "collect_trace" }`

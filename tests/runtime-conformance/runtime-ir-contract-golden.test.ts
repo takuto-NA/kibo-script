@@ -12,6 +12,10 @@ const testsRuntimeConformanceDirectory = dirname(fileURLToPath(import.meta.url))
 const compilerFixturesDirectory = join(testsRuntimeConformanceDirectory, "..", "compiler", "fixtures");
 const goldenDirectory = join(testsRuntimeConformanceDirectory, "golden");
 
+function normalize_line_endings_to_lf(text: string): string {
+  return text.replace(/\r\n/g, "\n");
+}
+
 describe("runtime IR contract golden tests", () => {
   it("matches golden for blink-led.sc", () => {
     const fixturePath = join(compilerFixturesDirectory, "blink-led.sc");
@@ -28,8 +32,8 @@ describe("runtime IR contract golden tests", () => {
       absoluteFilePath: goldenPath,
       fileText: actualText,
     });
-    const expectedText = readFileSync(goldenPath, "utf-8");
-    expect(actualText).toBe(expectedText);
+    const expectedText = normalize_line_endings_to_lf(readFileSync(goldenPath, "utf-8"));
+    expect(normalize_line_endings_to_lf(actualText)).toBe(expectedText);
   });
 
   it("matches golden for button-toggle-on-event.sc", () => {
@@ -47,8 +51,8 @@ describe("runtime IR contract golden tests", () => {
       absoluteFilePath: goldenPath,
       fileText: actualText,
     });
-    const expectedText = readFileSync(goldenPath, "utf-8");
-    expect(actualText).toBe(expectedText);
+    const expectedText = normalize_line_endings_to_lf(readFileSync(goldenPath, "utf-8"));
+    expect(normalize_line_endings_to_lf(actualText)).toBe(expectedText);
   });
 
   it("matches golden for circle-animation.sc", () => {
@@ -66,7 +70,7 @@ describe("runtime IR contract golden tests", () => {
       absoluteFilePath: goldenPath,
       fileText: actualText,
     });
-    const expectedText = readFileSync(goldenPath, "utf-8");
-    expect(actualText).toBe(expectedText);
+    const expectedText = normalize_line_endings_to_lf(readFileSync(goldenPath, "utf-8"));
+    expect(normalize_line_endings_to_lf(actualText)).toBe(expectedText);
   });
 });

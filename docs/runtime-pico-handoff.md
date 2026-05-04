@@ -7,21 +7,23 @@ Kibo Script は、TypeScript シミュレーターだけでなく、最小範囲
 現時点で成立している縦断:
 
 ```text
-Kibo Script fixture
+Kibo Script fixture / browser.sc
   -> TypeScript compiler
   -> versioned runtime IR contract JSON
+  -> PicoRuntimePackage JSON（runtime IR + replay steps + traceObservation + live tick）
   -> TypeScript conformance trace
   -> C++17 host runtime replay
-  -> Pico vertical slice firmware
+  -> Pico vertical slice firmware（埋め込み default package + USB Serial で RAM 差し替え）
   -> USB Serial trace / OLED display
 ```
 
-ただし、これはまだ **固定 fixture / 埋め込み IR** の段階であり、シミュレーター UI から任意 script を Pico へ転送する機能はない。
+シミュレーター UI からは **runtime IR contract の copy/download** と **CLI 手順のヒント**まで。Pico への実送信は **Python uploader + USB Serial** を正とする。
 
 ## 実装済み
 
 - `src/runtime-conformance/`
   - runtime IR contract JSON の deterministic serializer
+  - **`PicoRuntimePackage` の deterministic serializer**（`build-pico-runtime-package.ts`）
   - conformance trace 行の生成
   - `display#0` presented framebuffer の FNV-1a 64bit fingerprint
   - replay document JSON の生成
@@ -30,19 +32,30 @@ Kibo Script fixture
   - `button-toggle-on-event.sc`
   - `circle-animation.sc`
   - runtime IR contract golden
+  - **`PicoRuntimePackage` golden（`golden/pico-runtime-packages/`）**
   - TypeScript `SimulationRuntime` trace golden
   - C++ host replay が存在する環境では TypeScript golden と比較するテスト
+  - **`KIBO_PKG` serial line の CRC/Base64 整合テスト**
+- `src/ui/script-runner-view.ts`
+  - reset compile 成功後の **runtime IR export（copy / download）**
+- `scripts/pico/runtime_vertical_slice/tools/`
+  - **`check_pico_baseline.py`**（実機 baseline）
+  - **`upload_pico_runtime_package.py`**（`KIBO_PKG` frame 送信 + ack 待ち）
+  - **`run_mvp_hardware_acceptance.py`**（baseline + negative + 3 package + trace 比較の一括）
+  - **`send_invalid_kibo_pkg_length.py`**（negative gate）
 - `runtime/cpp/`
   - C++17 host runtime MVP
   - `every` task / `on button#0.pressed` event の最小 replay
   - 整数式、`var` 初期化、`set`
   - `led#0` と `display#0.clear/circle/present`
   - `kibo_runtime_replay` CLI
+  - **`kibo_crc32.hpp` / `kibo_base64_decode.hpp`（Pico 受信検証用）**
 - `runtime/pico/vertical_slice/`
   - Pico firmware（PlatformIO / Arduino-Pico）
-  - `circle-animation` の runtime IR contract を firmware に埋め込み
+  - **default `PicoRuntimePackage` を埋め込み**（`include/embedded_default_pico_runtime_package.hpp`）
+  - **USB Serial `KIBO_PKG` 1 行 frame で package RAM 差し替え**
   - acceptance 用 trace を USB Serial へ出力
-  - OLED 上では同じ IR を live runtime として 100ms ごとに tick し、円が動いて見える
+  - OLED 上では live runtime tick
   - 約 3.2 秒ごとに live runtime をリセットして、円が左側から再開する
 - `docs/runtime-conformance.md`
   - trace 文法、replay JSON、golden 更新方法
@@ -57,8 +70,7 @@ Kibo Script fixture
 
 - Pico は USB Serial `COM11` として認識された。
 - `runtime/pico/vertical_slice` は `pio run` でビルド成功。
-  - Flash: 約 20.4%
-  - RAM: 約 6.9%
+  - Flash / RAM はツールチェーン・依存ライブラリで変動する。直近では Flash 約 21%、RAM 約 7% 程度。
 - `pio run -t upload` は BOOTSEL には入ったが、Windows の `picotool` driver 権限で失敗した。
 - 実際の書き込みは `RPI-RP2` ドライブへ `firmware.uf2` をコピーして行った。
 - USB Serial で次の trace が取得でき、TypeScript golden と一致した。
@@ -92,11 +104,10 @@ $pio = Join-Path $picoVenvPath 'Scripts\pio.exe'
 
 ## まだできないこと
 
-- シミュレーター UI から Pico へ直接書き込む / 転送するインターフェース
-- firmware rebuild なしで script を差し替える仕組み
-- Pico 側の bytecode / compact binary loader
-- USB Serial 経由の script / IR / bytecode 転送 protocol
-- Pico flash への script 保存、version check、checksum、recovery
+- シミュレーター UI から Pico へ **Web Serial 直送**するインターフェース
+- Pico flash への package 永続保存、OTA、暗号署名
+- Pico 側の bytecode / compact binary loader（設計は `docs/bytecode-transfer-design.md`）
+- USB Serial 以外の転送経路（Wi-Fi 等）
 - C++ runtime の full semantics
   - `loop`
   - full `wait`
@@ -111,22 +122,11 @@ $pio = Join-Path $picoVenvPath 'Scripts\pio.exe'
 
 ## 次にやるべき順序
 
-### 1. シミュレーター UI から runtime IR contract を export する
+Simulator to Pico の **MVP（runtime IR export + `PicoRuntimePackage` + `KIBO_PKG` + CLI uploader + 実機 acceptance スクリプト）** は実装済み。詳細手順は [`runtime/pico/vertical_slice/README.md`](../runtime/pico/vertical_slice/README.md) を正とする。
 
-重要度: 高  
-難易度: 中  
-リスク: 低
+以降は主に次の拡張である。
 
-- 現在の editor / compiler flow から `CompiledProgram` を取り出し、`serializeCompiledProgramToRuntimeIrContractJsonText` で JSON を出せるようにする。
-- まずは download / copy ボタンでよい。
-- この段階では Pico 転送までやらない。
-
-完了条件:
-
-- UI 上で script を compile し、runtime IR contract JSON を保存できる。
-- 保存した JSON が `tests/runtime-conformance/replay-inputs/` に近い形式で再利用できる。
-
-### 2. C++ host runtime の対応範囲を fixture 単位で広げる
+### 1. C++ host runtime の対応範囲を fixture 単位で広げる
 
 重要度: 高  
 難易度: 中〜高  
@@ -144,51 +144,16 @@ $pio = Join-Path $picoVenvPath 'Scripts\pio.exe'
 - 新しい fixture が TypeScript / C++ host の両方で同じ trace を返す。
 - C++ 側が未対応 IR を黙って無視しない。
 
-### 3. Pico vertical slice を「埋め込み IR 切り替え」しやすくする
+### 2. 任意 script から `PicoRuntimePackage` を生成する（MVP 3 fixture 以外）
 
 重要度: 中  
 難易度: 中  
-リスク: 低
+リスク: 中
 
-- 現在は `circle-animation` 固定。
-- `blink-led` / `button-toggle-on-event` / `circle-animation` を compile-time option で選べるようにする。
-- `platformio.ini` の `build_flags` などで fixture を選択できると確認しやすい。
+- UI または CLI で、compile 結果から `replay.steps` と `scriptVarNamesToIncludeInTrace` をどう決めるか（手動指定か、template か）を設計する。
+- Pico 未対応 IR のときの診断をユーザー向けに整形する。
 
-完了条件:
-
-- 同じ firmware プロジェクトで複数 fixture を選んでビルドできる。
-- USB Serial trace がそれぞれの golden と一致する。
-
-### 4. JSON runtime IR を USB Serial で送る開発用 protocol を作る
-
-重要度: 高  
-難易度: 高  
-リスク: 高
-
-- 最初は compact binary ではなく JSON のままでよい。
-- host 側 helper から Pico へ line-based / framed JSON を送り、Pico が RAM に読み込んで実行する。
-- checksum と version check はこの段階でも入れる。
-- flash 保存は後回しでよい。
-
-完了条件:
-
-- firmware rebuild なしで `circle-animation` 相当を送って実行できる。
-- invalid JSON / schema mismatch を panic せず diagnostic として返せる。
-
-### 5. シミュレーター UI から Pico へ送る
-
-重要度: 高  
-難易度: 高  
-リスク: 高
-
-- UI から runtime IR contract を生成し、host helper / Web Serial / CLI のどれかで Pico へ送る。
-- Windows では Web Serial の UX と権限が不安定になり得るため、最初は CLI helper 経由が低リスク。
-
-完了条件:
-
-- ユーザーが script を編集し、シミュレーターで確認し、同じ script を Pico で実行できる。
-
-### 6. compact binary / bytecode へ移行する
+### 3. compact binary / bytecode へ移行する
 
 重要度: 中  
 難易度: 高  
@@ -202,6 +167,14 @@ $pio = Join-Path $picoVenvPath 'Scripts\pio.exe'
 
 - JSON contract と binary contract の roundtrip が通る。
 - Pico が invalid bytecode を拒否できる。
+
+### 4. シミュレーター UI から Pico へ Web Serial で送る（任意）
+
+重要度: 低〜中  
+難易度: 高  
+リスク: 高（ブラウザ / OS 差）
+
+- 現状は CLI helper が低リスクの正。Web Serial は後追いでよい。
 
 ## 注意点
 
