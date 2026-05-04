@@ -1,4 +1,4 @@
-// 責務: replay で button#0.pressed を 2 回 dispatch し、LED toggle の trace 一致を確認する。
+// 責務: `button#0`（Pico 物理 PIN24 / GP18）押下で LED を toggle し、replay trace と実機入力の一致を確認する。
 
 ref status_led = led#0
 

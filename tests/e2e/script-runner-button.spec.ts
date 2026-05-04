@@ -22,3 +22,23 @@ task on_press on button#0.pressed {
 
   await expect(ledLamp).toHaveAttribute("aria-label", "LED on", { timeout: 5000 });
 });
+
+test("button#4 press dispatches event and updates LED from compiled task", async ({ page }) => {
+  await page.goto("/");
+
+  const script = `ref led = led#0
+
+task on_press on button#4.pressed {
+  do led.toggle()
+}
+`;
+  await page.getByTestId("script-runner-textarea").fill(script);
+  await page.getByTestId("script-runner-submit-button").click();
+
+  const ledLamp = page.getByTestId("simulator-led-lamp");
+  await expect(ledLamp).toHaveAttribute("aria-label", "LED off", { timeout: 8000 });
+
+  await page.getByTestId("simulator-button4-press").click();
+
+  await expect(ledLamp).toHaveAttribute("aria-label", "LED on", { timeout: 5000 });
+});

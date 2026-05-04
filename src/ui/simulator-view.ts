@@ -6,7 +6,7 @@ import { createPhysicsWorldForBrowser } from "../physics/create-physics-world-fo
 import { NoopPhysicsWorld } from "../physics/noop-physics-world";
 import { SwitchablePhysicsWorld } from "../physics/switchable-physics-world";
 import { renderDisplayFrameToCanvas } from "./canvas-display-renderer";
-import { createButton0PressView } from "./button-view";
+import { createButtonPressView } from "./button-view";
 import { createLedIndicatorView } from "./led-view";
 import { createPhysicsSceneView } from "./physics-scene-view";
 import { createPwmLevelIndicatorView } from "./pwm-view";
@@ -19,6 +19,7 @@ const MAX_SIMULATION_FRAME_DELTA_MILLISECONDS = 100;
 
 const PHYSICS_CANVAS_WIDTH_CSS_PIXELS = 900;
 const PHYSICS_CANVAS_HEIGHT_CSS_PIXELS = 560;
+const PICO_BUTTON_PHYSICAL_PIN_LABELS = ["PIN24/GP18", "PIN25/GP19", "PIN26/GP20", "PIN27/GP21", "PIN29/GP22"] as const;
 
 export type CreateSimulatorViewParams = {
   rootElementId: string;
@@ -98,13 +99,25 @@ export async function createSimulatorView(params: CreateSimulatorViewParams): Pr
   const pwmLevelView = createPwmLevelIndicatorView({ labelText: "pwm#0" });
   displayHost.appendChild(pwmLevelView.rootElement);
 
-  const button0PressView = createButton0PressView({
-    simulationRuntime: runtime,
-    onAfterButtonPress: () => {
-      refreshSimulatorOutputs();
-    },
+  const buttonGroup = document.createElement("div");
+  buttonGroup.className = "simulator-button-group";
+  const buttonGroupLabel = document.createElement("div");
+  buttonGroupLabel.className = "simulator-button-group-label";
+  buttonGroupLabel.textContent = "buttons";
+  buttonGroup.appendChild(buttonGroupLabel);
+  runtime.getDefaultDevices().buttonDevices.forEach((buttonDevice, buttonDeviceId) => {
+    const buttonPressView = createButtonPressView({
+      simulationRuntime: runtime,
+      buttonDevice,
+      buttonDeviceId,
+      physicalPinLabel: PICO_BUTTON_PHYSICAL_PIN_LABELS[buttonDeviceId],
+      onAfterButtonPress: () => {
+        refreshSimulatorOutputs();
+      },
+    });
+    buttonGroup.appendChild(buttonPressView.rootElement);
   });
-  displayHost.appendChild(button0PressView.rootElement);
+  displayHost.appendChild(buttonGroup);
 
   const physicsSceneView = createPhysicsSceneView({
     widthCssPixels: PHYSICS_CANVAS_WIDTH_CSS_PIXELS,

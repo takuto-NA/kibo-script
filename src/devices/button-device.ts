@@ -19,6 +19,10 @@ export class ButtonDevice implements SimulationDevice {
     return this.isPressed;
   }
 
+  public getDeviceId(): number {
+    return this.address.id;
+  }
+
   /**
    * UI / embed / テストが押下状態を注入する。
    */

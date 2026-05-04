@@ -19,7 +19,7 @@ namespace kibo::runtime {
  *
  * 注意:
  * - このクラスは **MVP** である。未対応の IR に遭遇した場合は `std::runtime_error` を投げる。
- * - デバイスは `led#0` / `button#0` / `display#0` のみを想定する（fixture 用）。
+ * - デバイスは `led#0` / `button#0..#4` event / `display#0` のみを想定する（fixture / Pico sample 用）。
  */
 class KiboHostRuntime final {
 public:

@@ -7,7 +7,7 @@
 - OLED（`GP16`/`GP17`）では package 内の `runtimeIrContract` を live runtime として `live.tickIntervalMilliseconds` ごとに tick し、円が右へ動いて見えるようにする。
 - USB CDC の attach 遅れで起動直後の trace を取りこぼさないよう、`loop()` でも約 5 秒ごとに同じ trace sequence を再送する。
 - Circle は画面外へ出ると分かりにくいため、live runtime は約 3.2 秒ごとにリセットして再び左側から動かす。
-- `loop()` は `button#0` 相当として `GP18` をポーリングし、押下の raw レベルをログへ出す（acceptance の補助）。
+- `loop()` は `button#0..#4` 相当として `GP18..GP22`（物理 `PIN24`, `PIN25`, `PIN26`, `PIN27`, `PIN29`）をポーリングし、押下 edge を live runtime の `button#N.pressed` へ dispatch する。周辺の GND は `PIN23` / `PIN28`。
 - **開発用**: USB Serial に次の 1 行 frame を送ると、`PicoRuntimePackage` を RAM 上で差し替えられる（firmware rebuild 不要）。
 
 ```text
@@ -111,6 +111,18 @@ npm run build-pico-runtime-package-from-script -- --input-script examples\pico-r
 - `two-circle-chase.sc`: 2 つの円を異なる速度で動かし、複数 var / 複数 circle draw を確認する。
 - `growing-circle.sc`: 中央円の半径を増やす。
 - `button-led-toggle.sc`: replay で `button#0.pressed` を dispatch し、LED toggle を確認する。
+
+ボタンと実機 pin の対応:
+
+| Script | Pico 物理ピン | GPIO |
+| --- | --- | --- |
+| `button#0` | `PIN24` | `GP18` |
+| `button#1` | `PIN25` | `GP19` |
+| `button#2` | `PIN26` | `GP20` |
+| `button#3` | `PIN27` | `GP21` |
+| `button#4` | `PIN29` | `GP22` |
+
+シミュレータ UI も同じ `button#0..#4` を表示する。各 `Press` ボタンは対応する `button#N.pressed` event を dispatch する。
 
 実機へ順に流して simulator replay trace と比較する:
 

@@ -12,6 +12,7 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
+#include <array>
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
@@ -36,11 +37,17 @@ constexpr int k_oled_i2c_sda_pin = 16;
 constexpr int k_oled_i2c_scl_pin = 17;
 constexpr uint8_t k_oled_i2c_address_seven_bit = 0x3C;
 constexpr unsigned long k_trace_replay_repeat_interval_milliseconds = 5000;
-constexpr unsigned long k_button_poll_interval_milliseconds = 1000;
+constexpr unsigned long k_button_state_log_interval_milliseconds = 1000;
+constexpr unsigned long k_button_event_poll_interval_milliseconds = 10;
+constexpr unsigned long k_button_debounce_milliseconds = 30;
 constexpr unsigned long k_live_animation_reset_interval_milliseconds = 3200;
 
 constexpr int k_onboard_led_pin = LED_BUILTIN;
-constexpr int k_button0_pin = 18;
+constexpr int k_button_pressed_raw_level = LOW;
+constexpr int k_button_released_raw_level = HIGH;
+constexpr const char* k_button_pressed_event_name = "pressed";
+constexpr const char* k_button_device_kind_name = "button";
+constexpr std::array<int, 5> k_button_gpio_pins_by_device_id = {18, 19, 20, 21, 22};
 
 constexpr std::size_t k_max_serial_line_characters = 16384;
 constexpr std::size_t k_max_decoded_package_bytes = 12288;
@@ -59,12 +66,17 @@ Adafruit_SSD1306 g_oled_display(
 );
 
 unsigned long g_last_trace_replay_milliseconds = 0;
-unsigned long g_last_button_poll_milliseconds = 0;
+unsigned long g_last_button_state_log_milliseconds = 0;
+unsigned long g_last_button_event_poll_milliseconds = 0;
 unsigned long g_last_live_animation_tick_milliseconds = 0;
 unsigned long g_live_animation_started_milliseconds = 0;
+std::array<int, k_button_gpio_pins_by_device_id.size()> g_last_button_raw_levels{};
+std::array<int, k_button_gpio_pins_by_device_id.size()> g_stable_button_raw_levels{};
+std::array<unsigned long, k_button_gpio_pins_by_device_id.size()> g_last_button_raw_change_milliseconds{};
 
 nlohmann::json g_active_pico_runtime_package_json;
 int g_live_tick_interval_milliseconds = 100;
+bool g_live_runtime_periodic_reset_enabled = true;
 std::string g_boot_fixture_name_text = k_boot_fixture_name_for_default_embedded_package;
 std::unique_ptr<kibo::runtime::KiboHostRuntime> g_live_animation_runtime;
 std::string g_serial_incoming_line_characters;
@@ -89,6 +101,14 @@ void render_presented_framebuffer_pixels_to_oled_or_ignore(const kibo::runtime::
 void apply_onboard_led_visual_from_host_runtime_or_ignore(const kibo::runtime::KiboHostRuntime& host_runtime) {
   const bool is_led_light_on = host_runtime.is_led0_light_on();
   digitalWrite(k_onboard_led_pin, is_led_light_on ? HIGH : LOW);
+}
+
+void render_outputs_from_live_runtime_or_ignore() {
+  if (!g_live_animation_runtime) {
+    return;
+  }
+  apply_onboard_led_visual_from_host_runtime_or_ignore(*g_live_animation_runtime);
+  render_presented_framebuffer_pixels_to_oled_or_ignore(*g_live_animation_runtime);
 }
 
 nlohmann::json build_runtime_conformance_replay_document_from_active_pico_runtime_package_or_throw() {
@@ -118,6 +138,7 @@ void reset_live_animation_runtime_from_active_package_or_log_exception() {
     g_live_animation_runtime = std::make_unique<kibo::runtime::KiboHostRuntime>(runtime_ir_contract);
     g_live_animation_started_milliseconds = millis();
     g_last_live_animation_tick_milliseconds = millis();
+    render_outputs_from_live_runtime_or_ignore();
     Serial.print("kibo_pico_vertical_slice_live_animation_reset fixture=");
     Serial.println(g_boot_fixture_name_text.c_str());
   } catch (const std::exception& exception) {
@@ -159,7 +180,9 @@ void tick_live_animation_if_due(unsigned long now_milliseconds) {
     return;
   }
 
-  if (now_milliseconds - g_live_animation_started_milliseconds >= k_live_animation_reset_interval_milliseconds) {
+  if (
+      g_live_runtime_periodic_reset_enabled &&
+      now_milliseconds - g_live_animation_started_milliseconds >= k_live_animation_reset_interval_milliseconds) {
     reset_live_animation_runtime_from_active_package_or_log_exception();
     return;
   }
@@ -170,8 +193,7 @@ void tick_live_animation_if_due(unsigned long now_milliseconds) {
   }
 
   g_live_animation_runtime->tick_milliseconds(g_live_tick_interval_milliseconds);
-  apply_onboard_led_visual_from_host_runtime_or_ignore(*g_live_animation_runtime);
-  render_presented_framebuffer_pixels_to_oled_or_ignore(*g_live_animation_runtime);
+  render_outputs_from_live_runtime_or_ignore();
   g_last_live_animation_tick_milliseconds = now_milliseconds;
 }
 
@@ -377,6 +399,7 @@ bool try_apply_pico_runtime_package_from_kibo_pkg_serial_line(const std::string&
   g_active_pico_runtime_package_json = std::move(parsed_package);
   read_live_tick_interval_milliseconds_from_active_package_or_use_default();
   g_boot_fixture_name_text = "loaded-package";
+  g_live_runtime_periodic_reset_enabled = false;
 
   emit_trace_lines_from_active_package_replay_or_log_exception();
   reset_live_animation_runtime_from_active_package_or_log_exception();
@@ -428,6 +451,79 @@ void poll_incoming_usb_serial_line_for_package_frames() {
   }
 }
 
+void configure_button_input_pins_and_seed_state() {
+  for (std::size_t button_device_id = 0; button_device_id < k_button_gpio_pins_by_device_id.size(); button_device_id += 1) {
+    const int gpio_pin = k_button_gpio_pins_by_device_id.at(button_device_id);
+    pinMode(gpio_pin, INPUT_PULLUP);
+    const int raw_level = digitalRead(gpio_pin);
+    g_last_button_raw_levels.at(button_device_id) = raw_level;
+    g_stable_button_raw_levels.at(button_device_id) = raw_level;
+    g_last_button_raw_change_milliseconds.at(button_device_id) = millis();
+  }
+}
+
+void dispatch_button_pressed_event_to_live_runtime_or_ignore(std::size_t button_device_id) {
+  if (!g_live_animation_runtime) {
+    return;
+  }
+  const int device_id = static_cast<int>(button_device_id);
+  g_live_animation_runtime->dispatch_device_event(
+      k_button_device_kind_name,
+      device_id,
+      k_button_pressed_event_name);
+  render_outputs_from_live_runtime_or_ignore();
+  Serial.print("kibo_pico_vertical_slice_button_event device=button#");
+  Serial.print(device_id);
+  Serial.print(" gpio=");
+  Serial.print(k_button_gpio_pins_by_device_id.at(button_device_id));
+  Serial.println(" event=pressed");
+}
+
+void poll_physical_button_events_if_due(unsigned long now_milliseconds) {
+  if (now_milliseconds - g_last_button_event_poll_milliseconds < k_button_event_poll_interval_milliseconds) {
+    return;
+  }
+  g_last_button_event_poll_milliseconds = now_milliseconds;
+
+  for (std::size_t button_device_id = 0; button_device_id < k_button_gpio_pins_by_device_id.size(); button_device_id += 1) {
+    const int gpio_pin = k_button_gpio_pins_by_device_id.at(button_device_id);
+    const int raw_level = digitalRead(gpio_pin);
+    if (raw_level != g_last_button_raw_levels.at(button_device_id)) {
+      g_last_button_raw_levels.at(button_device_id) = raw_level;
+      g_last_button_raw_change_milliseconds.at(button_device_id) = now_milliseconds;
+      continue;
+    }
+
+    if (now_milliseconds - g_last_button_raw_change_milliseconds.at(button_device_id) < k_button_debounce_milliseconds) {
+      continue;
+    }
+    if (raw_level == g_stable_button_raw_levels.at(button_device_id)) {
+      continue;
+    }
+
+    const int previous_stable_raw_level = g_stable_button_raw_levels.at(button_device_id);
+    g_stable_button_raw_levels.at(button_device_id) = raw_level;
+    if (previous_stable_raw_level == k_button_released_raw_level && raw_level == k_button_pressed_raw_level) {
+      dispatch_button_pressed_event_to_live_runtime_or_ignore(button_device_id);
+    }
+  }
+}
+
+void log_button_state_summary_if_due(unsigned long now_milliseconds) {
+  if (now_milliseconds - g_last_button_state_log_milliseconds < k_button_state_log_interval_milliseconds) {
+    return;
+  }
+  Serial.print("kibo_pico_vertical_slice_button_poll");
+  for (std::size_t button_device_id = 0; button_device_id < k_button_gpio_pins_by_device_id.size(); button_device_id += 1) {
+    Serial.print(" button");
+    Serial.print(static_cast<int>(button_device_id));
+    Serial.print("_raw=");
+    Serial.print(g_stable_button_raw_levels.at(button_device_id));
+  }
+  Serial.println();
+  g_last_button_state_log_milliseconds = now_milliseconds;
+}
+
 }  // namespace
 
 void setup() {
@@ -437,7 +533,7 @@ void setup() {
   pinMode(k_onboard_led_pin, OUTPUT);
   digitalWrite(k_onboard_led_pin, LOW);
 
-  pinMode(k_button0_pin, INPUT_PULLUP);
+  configure_button_input_pins_and_seed_state();
 
   Wire.setSDA(k_oled_i2c_sda_pin);
   Wire.setSCL(k_oled_i2c_scl_pin);
@@ -471,12 +567,14 @@ void setup() {
   emit_trace_lines_from_active_package_replay_or_log_exception();
   reset_live_animation_runtime_from_active_package_or_log_exception();
   g_last_trace_replay_milliseconds = millis();
-  g_last_button_poll_milliseconds = millis();
+  g_last_button_state_log_milliseconds = millis();
+  g_last_button_event_poll_milliseconds = millis();
 }
 
 void loop() {
   const unsigned long now_milliseconds = millis();
   poll_incoming_usb_serial_line_for_package_frames();
+  poll_physical_button_events_if_due(now_milliseconds);
   tick_live_animation_if_due(now_milliseconds);
 
   if (now_milliseconds - g_last_trace_replay_milliseconds >= k_trace_replay_repeat_interval_milliseconds) {
@@ -486,10 +584,5 @@ void loop() {
     g_last_trace_replay_milliseconds = now_milliseconds;
   }
 
-  if (now_milliseconds - g_last_button_poll_milliseconds >= k_button_poll_interval_milliseconds) {
-    const int button_raw_level = digitalRead(k_button0_pin);
-    Serial.print("kibo_pico_vertical_slice_button_poll raw_level=");
-    Serial.println(button_raw_level);
-    g_last_button_poll_milliseconds = now_milliseconds;
-  }
+  log_button_state_summary_if_due(now_milliseconds);
 }
