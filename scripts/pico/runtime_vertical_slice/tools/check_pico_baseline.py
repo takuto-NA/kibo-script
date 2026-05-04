@@ -15,49 +15,9 @@ from __future__ import annotations
 
 import argparse
 import sys
-import time
 from pathlib import Path
 
-
-def split_non_empty_lines_from_text(text: str) -> list[str]:
-    return [
-        line.rstrip("\r\n")
-        for line in text.replace("\r\n", "\n").split("\n")
-        if line.strip() != ""
-    ]
-
-
-def extract_trace_lines_from_serial_lines(serial_lines: list[str]) -> list[str]:
-    trace_lines: list[str] = []
-    for line in serial_lines:
-        if line.startswith("trace "):
-            trace_lines.append(line)
-    return trace_lines
-
-
-def extract_trace_lines_from_text_file(file_text: str) -> list[str]:
-    return extract_trace_lines_from_serial_lines(split_non_empty_lines_from_text(file_text))
-
-
-def contains_expected_trace_sequence(
-    actual_trace_lines: list[str],
-    expected_trace_lines: list[str],
-) -> bool:
-    if len(expected_trace_lines) == 0:
-        return len(actual_trace_lines) == 0
-    last_start_index = len(actual_trace_lines) - len(expected_trace_lines)
-    for start_index in range(0, last_start_index + 1):
-        candidate = actual_trace_lines[start_index : start_index + len(expected_trace_lines)]
-        if candidate == expected_trace_lines:
-            return True
-    return False
-
-
-def has_vertical_slice_boot_banner(serial_lines: list[str]) -> bool:
-    for line in serial_lines:
-        if "kibo_pico_vertical_slice_boot" in line:
-            return True
-    return False
+import pico_link_common as common
 
 
 def parse_arguments_or_exit(argv: list[str]) -> argparse.Namespace:
@@ -72,7 +32,7 @@ def parse_arguments_or_exit(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--baud-rate",
         type=int,
-        default=115200,
+        default=common.KIBO_USB_SERIAL_BAUD_RATE,
         help="Serial baud rate (default: 115200).",
     )
     parser.add_argument(
@@ -96,32 +56,24 @@ def read_serial_lines_for_seconds_or_exit(
     baud_rate: int,
     capture_seconds: int,
 ) -> list[str]:
+    serial_module = common.try_import_pyserial_serial_module_or_exit()
+    serial_port = common.open_serial_port_for_kibo_vertical_slice_or_raise(
+        serial_module=serial_module,
+        port_path=port_path,
+        baud_rate=baud_rate,
+        read_timeout_seconds=0.1,
+        write_timeout_seconds=common.DEFAULT_SERIAL_WRITE_TIMEOUT_SECONDS,
+    )
     try:
-        import serial  # type: ignore[import-untyped]
-    except ImportError as import_error:
-        print(
-            "pyserial is required. Install with: uv pip install pyserial",
-            file=sys.stderr,
-        )
-        raise SystemExit(2) from import_error
-
-    serial_port = serial.Serial(port=port_path, baudrate=baud_rate, timeout=0.1)
-    lines: list[str] = []
-    deadline = time.monotonic() + capture_seconds
-    try:
-        while time.monotonic() < deadline:
-            raw_line = serial_port.readline()
-            if raw_line:
-                lines.append(raw_line.decode("utf-8", errors="replace").rstrip("\r\n"))
+        return common.read_serial_lines_for_seconds(serial_port=serial_port, capture_seconds=float(capture_seconds))
     finally:
         serial_port.close()
-    return lines
 
 
 def main() -> None:
     arguments = parse_arguments_or_exit(sys.argv[1:])
     expected_text = arguments.expected_trace_file.read_text(encoding="utf-8")
-    expected_trace_lines = extract_trace_lines_from_text_file(expected_text)
+    expected_trace_lines = common.extract_trace_lines_from_serial_lines(common.split_non_empty_lines_from_text(expected_text))
 
     print(
         f"Capturing serial from {arguments.port} for {arguments.capture_seconds}s "
@@ -134,15 +86,15 @@ def main() -> None:
         capture_seconds=arguments.capture_seconds,
     )
 
-    if not has_vertical_slice_boot_banner(captured_lines):
+    if not any(common.line_contains_vertical_slice_boot_banner(line) for line in captured_lines):
         print("FAIL: did not find kibo_pico_vertical_slice_boot in captured serial output.", file=sys.stderr)
         print("--- captured (first 40 lines) ---", file=sys.stderr)
         for line in captured_lines[:40]:
             print(line, file=sys.stderr)
         raise SystemExit(1)
 
-    actual_trace_lines = extract_trace_lines_from_serial_lines(captured_lines)
-    if not contains_expected_trace_sequence(actual_trace_lines, expected_trace_lines):
+    actual_trace_lines = common.extract_trace_lines_from_serial_lines(captured_lines)
+    if not common.contains_expected_trace_sequence(actual_trace_lines=actual_trace_lines, expected_trace_lines=expected_trace_lines):
         print("FAIL: expected trace sequence was not found in captured trace lines.", file=sys.stderr)
         print("--- expected ---", file=sys.stderr)
         print("\n".join(expected_trace_lines), file=sys.stderr)

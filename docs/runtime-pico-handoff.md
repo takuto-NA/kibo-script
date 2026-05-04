@@ -17,13 +17,15 @@ Kibo Script fixture / browser.sc
   -> USB Serial trace / OLED display
 ```
 
-シミュレーター UI からは **runtime IR contract の copy/download** と **CLI 手順のヒント**まで。Pico への実送信は **Python uploader + USB Serial** を正とする。
+シミュレーター UI からは **runtime IR contract の copy/download**、**`PicoRuntimePackage` の download（trace var 指定可）**、および **CLI / one-shot 手順のヒント**まで。Pico への実送信は **Python uploader + USB Serial** を正とする（将来 Web Serial は別タスク）。
 
 ## 実装済み
 
 - `src/runtime-conformance/`
   - runtime IR contract JSON の deterministic serializer
   - **`PicoRuntimePackage` の deterministic serializer**（`build-pico-runtime-package.ts`）
+  - **runtime IR contract からの `PicoRuntimePackage` 推定生成**（`build-pico-runtime-package-from-runtime-ir-contract.ts`）
+  - **replay steps を `SimulationRuntime` 上で実行し trace 行を収集**（`execute-runtime-conformance-replay-steps-and-collect-trace-lines.ts`）
   - conformance trace 行の生成
   - `display#0` presented framebuffer の FNV-1a 64bit fingerprint
   - replay document JSON の生成
@@ -35,14 +37,22 @@ Kibo Script fixture / browser.sc
   - **`PicoRuntimePackage` golden（`golden/pico-runtime-packages/`）**
   - TypeScript `SimulationRuntime` trace golden
   - C++ host replay が存在する環境では TypeScript golden と比較するテスト
-  - **`KIBO_PKG` serial line の CRC/Base64 整合テスト**
+  - **`runtime-ir-contract` golden から `PicoRuntimePackage` golden への推定変換テスト**（`runtime-ir-contract-to-pico-runtime-package-golden.test.ts`）
 - `src/ui/script-runner-view.ts`
   - reset compile 成功後の **runtime IR export（copy / download）**
+  - reset compile 成功後の **`PicoRuntimePackage` download**（MVP 推定: `every` / `on_event` と live tick、`circle_x` 既定）
 - `scripts/pico/runtime_vertical_slice/tools/`
+  - **`pico_link_common.py`**（シリアル・trace 比較・Windows 診断の共通化）
+  - **`pico_link_doctor.py`**（COM / BOOTSEL / `KIBO_PING` loader handshake）
+  - **`install_pico_loader.py`**（Windows: `RPI-RP2` へ UF2 コピー + 復帰後 handshake）
+  - **`build_pico_runtime_package_cli.ts`** + npm script `build-pico-runtime-package`（runtime IR JSON → package）
+  - **`print_expected_conformance_trace_lines_from_pico_runtime_package_cli.ts`**（期待 trace 行の stdout 出力）
+  - **`pico_link_check.py`**（package または runtime IR → upload → trace 照合。実機要）
   - **`check_pico_baseline.py`**（実機 baseline）
-  - **`upload_pico_runtime_package.py`**（`KIBO_PKG` frame 送信 + ack 待ち）
-  - **`run_mvp_hardware_acceptance.py`**（baseline + negative + 3 package + trace 比較の一括）
+  - **`upload_pico_runtime_package.py`**（preflight `KIBO_PING` + `KIBO_PKG` frame 送信 + ack）
+  - **`run_mvp_hardware_acceptance.py`**（baseline + negative + 3 package + trace 比較の一括・実機要）
   - **`send_invalid_kibo_pkg_length.py`**（negative gate）
+  - **`test_pico_link_common.py`**（純関数ユニット。`npm test` から `unittest discover` で実行）
 - `runtime/cpp/`
   - C++17 host runtime MVP
   - `every` task / `on button#0.pressed` event の最小 replay
@@ -53,6 +63,7 @@ Kibo Script fixture / browser.sc
 - `runtime/pico/vertical_slice/`
   - Pico firmware（PlatformIO / Arduino-Pico）
   - **default `PicoRuntimePackage` を埋め込み**（`include/embedded_default_pico_runtime_package.hpp`）
+  - **USB Serial `KIBO_PING` → `kibo_loader status=ok protocol=1 ...`（host 診断用）**
   - **USB Serial `KIBO_PKG` 1 行 frame で package RAM 差し替え**
   - acceptance 用 trace を USB Serial へ出力
   - OLED 上では live runtime tick
@@ -64,6 +75,13 @@ Kibo Script fixture / browser.sc
 - `docs/pico-bringup.md`
   - Pico / OLED / button / C++17 / vertical slice の実機確認記録
 
+## 自動テスト（実機・ユーザー操作なし）
+
+- **`npm test`**: Vitest（TypeScript）に加え、`python -m unittest discover` で `scripts/pico/runtime_vertical_slice/tools/test_pico_link_common.py` を実行する（`pico_link_common` の純粋ヘルパのみ。`pyserial` 不要）。**ホストに `python` が PATH 上にある必要がある**（Python 3）。Python が無い CI では Vitest のみを実行するなど切り分ける。
+- **Pico sample compile/package/replay**: `tests/runtime-conformance/pico-runtime-samples.test.ts` が `examples/pico-runtime-samples/samples.json` の全 `.sc` を compile し、`PicoRuntimePackage` 化して TypeScript replay trace を生成できることを確認する（実機不要）。
+- **`npm run test:e2e`**: Playwright。`playwright.config.ts` の `webServer` が Vite を起動するため、別途 `npm run dev` を手動で立てる必要はない（CI では `CI` 環境変数に合わせて `reuseExistingServer` が無効化される）。
+- **実機前提の Python スクリプト**（`check_pico_baseline.py`, `pico_link_check.py`, `run_mvp_hardware_acceptance.py`, `run_pico_runtime_samples.py` 等）はハードウェアが無い環境では実行できないため、`npm test` には含めない。
+
 ## 実機確認済み
 
 確認日: 2026-05-04
@@ -74,6 +92,7 @@ Kibo Script fixture / browser.sc
 - `pio run -t upload` は BOOTSEL には入ったが、Windows の `picotool` driver 権限で失敗した。
 - 実際の書き込みは `RPI-RP2` ドライブへ `firmware.uf2` をコピーして行った。
 - USB Serial で次の trace が取得でき、TypeScript golden と一致した。
+- `examples/pico-runtime-samples/` の 5 サンプル（LED heartbeat / circle sweep / two-circle chase / growing circle / button event toggle）は、`run_pico_runtime_samples.py --port auto --repo-root . --capture-seconds 8` で順に upload され、各 sample が TypeScript replay trace と Pico serial trace の一致まで確認済み。
 
 ```text
 trace schema=1 sim_ms=0 led0=0 btn0=0 dpy_fp=b9d103fd6854a325 vars=circle_x=20 sm=-
@@ -122,7 +141,7 @@ $pio = Join-Path $picoVenvPath 'Scripts\pio.exe'
 
 ## 次にやるべき順序
 
-Simulator to Pico の **MVP（runtime IR export + `PicoRuntimePackage` + `KIBO_PKG` + CLI uploader + 実機 acceptance スクリプト）** は実装済み。詳細手順は [`runtime/pico/vertical_slice/README.md`](../runtime/pico/vertical_slice/README.md) を正とする。
+Simulator to Pico の **MVP（runtime IR export + `PicoRuntimePackage` + `KIBO_PKG` + CLI uploader + 実機 acceptance スクリプト）** に加え、**診断・初回 UF2・IR→package・one-shot trace 照合（`pico_link_*` 系）** まで入っている。詳細手順は [`runtime/pico/vertical_slice/README.md`](../runtime/pico/vertical_slice/README.md) を正とする。
 
 以降は主に次の拡張である。
 
@@ -150,7 +169,8 @@ Simulator to Pico の **MVP（runtime IR export + `PicoRuntimePackage` + `KIBO_P
 難易度: 中  
 リスク: 中
 
-- UI または CLI で、compile 結果から `replay.steps` と `scriptVarNamesToIncludeInTrace` をどう決めるか（手動指定か、template か）を設計する。
+- 現状: simulator export の runtime IR から **MVP 推定**（`every` / 先頭 `on_event` / 既定 tick、`circle_x` 既定）で package 化できる（CLI・UI・golden テストあり）。
+- 残り: 一般 script 向けに `replay.steps` / `scriptVarNamesToIncludeInTrace` / tick を **ユーザーが完全制御**できる UI・CLI（preset / 明示編集）へ拡張する。
 - Pico 未対応 IR のときの診断をユーザー向けに整形する。
 
 ### 3. compact binary / bytecode へ移行する

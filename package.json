@@ -7,17 +7,22 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest run",
+    "test": "vitest run && npm run test:pico-link-tools",
+    "test:pico-link-tools": "python -m unittest discover -s scripts/pico/runtime_vertical_slice/tools -p \"test_*.py\"",
     "build:host-runtime": "cmake -S runtime/cpp -B runtime/cpp/build -DCMAKE_BUILD_TYPE=Release && cmake --build runtime/cpp/build --config Release --parallel",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build-pico-runtime-package": "tsx scripts/pico/runtime_vertical_slice/tools/build_pico_runtime_package_cli.ts",
+    "build-pico-runtime-package-from-script": "tsx scripts/pico/runtime_vertical_slice/tools/build_pico_runtime_package_from_script_cli.ts",
+    "print-expected-conformance-trace-from-pico-package": "tsx scripts/pico/runtime_vertical_slice/tools/print_expected_conformance_trace_lines_from_pico_runtime_package_cli.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",
     "@types/jsdom": "^21.1.7",
     "@types/node": "^22.10.2",
     "jsdom": "^25.0.1",
+    "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vite": "^8.0.10",
     "vitest": "^4.1.5"

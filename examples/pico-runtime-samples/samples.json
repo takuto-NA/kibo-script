@@ -1,0 +1,29 @@
+{
+  "samples": [
+    {
+      "name": "led-heartbeat",
+      "sourceFile": "led-heartbeat.sc",
+      "traceVars": []
+    },
+    {
+      "name": "circle-sweep",
+      "sourceFile": "circle-sweep.sc",
+      "traceVars": ["circle_x"]
+    },
+    {
+      "name": "two-circle-chase",
+      "sourceFile": "two-circle-chase.sc",
+      "traceVars": ["lead_circle_x", "trail_circle_x"]
+    },
+    {
+      "name": "growing-circle",
+      "sourceFile": "growing-circle.sc",
+      "traceVars": ["circle_radius"]
+    },
+    {
+      "name": "button-led-toggle",
+      "sourceFile": "button-led-toggle.sc",
+      "traceVars": []
+    }
+  ]
+}

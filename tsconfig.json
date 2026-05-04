@@ -12,5 +12,11 @@
     "rootDir": ".",
     "types": []
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts", "vite.config.ts", "vitest.config.ts"]
+  "include": [
+    "src/**/*.ts",
+    "tests/**/*.ts",
+    "scripts/pico/runtime_vertical_slice/tools/**/*.ts",
+    "vite.config.ts",
+    "vitest.config.ts"
+  ]
 }

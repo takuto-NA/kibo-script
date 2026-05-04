@@ -3,6 +3,7 @@
 // 注意:
 // - ピン配線は `docs/pico-bringup.md` の OLED / onboard LED メモに合わせる。
 // - 既定 package は `include/embedded_default_pico_runtime_package.hpp` を正とする（golden と同期）。
+// - USB Serial の `KIBO_PING` で loader handshake（`kibo_loader status=ok protocol=1 ...`）を返す。
 // - USB Serial の `KIBO_PKG ...` 1 行 frame で package を差し替えられる（開発用）。
 
 #include <Arduino.h>
@@ -43,6 +44,10 @@ constexpr int k_button0_pin = 18;
 
 constexpr std::size_t k_max_serial_line_characters = 16384;
 constexpr std::size_t k_max_decoded_package_bytes = 12288;
+
+// Host tools (`pico_link_doctor`, uploader preflight) use this to distinguish loader-capable firmware from older builds.
+constexpr int k_kibo_loader_protocol_version = 1;
+constexpr const char* k_serial_ping_command_line = "KIBO_PING";
 
 constexpr const char* k_boot_fixture_name_for_default_embedded_package = "circle-animation";
 
@@ -380,6 +385,13 @@ bool try_apply_pico_runtime_package_from_kibo_pkg_serial_line(const std::string&
   return true;
 }
 
+void emit_kibo_loader_ping_response_line() {
+  Serial.print("kibo_loader status=ok protocol=");
+  Serial.print(k_kibo_loader_protocol_version);
+  Serial.print(" active=");
+  Serial.println(g_boot_fixture_name_text.c_str());
+}
+
 void poll_incoming_usb_serial_line_for_package_frames() {
   while (Serial.available() > 0) {
     const int next_character_code = Serial.read();
@@ -395,6 +407,11 @@ void poll_incoming_usb_serial_line_for_package_frames() {
       }
       if (!completed_line.empty() && completed_line.back() == '\r') {
         completed_line.pop_back();
+      }
+      // Guard: explicit loader handshake line (not a JSON package frame).
+      if (completed_line == k_serial_ping_command_line) {
+        emit_kibo_loader_ping_response_line();
+        continue;
       }
       if (try_apply_pico_runtime_package_from_kibo_pkg_serial_line(completed_line)) {
         continue;
@@ -447,7 +464,9 @@ void setup() {
   g_boot_fixture_name_text = k_boot_fixture_name_for_default_embedded_package;
 
   Serial.print("kibo_pico_vertical_slice_boot fixture=");
-  Serial.println(g_boot_fixture_name_text.c_str());
+  Serial.print(g_boot_fixture_name_text.c_str());
+  Serial.print(" loader_protocol=");
+  Serial.println(k_kibo_loader_protocol_version);
 
   emit_trace_lines_from_active_package_replay_or_log_exception();
   reset_live_animation_runtime_from_active_package_or_log_exception();
