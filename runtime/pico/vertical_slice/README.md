@@ -11,18 +11,33 @@
 
 ## ビルド（Windows / PowerShell の例）
 
-`docs/pico-bringup.md` と同様に `.pico-work/` を用意し、`pio` をvenvへ隔離する。
+`docs/pico-bringup.md` と同様に、PlatformIO は `uv` で作った `.pico-work/venv` に隔離する。
+グローバルの `pio` / `platformio` は使わない。
 
 ```powershell
 $repoRoot = (Get-Location).Path
 $picoWorkRoot = Join-Path $repoRoot '.pico-work'
+$picoVenvPath = Join-Path $picoWorkRoot 'venv'
+$picoVenvPython = Join-Path $picoVenvPath 'Scripts\python.exe'
+
+# 初回だけ実行する。既存の venv がある場合も、依存が足りなければ uv が補完する。
+uv venv $picoVenvPath
+uv pip install --python $picoVenvPython platformio pyserial
+
 $env:PLATFORMIO_CORE_DIR = Join-Path $picoWorkRoot 'platformio-core'
 $env:PLATFORMIO_GLOBALLIB_DIR = Join-Path $picoWorkRoot 'platformio-global-lib'
 $env:PLATFORMIO_SETTING_ENABLE_TELEMETRY = 'false'
-$pio = Join-Path $picoWorkRoot 'venv\Scripts\pio.exe'
+$pio = Join-Path $picoVenvPath 'Scripts\pio.exe'
+
 Push-Location (Join-Path $repoRoot 'runtime\pico\vertical_slice')
 & $pio run
 Pop-Location
+```
+
+確認用に serial を読むときも、同じ venv の Python を使う。
+
+```powershell
+& $picoVenvPython scripts\pico\cpp17_probe\tools\capture_serial_log.py --port COM11 --baud 115200 --seconds 8
 ```
 
 ## golden 埋め込みの更新手順
@@ -68,5 +83,5 @@ trace schema=1 sim_ms=200 led0=0 btn0=0 dpy_fp=317a917e19c73405 vars=circle_x=28
 代表 capture:
 
 ```powershell
-python scripts\pico\cpp17_probe\tools\capture_serial_log.py --port COM11 --baud 115200 --seconds 8
+& $picoVenvPython scripts\pico\cpp17_probe\tools\capture_serial_log.py --port COM11 --baud 115200 --seconds 8
 ```

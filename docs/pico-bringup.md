@@ -20,7 +20,7 @@
 - Windows
 - Pico は MicroPython 書き込み後に USB serial device として `COM10` で認識された。
 - `uvx mpremote` で Pico に接続できた。
-- C++17 probe（PlatformIO）は `.pico-work/` に隔離して導入した（グローバル Python / グローバル PlatformIO は汚さない）。詳細は次節の `C++17 probe` を参照。
+- C++17 probe（PlatformIO）は `.pico-work/` に隔離して導入し、このドキュメントの手順ではグローバル Python / グローバル PlatformIO を使わない。詳細は次節の `C++17 probe` を参照。
 
 ## C++17 probe（PlatformIO / Arduino-Pico harness）
 
@@ -33,6 +33,7 @@
 ### 前提（隔離ビルド）
 
 - 依存はリポジトリ直下の `.pico-work/` に閉じる（`uv` venv と PlatformIO core をここへ向ける）。
+- グローバルの `pio` / `platformio` は使わない。PowerShell 上で `pio` 関数やユーザー site-packages の PlatformIO が見えていても、この手順では `.pico-work\venv\Scripts\pio.exe` を明示して呼ぶ。
 - PlatformIO プロジェクト: [`scripts/pico/cpp17_probe/`](../scripts/pico/cpp17_probe/)
 - 主要設定（詳細は `platformio.ini`）:
   - `platform = https://github.com/maxgerhardt/platform-raspberrypi.git`
@@ -44,10 +45,17 @@
 ```powershell
 $repoRoot = (Get-Location).Path
 $picoWorkRoot = Join-Path $repoRoot '.pico-work'
+$picoVenvPath = Join-Path $picoWorkRoot 'venv'
+$picoVenvPython = Join-Path $picoVenvPath 'Scripts\python.exe'
+
+uv venv $picoVenvPath
+uv pip install --python $picoVenvPython platformio pyserial
+
 $env:PLATFORMIO_CORE_DIR = Join-Path $picoWorkRoot 'platformio-core'
 $env:PLATFORMIO_GLOBALLIB_DIR = Join-Path $picoWorkRoot 'platformio-global-lib'
 $env:PLATFORMIO_SETTING_ENABLE_TELEMETRY = 'false'
-$pio = Join-Path $picoWorkRoot 'venv\Scripts\pio.exe'
+$pio = Join-Path $picoVenvPath 'Scripts\pio.exe'
+
 Push-Location (Join-Path $repoRoot 'scripts\pico\cpp17_probe')
 & $pio run
 & $pio run -t size
@@ -83,7 +91,7 @@ trace schema=1 sim_ms=200 led0=0 btn0=0 dpy_fp=317a917e19c73405 vars=circle_x=28
 - ホスト側の安定キャプチャ用に [`scripts/pico/cpp17_probe/tools/capture_serial_log.py`](../scripts/pico/cpp17_probe/tools/capture_serial_log.py) を置いた。
 
 ```powershell
-python scripts\pico\cpp17_probe\tools\capture_serial_log.py --port COM11 --baud 115200 --seconds 25
+& $picoVenvPython scripts\pico\cpp17_probe\tools\capture_serial_log.py --port COM11 --baud 115200 --seconds 25
 ```
 
 ### 実機ログ（代表値: 同一条件で安定再掲されていた）
