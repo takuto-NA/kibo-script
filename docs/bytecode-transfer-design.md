@@ -4,6 +4,7 @@
 
 - 現状の合格ラインは **versioned JSON の runtime IR contract** と **replay steps** による conformance である（`docs/runtime-conformance.md`）。
 - firmware rebuild なしに script を差し替える段階では、JSON より **compact binary** が必要になる（帯域・flash・parse コスト）。
+- runtime / Pico 対応全体の引き継ぎと次タスクは [`docs/runtime-pico-handoff.md`](runtime-pico-handoff.md) を参照する。
 
 ## 設計方針（推奨）
 

@@ -4,6 +4,7 @@
 
 - 「同じ runtime IR contract」「同じ replay steps」を入力したとき、**同じ `trace ...` 行**が得られることを合格条件とする。
 - compiler golden（`tests/compiler/fixture-runner.test.ts`）とは別に、**Pico が読む契約**と **実行時観測**だけを固定する。
+- runtime / Pico 対応全体の現在地と次タスクは [`docs/runtime-pico-handoff.md`](runtime-pico-handoff.md) を参照する。
 
 ## 対象 fixture（Phase 0）
 
