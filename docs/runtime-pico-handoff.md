@@ -95,6 +95,7 @@ Kibo Script fixture / browser.sc
 - USB Serial で次の trace が取得でき、TypeScript golden と一致した。
 - `examples/pico-runtime-samples/` の 5 サンプル（LED heartbeat / circle sweep / two-circle chase / growing circle / button event toggle）は、`run_pico_runtime_samples.py --port auto --repo-root . --capture-seconds 8` で順に upload され、各 sample が TypeScript replay trace と Pico serial trace の一致まで確認済み。
 - 実機ボタンは `button#0..#4 = PIN24/25/26/27/29 = GP18/19/20/21/22`。loader firmware は物理押下の edge を live runtime の `button#N.pressed` に dispatch する。シミュレータ UI も同じ 5 ボタンを表示し、`Press` で対応する `button#N.pressed` を dispatch する。`button-led-toggle.sc` は `button#0`（PIN24 / GP18）で LED toggle する。
+- シミュレーター UI から `Run simulator & write to Pico` で Pico へ送る流れも動作確認済み。少なくとも `examples/pico-runtime-samples/led-heartbeat.sc` は、シミュレーターで compile / run した内容を `PicoRuntimePackage` 化し、USB Serial `KIBO_PKG` で Pico へ送り、実機側で LED heartbeat と trace 確認までできた。
 
 ```text
 trace schema=1 sim_ms=0 led0=0 btn0=0 dpy_fp=b9d103fd6854a325 vars=circle_x=20 sm=-
@@ -125,7 +126,6 @@ $pio = Join-Path $picoVenvPath 'Scripts\pio.exe'
 
 ## まだできないこと
 
-- シミュレーター UI から Pico へ **Web Serial 直送**するインターフェース
 - Pico flash への package 永続保存、OTA、暗号署名
 - Pico 側の bytecode / compact binary loader（設計は `docs/bytecode-transfer-design.md`）
 - USB Serial 以外の転送経路（Wi-Fi 等）

@@ -75,6 +75,8 @@ Pop-Location
 - OLED では circle が 100ms tick で右へ動き、約 3.2 秒ごとに左側から再開する。
 - USB Serial は `COM11` として再認識され、conformance 用の `trace ...` 3 行が約 5 秒ごとに再送される。
 - `pio run -t upload` は BOOTSEL には入ったが `picotool` が driver 権限で接続できなかったため、`RPI-RP2` へ `firmware.uf2` をコピーして書き込んだ。
+- その後、loader firmware + `KIBO_PKG` により firmware rebuild なしで `PicoRuntimePackage` を RAM 差し替えできるところまで確認した。
+- `examples/pico-runtime-samples/led-heartbeat.sc` はシミュレーター UI の `Run simulator & write to Pico` から Pico へ送信し、実機 LED heartbeat と trace 照合まで確認済み。
 
 確認できた trace:
 

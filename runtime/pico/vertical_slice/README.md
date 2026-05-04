@@ -138,6 +138,11 @@ Chrome / Edge の localhost など Web Serial が使える環境では、script 
 
 Web Serial が使えないブラウザではボタンは無効化される。その場合は上記の `pico_link_check.py --source-script ...` を使う。
 
+実機確認（2026-05-04）:
+
+- `examples/pico-runtime-samples/led-heartbeat.sc` は `Run simulator & write to Pico` で Pico へ送信でき、実機側で LED heartbeat と trace 照合まで確認済み。
+- この UI 経路は `PicoRuntimePackage` を RAM に差し替える開発用フローであり、Pico flash への永続保存はまだ行わない。
+
 ## package の転送（開発用）
 
 ```powershell
