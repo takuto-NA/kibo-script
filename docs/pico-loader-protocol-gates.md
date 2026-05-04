@@ -1,0 +1,44 @@
+# 責務: USB Serial `KIBO_PKG` loader の **negative / 復旧** acceptance gate を列挙し、実機手順で再現できるようにする。
+
+親ドキュメント: [`docs/runtime-pico-handoff.md`](runtime-pico-handoff.md)  
+最終判定: [`docs/pico-runtime-risk-burn-down-summary.md`](pico-runtime-risk-burn-down-summary.md)
+
+## ファーム側の固定上限（コード根拠）
+
+`runtime/pico/vertical_slice/src/main.cpp` より（変更時は本文も更新すること）:
+
+| 定数 | 値 | 意味 |
+| --- | ---: | --- |
+| `k_max_serial_line_characters` | 16384 | 1 行 `KIBO_PKG ...` の最大文字数（超過は行バッファ破棄寄りの扱い） |
+| `k_max_decoded_package_bytes` | 12288 | Base64 decode 後の JSON バイト上限 |
+
+**暫定ポリシー**: minified `PicoRuntimePackage` UTF-8 が **12288 bytes 以下**であることを preflight（ホスト側）で警告〜拒否できると安全。
+
+## Positive gate（既存）
+
+| ID | 手順 | 合格条件 |
+| --- | --- | --- |
+| `LOADER-PING-001` | `python .../pico_link_doctor.py --port <COM>` | `kibo_loader status=ok protocol=1 ...` が返る |
+| `LOADER-PKG-OK-001` | `upload_pico_runtime_package.py --package-file <valid.json>` | `kibo_pkg_ack status=ok` の後、期待 trace が出る |
+
+## Negative / stress gate（実機）
+
+| ID | 入力 | 期待 | 復旧手順 |
+| --- | --- | --- | --- |
+| `LOADER-PKG-LEN-001` | `send_invalid_kibo_pkg_length.py`（宣言 `bytes` と実データ不一致） | `kibo_pkg_ack status=error` または明確な拒否ログ。ファームが panic しない | 続けて **valid** `KIBO_PKG` を送る |
+| `LOADER-PKG-CRC-001` | ホスト側で意図的に壊した CRC（手編集 1 行） | 拒否され、**直前の active package** が実行を継続（壊れた中身に切り替わらない） | valid package を再送 |
+| `LOADER-PKG-B64-001` | 不正 Base64（パディング破壊） | 拒否 | valid を再送 |
+| `LOADER-PKG-JSON-001` | 正しい Base64 だが JSON が壊れている | 拒否 | valid を再送 |
+| `LOADER-PKG-SCHEMA-001` | JSON はあるが `picoRuntimePackageSchemaVersion` 不一致 | 拒否 | スキーマを揃えた package を送る |
+| `LOADER-PKG-SIZE-001` | `k_max_decoded_package_bytes` を超える minified package | 拒否（または行長制限で拒否） | 縮小した IR / bytecode 化（別計画） |
+| `LOADER-PKG-REPEAT-001` | 同一 valid package を **20 回連続** upload | 毎回 ack OK、trace が安定 | なし |
+| `LOADER-PING-RACE-001` | シリアルモニタがポートを掴んだ状態で ping | 失敗しても **診断メッセージが分かる**（Windows は `pico_link_common` の Permission hint） | モニタ終了 → 再実行 |
+
+## ホスト側で追加するとよい sender（未実装なら「次タスク」）
+
+- `send_invalid_kibo_pkg_crc.py`（既存 golden package の CRC のみ改変）
+- `send_oversized_kibo_pkg.py`（パディングで `bytes` を一致させつつ decode 後が巨大、など）
+
+## 調査ログの記録場所
+
+実測した「最大通過 package サイズ」「拒否メッセージ文言」は `docs/pico-bringup.md` か [`docs/runtime-pico-handoff.md`](runtime-pico-handoff.md) の実機メモに追記する。

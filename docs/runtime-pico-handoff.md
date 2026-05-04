@@ -17,7 +17,82 @@ Kibo Script fixture / browser.sc
   -> USB Serial trace / OLED display
 ```
 
-シミュレーター UI からは **runtime IR contract の copy/download**、**`PicoRuntimePackage` の download（trace var 指定可）**、および **CLI / one-shot 手順のヒント**まで。Pico への実送信は **Python uploader + USB Serial** を正とする（将来 Web Serial は別タスク）。
+シミュレーター UI からは **runtime IR contract の copy/download**、**`PicoRuntimePackage` の download（trace var 指定可）**、**Web Serial による `Run simulator & write to Pico`（Chromium 系）**、および **CLI one-shot 手順**まで。権限エラーやヘッドレス検証の **再現に強い正**は [`scripts/pico/runtime_vertical_slice/tools/pico_link_check.py`](../scripts/pico/runtime_vertical_slice/tools/pico_link_check.py) 等の **Python + pyserial**（手順は [`docs/pico-simulator-to-pico-ux-audit.md`](pico-simulator-to-pico-ux-audit.md)）。
+
+## Risk burn-down 成果物（索引）
+
+Burn-down 計画の分割ドキュメント（**plan ファイル本体は編集しない**）。
+
+| 内容 | ドキュメント |
+| --- | --- |
+| 最終 Go / Fix / Redesign 判定（1 ページ） | [`docs/pico-runtime-risk-burn-down-summary.md`](pico-runtime-risk-burn-down-summary.md) |
+| Semantics probe（fixture 名・gate 順） | [`docs/pico-semantics-probe-suite.md`](pico-semantics-probe-suite.md) |
+| Loader negative / 上限 | [`docs/pico-loader-protocol-gates.md`](pico-loader-protocol-gates.md) |
+| Web Serial / CLI UX | [`docs/pico-simulator-to-pico-ux-audit.md`](pico-simulator-to-pico-ux-audit.md) |
+| Flash 永続化 gate | [`docs/pico-flash-persistence-gate.md`](pico-flash-persistence-gate.md) |
+| JSON vs bytecode 閾値 | [`docs/bytecode-transfer-design.md`](bytecode-transfer-design.md) |
+| 最終 soak（最後の gate） | [`docs/pico-final-soak-and-resource-gate.md`](pico-final-soak-and-resource-gate.md) |
+
+## Risk burn-down: baseline matrix（再現の固定）
+
+### 1) `examples/pico-runtime-samples`（5 本）と主な IR 要素
+
+| sample `name` | ソース | 主な IR 要素（概念） | コミット済み `PicoRuntimePackage` golden |
+| --- | --- | --- | --- |
+| `led-heartbeat` | `led-heartbeat.sc` | `every` / `led#0.toggle` | `blink-led.pico-runtime-package.json` と同等系 |
+| `circle-sweep` | `circle-sweep.sc` | `every` / `const` / `var` / `display#0` / 算術 `+` | `circle-animation.pico-runtime-package.json` と同等系 |
+| `two-circle-chase` | `two-circle-chase.sc` | 上記 + `temp` + 複数 `circle` | golden は未コミット（`pico-runtime-samples.test.ts` で生成検証） |
+| `growing-circle` | `growing-circle.sc` | `every` / `var` 半径 + `display#0` | 同上 |
+| `button-led-toggle` | `button-led-toggle.sc` | `on_event` `button#0.pressed` / `led#0.toggle` | `button-toggle-on-event.pico-runtime-package.json` と同等系 |
+
+### 2) 到達パス（どこから package が来るか）
+
+| パス | 実機 USB | 備考 |
+| --- | --- | --- |
+| A. 埋め込み default package | 不要（起動直後の挙動） | `runtime/pico/vertical_slice/include/embedded_default_pico_runtime_package.hpp` |
+| B. `KIBO_PKG` RAM 差し替え | 必須 | UI Web Serial（`script-runner-view.ts`）または `upload_pico_runtime_package.py` / `pico_link_check.py` |
+| C. TypeScript のみ | 不要 | golden / `npm test` |
+
+### 3) `KiboHostRuntime`（C++ / Pico 共有）の IR 対応（`supported` / `partial` / `unsupported`）
+
+| 分類 | 内容 |
+| --- | --- |
+| `supported` | `runtimeIrContractSchemaVersion == 1` の root / `compiledProgram` object、`varInitializers` / `constInitializers`、`everyTasks` / `onEventTasks`（`triggerKind == device_event` のみ）、statement: `do_method_call`（`led#0` toggle/on/off、`display#0` clear/circle/present）、`assign_var`、`assign_temp`、expression: `integer_literal`、`var_reference`、`const_reference`、`temp_reference`、`binary_add/sub/mul/div`、`unary_minus`、`dt_interval_ms`（`every` 文脈のみ） |
+| `partial` | `every` タスク本体の `wait_milliseconds`（`drain_every_task_body` のみ resume 管理）。`on_event` 同期実行パスでは `wait` を同様に扱う **MVP 外**（要 probe） |
+| `unsupported`（明示的に throw） | `stateMembershipPath` 付き task、`onEvent` の `triggerKind != device_event`、上記以外の statement / expression / `do_method_call` 先、`if` / `match` / `loop` など |
+
+`unknown` は **コンパイラが新フィールドを出した場合**にホストが黙殺しないよう、テストで検知する（現状は throw 方針）。
+
+### 4) 再現コマンド（コピペ用）
+
+| 目的 | 実機 | コマンド例 |
+| --- | --- | --- |
+| 単体・golden | 不要 | `npm test` |
+| E2E（ブラウザ） | 不要（既定） | `npm run test:e2e` |
+| Pico ビルド | 不要（ツールチェーンのみ） | `.pico-work/venv` の `pio.exe run`（手順は [`runtime/pico/vertical_slice/README.md`](../runtime/pico/vertical_slice/README.md)） |
+| 1 本 upload + trace 照合 | 要 | `python scripts/pico/runtime_vertical_slice/tools/pico_link_check.py --port auto --repo-root . --package-file <path>` または `--runtime-ir <path>` |
+| 5 サンプル連続 | 要 | `python scripts/pico/runtime_vertical_slice/tools/run_pico_runtime_samples.py --port auto --repo-root . --capture-seconds 8` |
+| MVP 一括 acceptance | 要 | `python scripts/pico/runtime_vertical_slice/tools/run_mvp_hardware_acceptance.py --port auto --repo-root .` |
+| loader 診断 | 要 | `python scripts/pico/runtime_vertical_slice/tools/pico_link_doctor.py --port auto` |
+| negative（宣言長不一致） | 要 | `python scripts/pico/runtime_vertical_slice/tools/send_invalid_kibo_pkg_length.py --port auto`（詳細は [`docs/pico-loader-protocol-gates.md`](pico-loader-protocol-gates.md)） |
+
+### 5) コミット済み golden package サイズ（UTF-8 ファイル byte 数の目安）
+
+計測日: 2026-05-04（再現: リポジトリ上のファイルをバイト数計測）
+
+| ファイル | bytes |
+| --- | ---: |
+| `tests/runtime-conformance/golden/pico-runtime-packages/blink-led.pico-runtime-package.json` | 1377 |
+| `tests/runtime-conformance/golden/pico-runtime-packages/button-toggle-on-event.pico-runtime-package.json` | 1636 |
+| `tests/runtime-conformance/golden/pico-runtime-packages/circle-animation.pico-runtime-package.json` | 2812 |
+
+ファーム側 decode 上限 **12288 bytes**（`main.cpp`）に対し十分な余裕。肥大化したら [`docs/bytecode-transfer-design.md`](bytecode-transfer-design.md) の閾値へ。
+
+### 6) MVP 土台判定（baseline 固定の結論）
+
+- **Go**: 上記 5 サンプル + `KIBO_PKG` + trace 照合 +（Chromium で）Web Serial 書き込みまで成立。baseline は本節で固定。
+- **Fix first**: loader negative sender 追加、UX エラー文言の恒常的な復旧手順同梱（summary 参照）。
+- **Redesign**: flash 永続化、bytecode、full semantics（`stateMembershipPath` 等）は別 gate。
 
 ## 実装済み
 
@@ -131,7 +206,7 @@ $pio = Join-Path $picoVenvPath 'Scripts\pio.exe'
 - USB Serial 以外の転送経路（Wi-Fi 等）
 - C++ runtime の full semantics
   - `loop`
-  - full `wait`
+  - `wait_milliseconds` の **一般**対応（現状は **`every` タスク本体**に限定。`on_event` 同期実行パスは未整理）
   - `if`
   - `match`
   - state machine
@@ -190,13 +265,13 @@ Simulator to Pico の **MVP（runtime IR export + `PicoRuntimePackage` + `KIBO_P
 - JSON contract と binary contract の roundtrip が通る。
 - Pico が invalid bytecode を拒否できる。
 
-### 4. シミュレーター UI から Pico へ Web Serial で送る（任意）
+### 4. シミュレーター UI から Pico へ Web Serial で送る
 
-重要度: 低〜中  
-難易度: 高  
-リスク: 高（ブラウザ / OS 差）
+重要度: 中（開発体験の主経路）  
+難易度: 高（ブラウザ / OS 差）  
+リスク: 中（CLI で常に切り替え可能）
 
-- 現状は CLI helper が低リスクの正。Web Serial は後追いでよい。
+- Chromium 系では `Run simulator & write to Pico` が **MVP 動作済み**。失敗系の手順は [`docs/pico-simulator-to-pico-ux-audit.md`](pico-simulator-to-pico-ux-audit.md)。
 
 ## 注意点
 

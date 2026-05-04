@@ -40,3 +40,42 @@
 - string / identifier の最大長、task / statement の最大個数
 - numeric は int32 固定か、varint か
 - display framebuffer は contract に含めない（デバイス側生成物のため）
+
+## JSON 継続 / bytecode 着手の判断材料（Risk burn-down Phase 6）
+
+### ファームウェア側の実測上限（コード定数）
+
+`runtime/pico/vertical_slice/src/main.cpp`:
+
+- **Base64 decode 後の JSON 上限**: 12288 bytes（`k_max_decoded_package_bytes`）
+- **1 行シリアル上限**: 16384 characters（`k_max_serial_line_characters`）
+
+minified `PicoRuntimePackage` は **常に decode 上限以下**であることをホスト側で検査できるとよい（超過は `Redesign` または bytecode 化）。
+
+### 既知の package サイズ（コミット済み golden）
+
+計測は **ファイルの UTF-8 byte 長**（2026-05-04 時点のリポジトリ）。
+
+| artifact | bytes |
+| --- | ---: |
+| `blink-led.pico-runtime-package.json` | 1377 |
+| `button-toggle-on-event.pico-runtime-package.json` | 1636 |
+| `circle-animation.pico-runtime-package.json` | 2812 |
+
+### 着手条件（bytecode encoder / decoder）
+
+次のいずれかを満たしたら **bytecode のスパイク実装**を優先する。
+
+1. minified JSON が **decode 上限の 80%（9830 bytes）** を超えそう（余裕がなくなる）
+2. `nlohmann::json` parse が **ソフトリアルタイム要件**を満たせない（`SOAK-PARSE-001` で計測し閾値超え）
+3. flash 永続化で JSON を置くと **セクタ消費が非現実**（[`docs/pico-flash-persistence-gate.md`](pico-flash-persistence-gate.md)）
+
+### JSON 開発フローを続ける期限（現状）
+
+MVP 範囲では JSON のまま **Go**。上限接近の監視だけ継続する。
+
+### 実測手順（5 サンプル + parse / upload 時間）
+
+1. `npm test` 内の `pico-runtime-samples.test.ts` または `npm run build-pico-runtime-package` で package を生成する。
+2. PowerShell 例: `(Get-Item package.json).Length` で byte 長。
+3. 実機: `pico_link_check.py` の前後でホスト時刻を記録し、人間可読ログに残す（詳細は [`docs/pico-final-soak-and-resource-gate.md`](pico-final-soak-and-resource-gate.md)）。

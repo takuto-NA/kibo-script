@@ -4,7 +4,7 @@
 
 このドキュメントは、Kibo Script の現在地と、将来的に Raspberry Pi Pico 系ボード上で動作させるための方向性を共有するための入口である。
 
-詳細な現状は [`STATUS.md`](STATUS.md)、言語の使い方は [`CHEATSHEET.md`](CHEATSHEET.md)、仕様メモは [`draft.md`](draft.md)、Pico 実機確認メモは [`docs/pico-bringup.md`](docs/pico-bringup.md)、runtime conformance（trace / IR contract / C++ host replay）の入口は [`docs/runtime-conformance.md`](docs/runtime-conformance.md) を参照する。runtime / Pico 対応の引き継ぎと次タスクは [`docs/runtime-pico-handoff.md`](docs/runtime-pico-handoff.md) にまとめている。
+詳細な現状は [`STATUS.md`](STATUS.md)、言語の使い方は [`CHEATSHEET.md`](CHEATSHEET.md)、仕様メモは [`draft.md`](draft.md)、Pico 実機確認メモは [`docs/pico-bringup.md`](docs/pico-bringup.md)、runtime conformance（trace / IR contract / C++ host replay）の入口は [`docs/runtime-conformance.md`](docs/runtime-conformance.md) を参照する。runtime / Pico 対応の引き継ぎと次タスクは [`docs/runtime-pico-handoff.md`](docs/runtime-pico-handoff.md) にまとめている。Pico runtime のリスク洗い出しの最終判定（Go / Fix / Redesign）は [`docs/pico-runtime-risk-burn-down-summary.md`](docs/pico-runtime-risk-burn-down-summary.md)。
 
 ## 現在の位置づけ
 
