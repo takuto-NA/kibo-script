@@ -47,3 +47,57 @@ test("download Pico package before reset compile shows guidance in status", asyn
 
   await expect(page.getByRole("status")).toContainText("No successful reset compile yet", { timeout: 3000 });
 });
+
+test("Pico write action is discoverable from the script runner", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(page.getByTestId("script-runner-write-pico-button")).toHaveText("Run simulator & write to Pico");
+});
+
+test("Pico write action uploads through Web Serial and verifies trace", async ({ page }) => {
+  await page.addInitScript(() => {
+    const encoder = new TextEncoder();
+    let readable_controller: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const enqueue_line = (line: string) => {
+      readable_controller?.enqueue(encoder.encode(`${line}\n`));
+    };
+    const fake_port = {
+      readable: new ReadableStream<Uint8Array>({
+        start(controller) {
+          readable_controller = controller;
+        },
+      }),
+      writable: new WritableStream<Uint8Array>({
+        write(chunk) {
+          const text = new TextDecoder().decode(chunk);
+          if (text.includes("KIBO_PING")) {
+            enqueue_line("kibo_loader status=ok protocol=1 active=e2e-fake");
+          }
+          if (text.includes("KIBO_PKG")) {
+            enqueue_line("kibo_pkg_ack status=ok");
+            enqueue_line("trace schema=1 sim_ms=0 led0=0 btn0=0 dpy_fp=b9d103fd6854a325 vars=- sm=-");
+            enqueue_line("trace schema=1 sim_ms=1000 led0=1 btn0=0 dpy_fp=b9d103fd6854a325 vars=- sm=-");
+            enqueue_line("trace schema=1 sim_ms=2000 led0=0 btn0=0 dpy_fp=b9d103fd6854a325 vars=- sm=-");
+          }
+        },
+      }),
+      async open() {},
+      async close() {},
+    };
+
+    Object.defineProperty(navigator, "serial", {
+      configurable: true,
+      value: {
+        async requestPort() {
+          return fake_port;
+        },
+      },
+    });
+  });
+  await page.goto("/");
+
+  await page.getByTestId("script-runner-write-pico-button").click();
+
+  await expect(page.getByRole("status")).toContainText("ok: simulator and Pico matched", { timeout: 8000 });
+  await expect(page.getByRole("status")).toContainText("trace lines verified: 3");
+});

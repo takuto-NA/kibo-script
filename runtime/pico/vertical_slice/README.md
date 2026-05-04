@@ -118,6 +118,14 @@ npm run build-pico-runtime-package-from-script -- --input-script examples\pico-r
 & $picoVenvPython scripts\pico\runtime_vertical_slice\tools\run_pico_runtime_samples.py --port auto --repo-root .
 ```
 
+## Simulator UI から Pico へ書き込む
+
+Chrome / Edge の localhost など Web Serial が使える環境では、script runner に `Run simulator & write to Pico` ボタンが表示される。
+
+ボタンは現在の script を reset compile して simulator に反映し、同じ compiled program から `PicoRuntimePackage` を作り、ブラウザの serial port chooser で選んだ Pico へ `KIBO_PING` / `KIBO_PKG` を送る。最後に Pico の serial trace が TypeScript replay trace と一致するか確認する。
+
+Web Serial が使えないブラウザではボタンは無効化される。その場合は上記の `pico_link_check.py --source-script ...` を使う。
+
 ## package の転送（開発用）
 
 ```powershell

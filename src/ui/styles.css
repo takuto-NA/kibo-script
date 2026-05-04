@@ -238,6 +238,15 @@ body {
   background: #2ea043;
 }
 
+.script-runner-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.script-runner-button:disabled:hover {
+  background: #238636;
+}
+
 .script-runner-button-secondary {
   background: #21262d;
   color: #c9d1d9;
@@ -246,6 +255,23 @@ body {
 
 .script-runner-button-secondary:hover {
   background: #30363d;
+}
+
+.script-runner-button-secondary:disabled:hover {
+  background: #21262d;
+}
+
+.script-runner-button-primary-action {
+  background: #1f6feb;
+  border-color: #388bfd;
+}
+
+.script-runner-button-primary-action:hover {
+  background: #388bfd;
+}
+
+.script-runner-button-primary-action:disabled:hover {
+  background: #1f6feb;
 }
 
 .script-runner-result {
