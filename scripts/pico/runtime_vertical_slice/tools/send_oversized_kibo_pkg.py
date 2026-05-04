@@ -3,6 +3,10 @@
 Responsibility: send a minified JSON package whose UTF-8 byte length exceeds the firmware decode cap (`package_too_large`),
 then optionally re-upload a known-good smaller package to prove recovery.
 
+Guard: 現行 1 行 `KIBO_PKG` では、decode 上限（12288 bytes）を超える payload の Base64 化が **シリアル 1 行上限（16384 文字）**
+を超えるため、実機では `kibo_pkg_ack ... package_too_large` ではなく `trace ... diag=serial_line_too_long` が出ることがある。
+いずれも「巨大 package を拒否し active を壊さない」negative として扱う（詳細は docs/pico-loader-protocol-gates.md）。
+
 Example:
 
     python scripts/pico/runtime_vertical_slice/tools/send_oversized_kibo_pkg.py --port auto
@@ -18,7 +22,7 @@ from pathlib import Path
 
 import pico_link_common as common
 
-NEGATIVE_GATE_ACK_TIMEOUT_SECONDS = 6.0
+NEGATIVE_GATE_ACK_TIMEOUT_SECONDS = 8.0
 RECOVERY_PACKAGE_ACK_TIMEOUT_SECONDS = 8.0
 OVERSIZED_TARGET_MIN_DECODED_BYTES = common.KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES + 256
 
@@ -61,19 +65,14 @@ def parse_arguments_or_exit(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def resolve_default_blink_led_pico_runtime_package_json_path_or_raise(*, tools_file_path: Path) -> Path:
-    repository_root = common.resolve_repository_root_from_tools_file(tools_file_path=tools_file_path)
-    candidate_path = (
-        repository_root
-        / "tests"
-        / "runtime-conformance"
-        / "golden"
-        / "pico-runtime-packages"
-        / "blink-led.pico-runtime-package.json"
-    )
-    if not candidate_path.is_file():
-        raise FileNotFoundError(f"Default blink-led package missing: {candidate_path}")
-    return candidate_path
+def negative_oversized_gate_passed_from_serial_lines(*, serial_lines: list[str]) -> bool:
+    # Guard: accept either true decode rejection or serial line buffer rejection (see module docstring).
+    for line in serial_lines:
+        if line.startswith("kibo_pkg_ack") and "status=error" in line and "package_too_large" in line:
+            return True
+        if "diag=serial_line_too_long" in line:
+            return True
+    return False
 
 
 def main() -> None:
@@ -100,6 +99,15 @@ def main() -> None:
         minimum_decoded_byte_count=OVERSIZED_TARGET_MIN_DECODED_BYTES,
     )
     oversized_line_text = common.build_kibo_pkg_serial_line_from_utf8_json_bytes(oversized_minified_bytes)
+    line_character_count = common.count_kibo_pkg_serial_line_characters_excluding_final_newline(
+        kibo_pkg_line_text=oversized_line_text,
+    )
+    if line_character_count > common.KIBO_FIRMWARE_MAX_SERIAL_LINE_CHARACTERS:
+        print(
+            f"NOTE: KIBO_PKG line is {line_character_count} characters "
+            f"(firmware max single line: {common.KIBO_FIRMWARE_MAX_SERIAL_LINE_CHARACTERS}). "
+            "Expect `diag=serial_line_too_long` rather than `package_too_large` on current framing.",
+        )
 
     port_path = common.resolve_serial_port_path_for_vertical_slice_or_exit(port_argument=arguments.port)
 
@@ -133,16 +141,18 @@ def main() -> None:
             deadline_monotonic=deadline_negative,
         )
         negative_ack = common.find_first_kibo_pkg_ack_line(negative_lines)
-        if negative_ack is None:
-            print("FAIL: expected kibo_pkg_ack for oversized package negative gate.", file=sys.stderr)
-            raise SystemExit(1)
-        print(negative_ack)
-        if "status=error" not in negative_ack or "package_too_large" not in negative_ack:
-            print("FAIL: expected kibo_pkg_ack status=error with package_too_large.", file=sys.stderr)
+        if negative_ack is not None:
+            print(negative_ack)
+
+        if not negative_oversized_gate_passed_from_serial_lines(serial_lines=negative_lines):
+            print("FAIL: expected package_too_large ack or serial_line_too_long diagnostic.", file=sys.stderr)
+            print("Captured lines (last 40):", file=sys.stderr)
+            for line in negative_lines[-40:]:
+                print(line, file=sys.stderr)
             raise SystemExit(1)
 
         if arguments.no_recover or recover_path is None:
-            print("OK: package_too_large negative gate passed (recovery skipped).")
+            print("OK: oversized / over-long-line negative gate passed (recovery skipped).")
             return
 
         minified_recovery_bytes = common.read_minified_pico_runtime_package_utf8_bytes_from_json_path_or_raise(
@@ -155,7 +165,7 @@ def main() -> None:
             expected_ack_substring="status=ok",
         )
         print(recovery_ack)
-        print("OK: package_too_large negative gate passed and recovery upload acked ok.")
+        print("OK: oversized / over-long-line negative gate passed and recovery upload acked ok.")
     finally:
         serial_port.close()
 

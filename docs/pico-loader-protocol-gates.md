@@ -30,7 +30,7 @@
 | `LOADER-PKG-B64-001` | 不正 Base64（パディング破壊） | 拒否 | valid を再送 |
 | `LOADER-PKG-JSON-001` | 正しい Base64 だが JSON が壊れている | 拒否 | valid を再送 |
 | `LOADER-PKG-SCHEMA-001` | JSON はあるが `picoRuntimePackageSchemaVersion` 不一致 | 拒否 | スキーマを揃えた package を送る |
-| `LOADER-PKG-SIZE-001` | `k_max_decoded_package_bytes` を超える minified package | 拒否（または行長制限で拒否） | 縮小した IR / bytecode 化（別計画） |
+| `LOADER-PKG-SIZE-001` | `send_oversized_kibo_pkg.py`（decode 後が `k_max_decoded_package_bytes` を超える minified JSON を組み立てる） | **通常**: 1 行が `k_max_serial_line_characters` を超えるため `trace ... diag=serial_line_too_long`（`main.cpp`）。将来フレーミングが拡張されれば `kibo_pkg_ack ... package_too_large` になり得る。ファームが panic しない | valid を再送 |
 | `LOADER-PKG-REPEAT-001` | 同一 valid package を **20 回連続** upload | 毎回 ack OK、trace が安定 | なし |
 | `LOADER-PING-RACE-001` | シリアルモニタがポートを掴んだ状態で ping | 失敗しても **診断メッセージが分かる**（Windows は `pico_link_common` の Permission hint） | モニタ終了 → 再実行 |
 
@@ -46,6 +46,8 @@
 | `send_invalid_kibo_pkg_frame.py --kind unsupported_schema` | `LOADER-PKG-SCHEMA-001` |
 
 既定の `--port auto` と、negative 後の **valid package 再送（復旧）** は各スクリプトが `--recover-package-file`（省略時は blink-led golden）で実行する。
+
+**注意（SIZE）**: decode 上限を超える UTF-8 を 1 行 Base64 で送ると、多くの場合 **行長上限の方が先に効く**（`serial_line_too_long`）。`send_oversized_kibo_pkg.py` は両方を合格扱いにする。
 
 ## 調査ログの記録場所
 

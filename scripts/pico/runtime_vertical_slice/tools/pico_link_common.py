@@ -21,6 +21,8 @@ from typing import Any, Iterable
 KIBO_USB_SERIAL_BAUD_RATE = 115200
 # Guard: `k_max_decoded_package_bytes` in `runtime/pico/vertical_slice/src/main.cpp` — negative gate scripts must stay aligned.
 KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES = 12288
+# Guard: `k_max_serial_line_characters` in `runtime/pico/vertical_slice/src/main.cpp` — single-line `KIBO_PKG` 送信の上限。
+KIBO_FIRMWARE_MAX_SERIAL_LINE_CHARACTERS = 16384
 KIBO_NEGATIVE_GATE_OVERSIZED_PADDING_FIELD_NAME = "negativeGateOversizedPaddingFieldForLoaderProtocolGateOnly"
 KIBO_SERIAL_PING_COMMAND_TEXT = "KIBO_PING"
 KIBO_LOADER_STATUS_OK_PREFIX = "kibo_loader status=ok"
@@ -343,6 +345,11 @@ def build_kibo_pkg_serial_line_from_utf8_json_bytes(json_utf8_bytes: bytes) -> s
     base64_payload_text = base64.b64encode(json_utf8_bytes).decode("ascii")
     byte_count = len(json_utf8_bytes)
     return f"KIBO_PKG schema=1 bytes={byte_count} crc32={crc32_hex_text} b64={base64_payload_text}\n"
+
+
+def count_kibo_pkg_serial_line_characters_excluding_final_newline(*, kibo_pkg_line_text: str) -> int:
+    # Guard: firmware counts characters before newline toward `k_max_serial_line_characters`.
+    return len(kibo_pkg_line_text.rstrip("\n"))
 
 
 def build_kibo_pkg_serial_line_from_utf8_json_bytes_with_crc32_hex_override(

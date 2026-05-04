@@ -66,12 +66,29 @@ class PicoLinkCommonPureHelpersTest(unittest.TestCase):
         )
         self.assertGreater(len(oversized_utf8_bytes), common.KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES)
 
-    def test_oversized_builder_rejects_minimum_at_or_below_firmware_cap(self) -> None:
+    def test_oversized_builder_rejects_minimum_at_or_below_firmware_decode_cap(self) -> None:
         with self.assertRaises(ValueError):
             common.build_oversized_minified_package_utf8_bytes_from_template_object_or_raise(
                 template_package_object={"packageSchemaVersion": 1},
                 minimum_decoded_byte_count=common.KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES,
             )
+
+    def test_oversized_utf8_that_exceeds_decode_cap_produces_kibo_pkg_line_over_serial_limit(self) -> None:
+        repository_root = Path(__file__).resolve().parents[4]
+        blink_led_package_path = common.resolve_default_blink_led_golden_pico_runtime_package_json_path_or_raise(
+            repository_root=repository_root,
+        )
+        template_object = json.loads(blink_led_package_path.read_text(encoding="utf-8"))
+        oversized_utf8_bytes = common.build_oversized_minified_package_utf8_bytes_from_template_object_or_raise(
+            template_package_object=template_object,
+            minimum_decoded_byte_count=common.KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES + 1,
+        )
+        line_text = common.build_kibo_pkg_serial_line_from_utf8_json_bytes(oversized_utf8_bytes)
+        line_character_count = common.count_kibo_pkg_serial_line_characters_excluding_final_newline(
+            kibo_pkg_line_text=line_text,
+        )
+        self.assertGreater(len(oversized_utf8_bytes), common.KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES)
+        self.assertGreater(line_character_count, common.KIBO_FIRMWARE_MAX_SERIAL_LINE_CHARACTERS)
 
 
 if __name__ == "__main__":

@@ -80,7 +80,7 @@ npx tsx -e "import { readFileSync } from 'node:fs'; import { join } from 'node:p
 | `growing-circle` | 3361 | 4532 |
 | `button-led-toggle` | 1650 | 2248 |
 
-ファーム上限（`main.cpp`）: decode 後 **12288** bytes、1 行 **16384** characters。上表すべて十分な余裕（最大でも decode の **約 46%**）。
+ファーム上限（`main.cpp`）: decode 後 **12288** bytes、1 行 **16384** characters。1 行 Base64 で送ると **decode 上限を超える payload は行長上限を先に超える**ため、ホストが「12288 超え」を送ると実機では `serial_line_too_long` になり得る（`send_oversized_kibo_pkg.py` 参照）。
 
 ### 着手条件（bytecode encoder / decoder）
 

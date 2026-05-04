@@ -89,7 +89,7 @@ Pop-Location
 | --- | --- | --- | --- |
 | `LOADER-PKG-LEN-001` | `python scripts/pico/runtime_vertical_slice/tools/send_invalid_kibo_pkg_length.py --port auto` | （実機で記入） | （記入） |
 | `LOADER-PKG-CRC-001` | `python scripts/pico/runtime_vertical_slice/tools/send_invalid_kibo_pkg_crc.py --port auto` | （記入） | （記入） |
-| `LOADER-PKG-SIZE-001` | `python scripts/pico/runtime_vertical_slice/tools/send_oversized_kibo_pkg.py --port auto` | （記入） | （記入） |
+| `LOADER-PKG-SIZE-001` | `python scripts/pico/runtime_vertical_slice/tools/send_oversized_kibo_pkg.py --port auto` | `package_too_large` または `trace ... diag=serial_line_too_long`（いずれも negative 扱い） | （記入） |
 | `LOADER-PKG-B64-001` | `python scripts/pico/runtime_vertical_slice/tools/send_invalid_kibo_pkg_frame.py --port auto --kind invalid_base64` | （記入） | （記入） |
 | `LOADER-PKG-JSON-001` | `python scripts/pico/runtime_vertical_slice/tools/send_invalid_kibo_pkg_frame.py --port auto --kind invalid_json_utf8` | （記入） | （記入） |
 | `LOADER-PKG-SCHEMA-001` | `python scripts/pico/runtime_vertical_slice/tools/send_invalid_kibo_pkg_frame.py --port auto --kind unsupported_schema` | （記入） | （記入） |
