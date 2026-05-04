@@ -115,7 +115,16 @@ function assertStatementIsSupportedByPicoVerticalSliceOrThrow(statement: Executa
     }
     return;
   }
-  throw new Error(`Pico vertical slice does not support statement kind: ${statement.kind}`);
+  return throw_unreachable_executable_statement_for_pico_vertical_slice(statement);
+}
+
+function throw_unreachable_executable_statement_for_pico_vertical_slice(
+  unreachable_statement: never,
+): never {
+  void unreachable_statement;
+  throw new Error(
+    "Internal error: assertStatementIsSupportedByPicoVerticalSliceOrThrow is missing a branch for a new ExecutableStatement kind.",
+  );
 }
 
 function assertCompiledProgramIsSupportedByPicoVerticalSliceOrThrow(compiledProgram: CompiledProgram): void {

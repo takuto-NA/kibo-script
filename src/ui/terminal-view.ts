@@ -1,5 +1,11 @@
 import type { TerminalHistoryEntry } from "../interactive/terminal-session";
 import { TerminalSession } from "../interactive/terminal-session";
+import {
+  TERMINAL_AUTO_SCROLL_BOTTOM_THRESHOLD_PIXELS,
+  is_scroll_position_within_bottom_threshold_for_terminal_output,
+  should_show_jump_to_latest_button_for_terminal_output,
+  type ScrollMetricsForTerminalOutput,
+} from "./terminal-scroll-behavior";
 
 const PROMPT_TEXT = ">";
 
@@ -12,20 +18,54 @@ export type TerminalView = {
   focusInput(): void;
 };
 
+function read_scroll_metrics_from_terminal_output_element(output_element: HTMLElement): ScrollMetricsForTerminalOutput {
+  return {
+    scrollTopPixels: output_element.scrollTop,
+    clientHeightPixels: output_element.clientHeight,
+    scrollHeightPixels: output_element.scrollHeight,
+  };
+}
+
+function was_terminal_output_scrolled_to_bottom_or_near_bottom(output_element: HTMLElement): boolean {
+  return is_scroll_position_within_bottom_threshold_for_terminal_output({
+    scroll_metrics: read_scroll_metrics_from_terminal_output_element(output_element),
+    bottom_threshold_pixels: TERMINAL_AUTO_SCROLL_BOTTOM_THRESHOLD_PIXELS,
+  });
+}
+
+function scroll_terminal_output_to_bottom_if_needed(
+  output_element: HTMLElement,
+  should_scroll_to_bottom_after_append: boolean,
+): void {
+  if (should_scroll_to_bottom_after_append) {
+    output_element.scrollTop = output_element.scrollHeight;
+  }
+}
+
 /**
- * DOM terminal: scrollback, prompt, diagnostic JSON toggle.
+ * DOM terminal: scrollback, prompt, smart scroll, Jump to latest.
  */
-export function createTerminalView(
-  rootElement: HTMLElement,
-  session: TerminalSession,
-): TerminalView {
+export function createTerminalView(rootElement: HTMLElement, session: TerminalSession): TerminalView {
   const container = document.createElement("div");
   container.className = "terminal";
+
+  const toolbar = document.createElement("div");
+  toolbar.className = "terminal-output-toolbar";
+
+  const jump_to_latest_button = document.createElement("button");
+  jump_to_latest_button.type = "button";
+  jump_to_latest_button.className = "terminal-jump-latest-button";
+  jump_to_latest_button.setAttribute("data-testid", "terminal-jump-to-latest-button");
+  jump_to_latest_button.textContent = "Jump to latest";
+  jump_to_latest_button.hidden = true;
+
+  toolbar.appendChild(jump_to_latest_button);
 
   const output = document.createElement("div");
   output.className = "terminal-output";
   output.setAttribute("role", "log");
   output.setAttribute("aria-live", "polite");
+  output.setAttribute("data-testid", "terminal-output");
 
   const inputRow = document.createElement("div");
   inputRow.className = "terminal-input-row";
@@ -44,9 +84,27 @@ export function createTerminalView(
   inputRow.appendChild(prompt);
   inputRow.appendChild(input);
 
+  container.appendChild(toolbar);
   container.appendChild(output);
   container.appendChild(inputRow);
   rootElement.appendChild(container);
+
+  function update_jump_to_latest_button_visibility(): void {
+    const should_show = should_show_jump_to_latest_button_for_terminal_output({
+      scroll_metrics: read_scroll_metrics_from_terminal_output_element(output),
+      bottom_threshold_pixels: TERMINAL_AUTO_SCROLL_BOTTOM_THRESHOLD_PIXELS,
+    });
+    jump_to_latest_button.hidden = !should_show;
+  }
+
+  jump_to_latest_button.addEventListener("click", () => {
+    output.scrollTop = output.scrollHeight;
+    update_jump_to_latest_button_visibility();
+  });
+
+  output.addEventListener("scroll", () => {
+    update_jump_to_latest_button_visibility();
+  });
 
   let onSubmitLine: (line: string) => void = () => {
     // Optional hook for host (e.g. refresh canvas)
@@ -58,15 +116,21 @@ export function createTerminalView(
   let historyCursorIndex = 0;
   let draftInputBeforeHistoryNavigation = "";
 
-  function appendLine(text: string, className: string): void {
+  function append_line_element_to_output(text: string, className: string): void {
     const line = document.createElement("div");
     line.className = className;
     line.textContent = text;
     output.appendChild(line);
-    output.scrollTop = output.scrollHeight;
   }
 
-  function appendDiagnosticJson(report: TerminalHistoryEntry["diagnosticReport"]): void {
+  function append_output_line_with_smart_scroll(text: string, className: string): void {
+    const should_stick_to_bottom_before_append = was_terminal_output_scrolled_to_bottom_or_near_bottom(output);
+    append_line_element_to_output(text, className);
+    scroll_terminal_output_to_bottom_if_needed(output, should_stick_to_bottom_before_append);
+    update_jump_to_latest_button_visibility();
+  }
+
+  function append_diagnostic_json_block(report: TerminalHistoryEntry["diagnosticReport"]): void {
     if (report === undefined) {
       return;
     }
@@ -74,15 +138,17 @@ export function createTerminalView(
     jsonLine.className = "terminal-diagnostics-json";
     jsonLine.textContent = JSON.stringify(report, null, 2);
     output.appendChild(jsonLine);
-    output.scrollTop = output.scrollHeight;
   }
 
-  function appendHistoryEntry(entry: TerminalHistoryEntry): void {
-    appendLine(entry.input, "terminal-line-input");
+  function append_history_entry_with_smart_scroll(entry: TerminalHistoryEntry): void {
+    const should_stick_to_bottom_before_append = was_terminal_output_scrolled_to_bottom_or_near_bottom(output);
+    append_line_element_to_output(entry.input, "terminal-line-input");
     for (const out of entry.outputs) {
-      appendLine(out, "terminal-line-output");
+      append_line_element_to_output(out, "terminal-line-output");
     }
-    appendDiagnosticJson(entry.diagnosticReport);
+    append_diagnostic_json_block(entry.diagnosticReport);
+    scroll_terminal_output_to_bottom_if_needed(output, should_stick_to_bottom_before_append);
+    update_jump_to_latest_button_visibility();
   }
 
   function replaceInputValue(value: string): void {
@@ -149,9 +215,11 @@ export function createTerminalView(
     rememberSubmittedLine(line);
     onBeforeSubmitLine(line);
     const entry = session.submitLine(line);
-    appendHistoryEntry(entry);
+    append_history_entry_with_smart_scroll(entry);
     onSubmitLine(line);
   });
+
+  update_jump_to_latest_button_visibility();
 
   return {
     rootElement: container,
@@ -162,9 +230,11 @@ export function createTerminalView(
       onSubmitLine = handler;
     },
     appendOutputLine(line: string): void {
-      appendLine(line, "terminal-line-output");
+      append_output_line_with_smart_scroll(line, "terminal-line-output");
     },
-    appendHistoryEntry,
+    appendHistoryEntry(entry: TerminalHistoryEntry): void {
+      append_history_entry_with_smart_scroll(entry);
+    },
     focusInput(): void {
       input.focus();
     },

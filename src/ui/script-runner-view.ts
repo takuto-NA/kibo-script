@@ -12,6 +12,8 @@ import {
 } from "../runtime-conformance/build-pico-runtime-package-from-runtime-ir-contract";
 import { executeRuntimeConformanceReplayStepsAndCollectTraceLines } from "../runtime-conformance/execute-runtime-conformance-replay-steps-and-collect-trace-lines";
 import { serializeCompiledProgramToRuntimeIrContractJsonText } from "../runtime-conformance/serialize-compiled-program-to-runtime-ir-contract-json-text";
+import { create_script_runner_help_section } from "./script-runner-help-section";
+import { PICO_RUNTIME_SAMPLE_CATALOG_ENTRIES, type SampleCatalogEntry } from "./sample-catalog";
 
 const DEFAULT_SOURCE_FILE_NAME = "browser.sc";
 const DEFAULT_RUNTIME_IR_DOWNLOAD_FILE_NAME = "kibo-runtime-ir-contract.json";
@@ -59,6 +61,33 @@ type NavigatorWithKiboSerial = Navigator & {
 export type ScriptRunnerPanel = {
   rootElement: HTMLElement;
 };
+
+function find_default_sample_catalog_entry_or_throw(): SampleCatalogEntry {
+  const heartbeat_entry = PICO_RUNTIME_SAMPLE_CATALOG_ENTRIES.find((entry) => entry.sampleName === "led-heartbeat");
+  if (heartbeat_entry !== undefined) {
+    return heartbeat_entry;
+  }
+  const first_entry = PICO_RUNTIME_SAMPLE_CATALOG_ENTRIES[0];
+  if (first_entry === undefined) {
+    throw new Error("Sample catalog: no samples bundled.");
+  }
+  return first_entry;
+}
+
+function find_sample_catalog_entry_by_name_or_throw(sample_name: string): SampleCatalogEntry {
+  const entry = PICO_RUNTIME_SAMPLE_CATALOG_ENTRIES.find((row) => row.sampleName === sample_name);
+  if (entry === undefined) {
+    throw new Error(`Sample catalog: unknown sample name "${sample_name}".`);
+  }
+  return entry;
+}
+
+function format_trace_var_names_for_input_field(trace_var_names: readonly string[]): string {
+  if (trace_var_names.length === 0) {
+    return "";
+  }
+  return trace_var_names.join(", ");
+}
 
 function split_comma_separated_trace_var_names_or_undefined(trace_var_names_text: string): readonly string[] | undefined {
   const names = trace_var_names_text
@@ -295,18 +324,40 @@ export function createScriptRunnerPanel(params: {
   title.className = "script-runner-title";
   title.textContent = "StaticCore Script (compile)";
 
+  const default_sample_catalog_entry = find_default_sample_catalog_entry_or_throw();
+
+  const example_row = document.createElement("div");
+  example_row.className = "script-runner-example-row";
+
+  const example_label = document.createElement("label");
+  example_label.className = "script-runner-example-label";
+  example_label.textContent = "Example";
+  example_label.setAttribute("for", "script-runner-example-select");
+
+  const example_select = document.createElement("select");
+  example_select.id = "script-runner-example-select";
+  example_select.className = "script-runner-example-select";
+  example_select.setAttribute("data-testid", "script-runner-example-select");
+  example_select.setAttribute("aria-label", "Load a bundled example script");
+
+  for (const catalog_entry of PICO_RUNTIME_SAMPLE_CATALOG_ENTRIES) {
+    const option_element = document.createElement("option");
+    option_element.value = catalog_entry.sampleName;
+    option_element.textContent = catalog_entry.sampleName;
+    example_select.appendChild(option_element);
+  }
+  example_select.value = default_sample_catalog_entry.sampleName;
+
+  example_row.appendChild(example_label);
+  example_row.appendChild(example_select);
+
   const sourceTextArea = document.createElement("textarea");
   sourceTextArea.className = "script-runner-textarea";
   sourceTextArea.setAttribute("data-testid", "script-runner-textarea");
   sourceTextArea.rows = 8;
   sourceTextArea.setAttribute("aria-label", "Multiline script source");
   sourceTextArea.spellcheck = false;
-  sourceTextArea.value = `ref led = led#0
-
-task blink every 1000ms {
-  do led.toggle()
-}
-`;
+  sourceTextArea.value = default_sample_catalog_entry.sourceText;
 
   const buttonRow = document.createElement("div");
   buttonRow.className = "script-runner-button-row";
@@ -356,6 +407,18 @@ task blink every 1000ms {
   traceVarInput.type = "text";
   traceVarInput.setAttribute("aria-label", "Comma-separated script variable names for Pico trace export");
   traceVarInput.placeholder = "circle_x (leave blank to use defaults)";
+  traceVarInput.value = format_trace_var_names_for_input_field(default_sample_catalog_entry.traceVarNames);
+
+  function apply_sample_catalog_entry_to_editor(entry: SampleCatalogEntry): void {
+    sourceTextArea.value = entry.sourceText;
+    traceVarInput.value = format_trace_var_names_for_input_field(entry.traceVarNames);
+  }
+
+  example_select.addEventListener("change", () => {
+    const selected_sample_name = example_select.value;
+    const selected_entry = find_sample_catalog_entry_by_name_or_throw(selected_sample_name);
+    apply_sample_catalog_entry_to_editor(selected_entry);
+  });
 
   const downloadPicoPackageButton = document.createElement("button");
   downloadPicoPackageButton.type = "button";
@@ -371,23 +434,10 @@ task blink every 1000ms {
   if (resolve_browser_serial_api_or_undefined() === undefined) {
     writePicoButton.disabled = true;
     writePicoButton.title =
-      "Web Serial is not available in this browser. Use Chrome/Edge on localhost, or run pico_link_check.py (see status panel hints after clicking if enabled).";
+      "Web Serial is not available in this browser. Use Chrome/Edge on localhost, or run pico_link_check.py (see Help panel).";
   }
 
-  const mvpNote = document.createElement("div");
-  mvpNote.className = "script-runner-mvp-note";
-  mvpNote.textContent =
-    "Pico MVP: export/write infers live tick from the first `every` task interval (or defaults), replay steps from every/on_event tasks, and includes `circle_x` in trace when declared. Browser write uses Web Serial; if unavailable, use the CLI hint below.";
-
-  const cliHintPre = document.createElement("pre");
-  cliHintPre.className = "script-runner-cli-hint";
-  cliHintPre.textContent = [
-    "Pico MVP: build a package in the UI, or use npm script + pyserial.",
-    `Loader install (Windows UF2 helper): python ${INSTALL_PICO_LOADER_SCRIPT_RELATIVE_PATH}`,
-    "  npm run build-pico-runtime-package -- --input kibo-runtime-ir-contract.json --output package.json",
-    `  python ${UPLOAD_PICO_RUNTIME_PACKAGE_SCRIPT_RELATIVE_PATH} --port auto --package-file package.json`,
-    "Golden packages for the three MVP fixtures live under tests/runtime-conformance/golden/pico-runtime-packages/.",
-  ].join("\n");
+  const help_section = create_script_runner_help_section();
 
   function runCompile(registrationMode: "reset" | "add"): void {
     const loadResult = compileSourceAndRegisterSimulationTasks({
@@ -689,11 +739,11 @@ task blink every 1000ms {
   exportRow.appendChild(writePicoButton);
 
   rootElement.appendChild(title);
+  rootElement.appendChild(example_row);
   rootElement.appendChild(sourceTextArea);
   rootElement.appendChild(buttonRow);
   rootElement.appendChild(exportRow);
-  rootElement.appendChild(mvpNote);
-  rootElement.appendChild(cliHintPre);
+  rootElement.appendChild(help_section.rootElement);
   rootElement.appendChild(resultPre);
 
   return { rootElement };

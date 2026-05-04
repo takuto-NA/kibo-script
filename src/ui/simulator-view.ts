@@ -83,6 +83,11 @@ export async function createSimulatorView(params: CreateSimulatorViewParams): Pr
   });
   terminalHost.appendChild(scriptRunnerPanel.rootElement);
 
+  const interactive_terminal_heading = document.createElement("div");
+  interactive_terminal_heading.className = "simulator-section-heading";
+  interactive_terminal_heading.textContent = "Interactive terminal";
+  terminalHost.appendChild(interactive_terminal_heading);
+
   const displayHost = document.createElement("div");
   displayHost.className = "simulator-display-host";
   const displayTitle = document.createElement("div");

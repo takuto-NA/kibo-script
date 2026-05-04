@@ -2,6 +2,16 @@ import { expect, test } from "@playwright/test";
 import { readFileSync } from "node:fs";
 
 /**
+ * Fake serial port trace lines below assume this blink script (1000ms every task).
+ */
+const E2E_BLINK_SCRIPT_TEXT_FOR_FIXED_TRACE_FAKE_SERIAL_PORT = `ref led = led#0
+
+task blink every 1000ms {
+  do led.toggle()
+}
+`;
+
+/**
  * script runner で reset compile 後に PicoRuntimePackage をダウンロードし、JSON の schema と tick を検証する。
  */
 test("download Pico package after reset compile produces valid PicoRuntimePackage JSON", async ({ page }) => {
@@ -29,8 +39,8 @@ test("download Pico package after reset compile produces valid PicoRuntimePackag
   };
 
   expect(parsed.packageSchemaVersion).toBe(1);
-  expect(parsed.live.tickIntervalMilliseconds).toBe(1000);
-  expect(parsed.runtimeIrContract.compiledProgram.everyTasks.map((task) => task.taskName)).toEqual(["blink"]);
+  expect(parsed.live.tickIntervalMilliseconds).toBe(500);
+  expect(parsed.runtimeIrContract.compiledProgram.everyTasks.map((task) => task.taskName)).toEqual(["heartbeat"]);
   expect(parsed.replay.steps.map((step) => step.kind)).toEqual([
     "collect_trace",
     "tick_ms",
@@ -96,6 +106,7 @@ test("Pico write action uploads through Web Serial and verifies trace", async ({
   });
   await page.goto("/");
 
+  await page.getByTestId("script-runner-textarea").fill(E2E_BLINK_SCRIPT_TEXT_FOR_FIXED_TRACE_FAKE_SERIAL_PORT);
   await page.getByTestId("script-runner-write-pico-button").click();
 
   await expect(page.getByRole("status")).toContainText("ok: simulator and Pico matched", { timeout: 8000 });
@@ -138,6 +149,7 @@ test("Pico write shows loader recovery when KIBO_PING does not return protocol=1
   });
   await page.goto("/");
 
+  await page.getByTestId("script-runner-textarea").fill(E2E_BLINK_SCRIPT_TEXT_FOR_FIXED_TRACE_FAKE_SERIAL_PORT);
   await page.getByTestId("script-runner-write-pico-button").click();
 
   const status = page.getByRole("status");
@@ -185,6 +197,7 @@ test("Pico write shows ack recovery when package is not acknowledged", async ({ 
   });
   await page.goto("/");
 
+  await page.getByTestId("script-runner-textarea").fill(E2E_BLINK_SCRIPT_TEXT_FOR_FIXED_TRACE_FAKE_SERIAL_PORT);
   await page.getByTestId("script-runner-write-pico-button").click();
 
   const status = page.getByRole("status");
@@ -232,6 +245,7 @@ test("Pico write shows trace mismatch recovery including trace-var CLI hint", as
   });
   await page.goto("/");
 
+  await page.getByTestId("script-runner-textarea").fill(E2E_BLINK_SCRIPT_TEXT_FOR_FIXED_TRACE_FAKE_SERIAL_PORT);
   await page.getByTestId("script-runner-trace-vars-input").fill("circle_x");
   await page.getByTestId("script-runner-write-pico-button").click();
 

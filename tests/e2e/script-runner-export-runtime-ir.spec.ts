@@ -27,7 +27,7 @@ test("download runtime IR after reset compile produces valid runtime IR contract
   };
 
   expect(parsed.runtimeIrContractSchemaVersion).toBe(1);
-  expect(parsed.compiledProgram.everyTasks.map((task) => task.taskName)).toEqual(["blink"]);
+  expect(parsed.compiledProgram.everyTasks.map((task) => task.taskName)).toEqual(["heartbeat"]);
 });
 
 test("download runtime IR before reset compile shows guidance in status", async ({ page }) => {
