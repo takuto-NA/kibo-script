@@ -101,3 +101,142 @@ test("Pico write action uploads through Web Serial and verifies trace", async ({
   await expect(page.getByRole("status")).toContainText("ok: simulator and Pico matched", { timeout: 8000 });
   await expect(page.getByRole("status")).toContainText("trace lines verified: 3");
 });
+
+test("Pico write shows loader recovery when KIBO_PING does not return protocol=1", async ({ page }) => {
+  await page.addInitScript(() => {
+    const encoder = new TextEncoder();
+    let readable_controller: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const enqueue_line = (line: string) => {
+      readable_controller?.enqueue(encoder.encode(`${line}\n`));
+    };
+    const fake_port = {
+      readable: new ReadableStream<Uint8Array>({
+        start(controller) {
+          readable_controller = controller;
+        },
+      }),
+      writable: new WritableStream<Uint8Array>({
+        write(chunk) {
+          const text = new TextDecoder().decode(chunk);
+          if (text.includes("KIBO_PING")) {
+            enqueue_line("not_a_loader_line");
+          }
+        },
+      }),
+      async open() {},
+      async close() {},
+    };
+
+    Object.defineProperty(navigator, "serial", {
+      configurable: true,
+      value: {
+        async requestPort() {
+          return fake_port;
+        },
+      },
+    });
+  });
+  await page.goto("/");
+
+  await page.getByTestId("script-runner-write-pico-button").click();
+
+  const status = page.getByRole("status");
+  await expect(status).toContainText("Pico loader did not respond", { timeout: 8000 });
+  await expect(status).toContainText("install_pico_loader.py");
+  await expect(status).toContainText("pico_link_doctor.py");
+});
+
+test("Pico write shows ack recovery when package is not acknowledged", async ({ page }) => {
+  await page.addInitScript(() => {
+    const encoder = new TextEncoder();
+    let readable_controller: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const enqueue_line = (line: string) => {
+      readable_controller?.enqueue(encoder.encode(`${line}\n`));
+    };
+    const fake_port = {
+      readable: new ReadableStream<Uint8Array>({
+        start(controller) {
+          readable_controller = controller;
+        },
+      }),
+      writable: new WritableStream<Uint8Array>({
+        write(chunk) {
+          const text = new TextDecoder().decode(chunk);
+          if (text.includes("KIBO_PING")) {
+            enqueue_line("kibo_loader status=ok protocol=1 active=e2e-fake");
+          }
+          if (text.includes("KIBO_PKG")) {
+            enqueue_line("kibo_pkg_ack status=error reason=e2e_negative");
+          }
+        },
+      }),
+      async open() {},
+      async close() {},
+    };
+
+    Object.defineProperty(navigator, "serial", {
+      configurable: true,
+      value: {
+        async requestPort() {
+          return fake_port;
+        },
+      },
+    });
+  });
+  await page.goto("/");
+
+  await page.getByTestId("script-runner-write-pico-button").click();
+
+  const status = page.getByRole("status");
+  await expect(status).toContainText("Pico did not acknowledge the package", { timeout: 8000 });
+  await expect(status).toContainText("upload_pico_runtime_package.py");
+});
+
+test("Pico write shows trace mismatch recovery including trace-var CLI hint", async ({ page }) => {
+  await page.addInitScript(() => {
+    const encoder = new TextEncoder();
+    let readable_controller: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const enqueue_line = (line: string) => {
+      readable_controller?.enqueue(encoder.encode(`${line}\n`));
+    };
+    const fake_port = {
+      readable: new ReadableStream<Uint8Array>({
+        start(controller) {
+          readable_controller = controller;
+        },
+      }),
+      writable: new WritableStream<Uint8Array>({
+        write(chunk) {
+          const text = new TextDecoder().decode(chunk);
+          if (text.includes("KIBO_PING")) {
+            enqueue_line("kibo_loader status=ok protocol=1 active=e2e-fake");
+          }
+          if (text.includes("KIBO_PKG")) {
+            enqueue_line("kibo_pkg_ack status=ok");
+            enqueue_line("trace schema=1 sim_ms=0 led0=0 btn0=0 dpy_fp=deadbeefdeadbeef vars=- sm=-");
+          }
+        },
+      }),
+      async open() {},
+      async close() {},
+    };
+
+    Object.defineProperty(navigator, "serial", {
+      configurable: true,
+      value: {
+        async requestPort() {
+          return fake_port;
+        },
+      },
+    });
+  });
+  await page.goto("/");
+
+  await page.getByTestId("script-runner-trace-vars-input").fill("circle_x");
+  await page.getByTestId("script-runner-write-pico-button").click();
+
+  const status = page.getByRole("status");
+  await expect(status).toContainText("Pico trace did not match simulator replay", { timeout: 12000 });
+  await expect(status).toContainText("pico_link_check.py");
+  await expect(status).toContainText("--trace-var circle_x");
+});

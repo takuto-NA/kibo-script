@@ -5,11 +5,17 @@ import { execFileSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { RUNTIME_CONFORMANCE_FIXTURE_CASE_DEFINITIONS } from "./runtime-conformance-fixture-cases";
 
 const testsRuntimeConformanceDirectory = dirname(fileURLToPath(import.meta.url));
 const goldenDirectory = join(testsRuntimeConformanceDirectory, "golden");
 const replayInputsDirectory = join(testsRuntimeConformanceDirectory, "replay-inputs");
 const repositoryRootDirectory = join(testsRuntimeConformanceDirectory, "..", "..");
+
+const CppHostRuntimeUnsupportedGoldenBaseNames = new Set<string>([
+  "semantics-state-membership-every",
+  "semantics-state-membership-on-event",
+]);
 
 function resolve_host_runtime_replay_executable_path_or_undefined(): string | undefined {
   const explicit_executable_path = process.env.KIBO_RUNTIME_REPLAY_EXECUTABLE_PATH;
@@ -55,51 +61,30 @@ function run_host_runtime_replay_executable_or_throw(params: {
 const host_runtime_replay_executable_path = resolve_host_runtime_replay_executable_path_or_undefined();
 
 describe("TypeScript golden traces vs C++ host runtime replay", () => {
-  it.skipIf(host_runtime_replay_executable_path === undefined)(
-    "blink-led.replay.json stdout matches blink-led.conformance.trace.txt",
-    () => {
-      const replay_json_absolute_path = join(replayInputsDirectory, "blink-led.replay.json");
-      const cpp_stdout_text = run_host_runtime_replay_executable_or_throw({
-        executable_path: host_runtime_replay_executable_path as string,
-        replay_json_absolute_path,
+  for (const fixture_case of RUNTIME_CONFORMANCE_FIXTURE_CASE_DEFINITIONS) {
+    if (CppHostRuntimeUnsupportedGoldenBaseNames.has(fixture_case.goldenBaseName)) {
+      it.skip(`${fixture_case.goldenBaseName}.replay.json: C++ host runtime does not support state machines yet`, () => {
+        // Guard: state machine IR は C++ host runtime が未対応のため、比較しない。
       });
-      const golden_trace_text = readFileSync(join(goldenDirectory, "blink-led.conformance.trace.txt"), "utf-8");
-      expect(split_non_empty_trace_lines_from_text_file(cpp_stdout_text)).toEqual(
-        split_non_empty_trace_lines_from_text_file(golden_trace_text),
-      );
-    },
-  );
+      continue;
+    }
 
-  it.skipIf(host_runtime_replay_executable_path === undefined)(
-    "button-toggle-on-event.replay.json stdout matches golden trace",
-    () => {
-      const replay_json_absolute_path = join(replayInputsDirectory, "button-toggle-on-event.replay.json");
-      const cpp_stdout_text = run_host_runtime_replay_executable_or_throw({
-        executable_path: host_runtime_replay_executable_path as string,
-        replay_json_absolute_path,
-      });
-      const golden_trace_text = readFileSync(
-        join(goldenDirectory, "button-toggle-on-event.conformance.trace.txt"),
-        "utf-8",
-      );
-      expect(split_non_empty_trace_lines_from_text_file(cpp_stdout_text)).toEqual(
-        split_non_empty_trace_lines_from_text_file(golden_trace_text),
-      );
-    },
-  );
-
-  it.skipIf(host_runtime_replay_executable_path === undefined)(
-    "circle-animation.replay.json stdout matches golden trace",
-    () => {
-      const replay_json_absolute_path = join(replayInputsDirectory, "circle-animation.replay.json");
-      const cpp_stdout_text = run_host_runtime_replay_executable_or_throw({
-        executable_path: host_runtime_replay_executable_path as string,
-        replay_json_absolute_path,
-      });
-      const golden_trace_text = readFileSync(join(goldenDirectory, "circle-animation.conformance.trace.txt"), "utf-8");
-      expect(split_non_empty_trace_lines_from_text_file(cpp_stdout_text)).toEqual(
-        split_non_empty_trace_lines_from_text_file(golden_trace_text),
-      );
-    },
-  );
+    it.skipIf(host_runtime_replay_executable_path === undefined)(
+      `${fixture_case.goldenBaseName}.replay.json stdout matches golden trace`,
+      () => {
+        const replay_json_absolute_path = join(replayInputsDirectory, `${fixture_case.goldenBaseName}.replay.json`);
+        const cpp_stdout_text = run_host_runtime_replay_executable_or_throw({
+          executable_path: host_runtime_replay_executable_path as string,
+          replay_json_absolute_path,
+        });
+        const golden_trace_text = readFileSync(
+          join(goldenDirectory, `${fixture_case.goldenBaseName}.conformance.trace.txt`),
+          "utf-8",
+        );
+        expect(split_non_empty_trace_lines_from_text_file(cpp_stdout_text)).toEqual(
+          split_non_empty_trace_lines_from_text_file(golden_trace_text),
+        );
+      },
+    );
+  }
 });

@@ -30,6 +30,7 @@ function formatDeviceAddress(deviceAddress: DeviceAddress): string {
 function assertExpressionIsSupportedByPicoVerticalSliceOrThrow(expression: ExecutableExpression): void {
   if (
     expression.kind === "integer_literal" ||
+    expression.kind === "string_literal" ||
     expression.kind === "var_reference" ||
     expression.kind === "const_reference" ||
     expression.kind === "temp_reference" ||
@@ -49,6 +50,11 @@ function assertExpressionIsSupportedByPicoVerticalSliceOrThrow(expression: Execu
   }
   if (expression.kind === "unary_minus") {
     assertExpressionIsSupportedByPicoVerticalSliceOrThrow(expression.operand);
+    return;
+  }
+  if (expression.kind === "comparison") {
+    assertExpressionIsSupportedByPicoVerticalSliceOrThrow(expression.left);
+    assertExpressionIsSupportedByPicoVerticalSliceOrThrow(expression.right);
     return;
   }
   throw new Error(`Pico vertical slice does not support expression kind: ${expression.kind}`);
@@ -83,6 +89,32 @@ function assertStatementIsSupportedByPicoVerticalSliceOrThrow(statement: Executa
     assertExpressionIsSupportedByPicoVerticalSliceOrThrow(statement.valueExpression);
     return;
   }
+  if (statement.kind === "wait_milliseconds") {
+    assertExpressionIsSupportedByPicoVerticalSliceOrThrow(statement.durationMillisecondsExpression);
+    return;
+  }
+  if (statement.kind === "if_comparison") {
+    assertExpressionIsSupportedByPicoVerticalSliceOrThrow(statement.conditionExpression);
+    for (const innerStatement of statement.thenBranchStatements) {
+      assertStatementIsSupportedByPicoVerticalSliceOrThrow(innerStatement);
+    }
+    for (const innerStatement of statement.elseBranchStatements) {
+      assertStatementIsSupportedByPicoVerticalSliceOrThrow(innerStatement);
+    }
+    return;
+  }
+  if (statement.kind === "match_string") {
+    assertExpressionIsSupportedByPicoVerticalSliceOrThrow(statement.targetExpression);
+    for (const stringCase of statement.stringCases) {
+      for (const innerStatement of stringCase.branchStatements) {
+        assertStatementIsSupportedByPicoVerticalSliceOrThrow(innerStatement);
+      }
+    }
+    for (const innerStatement of statement.elseBranchStatements) {
+      assertStatementIsSupportedByPicoVerticalSliceOrThrow(innerStatement);
+    }
+    return;
+  }
   throw new Error(`Pico vertical slice does not support statement kind: ${statement.kind}`);
 }
 
@@ -94,7 +126,11 @@ function assertCompiledProgramIsSupportedByPicoVerticalSliceOrThrow(compiledProg
     assertExpressionIsSupportedByPicoVerticalSliceOrThrow(initializer.expression);
   }
   if (compiledProgram.loopTasks.length > 0) {
-    throw new Error("Pico vertical slice does not support loop tasks yet.");
+    for (const task of compiledProgram.loopTasks) {
+      for (const statement of task.statements) {
+        assertStatementIsSupportedByPicoVerticalSliceOrThrow(statement);
+      }
+    }
   }
   if (compiledProgram.stateMachines.length > 0) {
     throw new Error("Pico vertical slice does not support state machines yet.");
@@ -177,10 +213,17 @@ export function inferReplayStepsFromCompiledProgramOrThrow(compiledProgram: Comp
 
 export function resolveDefaultScriptVarNamesForTraceFromCompiledProgram(compiledProgram: CompiledProgram): readonly string[] {
   const initializerVarNames = compiledProgram.varInitializers.map((initializer) => initializer.varName);
-  if (initializerVarNames.includes("circle_x")) {
-    return ["circle_x"];
-  }
-  return [];
+  const names: string[] = [];
+  const includeIfPresent = (varName: string): void => {
+    if (initializerVarNames.includes(varName)) {
+      names.push(varName);
+    }
+  };
+  includeIfPresent("circle_x");
+  includeIfPresent("mode");
+  includeIfPresent("branch_toggle");
+  includeIfPresent("waited_count");
+  return names;
 }
 
 export function parseCompiledProgramFromRuntimeIrContractRootOrThrow(root: unknown): CompiledProgram {

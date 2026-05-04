@@ -34,6 +34,10 @@ const HEX_RADIX = 16;
 const CRC32_HEX_DIGIT_COUNT = 8;
 const BASE64_BINARY_CHUNK_SIZE_BYTES = 0x8000;
 const SERIAL_STATUS_PREVIEW_LINE_COUNT = 12;
+const INSTALL_PICO_LOADER_SCRIPT_RELATIVE_PATH = "scripts/pico/runtime_vertical_slice/tools/install_pico_loader.py";
+const PICO_LINK_DOCTOR_SCRIPT_RELATIVE_PATH = "scripts/pico/runtime_vertical_slice/tools/pico_link_doctor.py";
+const UPLOAD_PICO_RUNTIME_PACKAGE_SCRIPT_RELATIVE_PATH =
+  "scripts/pico/runtime_vertical_slice/tools/upload_pico_runtime_package.py";
 
 type SerialReadResult = ReadableStreamReadResult<Uint8Array>;
 
@@ -74,10 +78,65 @@ function build_pico_link_check_command_hint_text(params: {
   const trace_var_flag =
     params.trace_var_names_text.trim().length > 0 ? ` --trace-var ${params.trace_var_names_text.trim()}` : "";
   return (
-    `Pico one-shot (host): python scripts/pico/runtime_vertical_slice/tools/pico_link_check.py --port auto --runtime-ir ${DEFAULT_RUNTIME_IR_DOWNLOAD_FILE_NAME}\n` +
-    `Pico one-shot (host, after downloading package file): python scripts/pico/runtime_vertical_slice/tools/pico_link_check.py --port auto --package-file ${params.pico_runtime_package_download_file_name}${trace_var_flag}\n` +
-    `Preflight only: python scripts/pico/runtime_vertical_slice/tools/pico_link_doctor.py --port auto`
+    `Pico one-shot (host, from repo root): python scripts/pico/runtime_vertical_slice/tools/pico_link_check.py --port auto --repo-root . --runtime-ir ${DEFAULT_RUNTIME_IR_DOWNLOAD_FILE_NAME}\n` +
+    `Pico one-shot (host, after downloading package file): python scripts/pico/runtime_vertical_slice/tools/pico_link_check.py --port auto --repo-root . --package-file ${params.pico_runtime_package_download_file_name}${trace_var_flag}\n` +
+    `Preflight only: python ${PICO_LINK_DOCTOR_SCRIPT_RELATIVE_PATH} --port auto`
   );
+}
+
+function build_pico_loader_missing_recovery_lines(): readonly string[] {
+  return [
+    "Next steps (loader handshake missing or wrong firmware):",
+    `  1) Flash vertical slice loader UF2 (Windows helper): python ${INSTALL_PICO_LOADER_SCRIPT_RELATIVE_PATH}`,
+    `  2) Confirm loader line after ping: python ${PICO_LINK_DOCTOR_SCRIPT_RELATIVE_PATH} --port auto`,
+    "  3) Close other serial monitors / uploaders that may hold the COM port (Windows PermissionError is common).",
+  ];
+}
+
+function build_pico_package_ack_failure_recovery_lines(): readonly string[] {
+  return [
+    "Next steps (package not acknowledged):",
+    `  1) Preflight + loader version: python ${PICO_LINK_DOCTOR_SCRIPT_RELATIVE_PATH} --port auto`,
+    `  2) Try explicit upload: python ${UPLOAD_PICO_RUNTIME_PACKAGE_SCRIPT_RELATIVE_PATH} --port auto --package-file <path>`,
+    "  3) If the line is huge: shrink the script or check firmware decode limits (see docs/pico-loader-protocol-gates.md).",
+  ];
+}
+
+function build_pico_trace_mismatch_recovery_lines(params: { readonly trace_var_names_text: string }): readonly string[] {
+  const pico_link_hint = build_pico_link_check_command_hint_text({
+    pico_runtime_package_download_file_name: DEFAULT_PICO_RUNTIME_PACKAGE_DOWNLOAD_FILE_NAME,
+    trace_var_names_text: params.trace_var_names_text,
+  });
+  return [
+    "Next steps (trace mismatch between simulator replay and Pico):",
+    "  1) Re-download Pico package from this UI (ensures trace vars match the build).",
+    "  2) Re-run host-side trace compare with the same trace vars:",
+    ...pico_link_hint.split("\n").map((line) => `     ${line}`),
+  ];
+}
+
+function build_generic_pico_write_failure_recovery_lines(): readonly string[] {
+  return [
+    "Next steps (generic):",
+    `  - Loader / port: python ${PICO_LINK_DOCTOR_SCRIPT_RELATIVE_PATH} --port auto`,
+    "  - Host one-shot compare: see `pico_link_check.py` hints printed after downloading a Pico package.",
+  ];
+}
+
+function build_pico_write_failure_recovery_lines_from_error_message(params: {
+  readonly error_message: string;
+  readonly trace_var_names_text: string;
+}): readonly string[] {
+  if (params.error_message.includes("Pico loader did not respond")) {
+    return build_pico_loader_missing_recovery_lines();
+  }
+  if (params.error_message.includes("Pico did not acknowledge the package")) {
+    return build_pico_package_ack_failure_recovery_lines();
+  }
+  if (params.error_message.includes("Pico trace did not match simulator replay")) {
+    return build_pico_trace_mismatch_recovery_lines({ trace_var_names_text: params.trace_var_names_text });
+  }
+  return build_generic_pico_write_failure_recovery_lines();
 }
 
 function resolve_browser_serial_api_or_undefined(): KiboSerialApi | undefined {
@@ -312,7 +371,7 @@ task blink every 1000ms {
   if (resolve_browser_serial_api_or_undefined() === undefined) {
     writePicoButton.disabled = true;
     writePicoButton.title =
-      "Web Serial is not available in this browser. Use Chrome/Edge on localhost, or use pico_link_check.py.";
+      "Web Serial is not available in this browser. Use Chrome/Edge on localhost, or run pico_link_check.py (see status panel hints after clicking if enabled).";
   }
 
   const mvpNote = document.createElement("div");
@@ -322,11 +381,13 @@ task blink every 1000ms {
 
   const cliHintPre = document.createElement("pre");
   cliHintPre.className = "script-runner-cli-hint";
-  cliHintPre.textContent =
-    "Pico MVP: build a package in the UI, or use npm script + pyserial.\n" +
-    "  npm run build-pico-runtime-package -- --input kibo-runtime-ir-contract.json --output package.json\n" +
-    "  python scripts/pico/runtime_vertical_slice/tools/upload_pico_runtime_package.py --port auto --package-file package.json\n" +
-    "Golden packages for the three MVP fixtures live under tests/runtime-conformance/golden/pico-runtime-packages/.";
+  cliHintPre.textContent = [
+    "Pico MVP: build a package in the UI, or use npm script + pyserial.",
+    `Loader install (Windows UF2 helper): python ${INSTALL_PICO_LOADER_SCRIPT_RELATIVE_PATH}`,
+    "  npm run build-pico-runtime-package -- --input kibo-runtime-ir-contract.json --output package.json",
+    `  python ${UPLOAD_PICO_RUNTIME_PACKAGE_SCRIPT_RELATIVE_PATH} --port auto --package-file package.json`,
+    "Golden packages for the three MVP fixtures live under tests/runtime-conformance/golden/pico-runtime-packages/.",
+  ].join("\n");
 
   function runCompile(registrationMode: "reset" | "add"): void {
     const loadResult = compileSourceAndRegisterSimulationTasks({
@@ -466,8 +527,16 @@ task blink every 1000ms {
   async function write_current_script_to_pico_or_set_error_pre(): Promise<void> {
     const serial_api = resolve_browser_serial_api_or_undefined();
     if (serial_api === undefined) {
-      resultPre.textContent =
-        "Web Serial is not available. Use Chrome/Edge on localhost, or run pico_link_check.py from the CLI.";
+      const pico_link_hint = build_pico_link_check_command_hint_text({
+        pico_runtime_package_download_file_name: DEFAULT_PICO_RUNTIME_PACKAGE_DOWNLOAD_FILE_NAME,
+        trace_var_names_text: traceVarInput.value,
+      });
+      resultPre.textContent = [
+        "Web Serial is not available in this browser (UX-FAIL-NO-SERIAL).",
+        "Use Chrome or Edge on http://localhost so `navigator.serial` exists, or use the CLI one-shot commands below.",
+        "",
+        pico_link_hint,
+      ].join("\n");
       return;
     }
 
@@ -568,7 +637,11 @@ task blink every 1000ms {
       ].join("\n");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      resultPre.textContent = `FAIL: Pico write/verify failed.\n${message}`;
+      const recovery_lines = build_pico_write_failure_recovery_lines_from_error_message({
+        error_message: message,
+        trace_var_names_text: traceVarInput.value,
+      });
+      resultPre.textContent = ["FAIL: Pico write/verify failed.", message, "", ...recovery_lines].join("\n");
     } finally {
       if (reader !== undefined) {
         await reader.cancel().catch(() => undefined);

@@ -1,0 +1,69 @@
+{
+  "replaySchemaVersion": 1,
+  "runtimeIrContract": {
+    "compiledProgram": {
+      "animatorDefinitions": [],
+      "constInitializers": [],
+      "deviceAliases": [
+        {
+          "deviceAddress": {
+            "id": 0,
+            "kind": "led"
+          },
+          "refName": "status_led"
+        }
+      ],
+      "everyTasks": [],
+      "loopTasks": [
+        {
+          "statements": [
+            {
+              "arguments": [],
+              "deviceAddress": {
+                "id": 0,
+                "kind": "led"
+              },
+              "kind": "do_method_call",
+              "methodName": "toggle"
+            },
+            {
+              "durationMillisecondsExpression": {
+                "kind": "integer_literal",
+                "value": 1000
+              },
+              "kind": "wait_milliseconds"
+            }
+          ],
+          "taskName": "pulse_loop"
+        }
+      ],
+      "onEventTasks": [],
+      "stateMachines": [],
+      "varInitializers": [],
+      "varWriterAssignments": []
+    },
+    "runtimeIrContractSchemaVersion": 1
+  },
+  "steps": [
+    {
+      "kind": "collect_trace"
+    },
+    {
+      "elapsedMilliseconds": 1000,
+      "kind": "tick_ms"
+    },
+    {
+      "kind": "collect_trace"
+    },
+    {
+      "elapsedMilliseconds": 1000,
+      "kind": "tick_ms"
+    },
+    {
+      "kind": "collect_trace"
+    }
+  ],
+  "traceObservation": {
+    "scriptVarNamesToIncludeInTrace": []
+  }
+}

@@ -1,28 +1,30 @@
 # pyright: reportMissingImports=false
 """
-Responsibility: send an intentionally invalid `KIBO_PKG` frame (declared `bytes=` does not match decoded payload length) and
-verify `kibo_pkg_ack status=error`, then optionally re-upload a known-good package to prove recovery.
+Responsibility: send a minified JSON package whose UTF-8 byte length exceeds the firmware decode cap (`package_too_large`),
+then optionally re-upload a known-good smaller package to prove recovery.
 
 Example:
 
-    python scripts/pico/runtime_vertical_slice/tools/send_invalid_kibo_pkg_length.py --port auto
+    python scripts/pico/runtime_vertical_slice/tools/send_oversized_kibo_pkg.py --port auto
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
 from pathlib import Path
 
 import pico_link_common as common
 
-NEGATIVE_GATE_ACK_TIMEOUT_SECONDS = 5.0
+NEGATIVE_GATE_ACK_TIMEOUT_SECONDS = 6.0
 RECOVERY_PACKAGE_ACK_TIMEOUT_SECONDS = 8.0
+OVERSIZED_TARGET_MIN_DECODED_BYTES = common.KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES + 256
 
 
 def parse_arguments_or_exit(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Send invalid KIBO_PKG frame (length mismatch) to Pico.")
+    parser = argparse.ArgumentParser(description="Send oversized KIBO_PKG (negative gate LOADER-PKG-SIZE-001).")
     parser.add_argument(
         "--port",
         default="auto",
@@ -33,6 +35,12 @@ def parse_arguments_or_exit(argv: list[str]) -> argparse.Namespace:
         type=int,
         default=common.KIBO_USB_SERIAL_BAUD_RATE,
         help="Serial baud rate (default: 115200).",
+    )
+    parser.add_argument(
+        "--template-package-file",
+        type=Path,
+        default=None,
+        help="Valid PicoRuntimePackage JSON used as a structural template (padding is injected). Default: blink-led golden.",
     )
     parser.add_argument(
         "--recover-package-file",
@@ -53,6 +61,21 @@ def parse_arguments_or_exit(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def resolve_default_blink_led_pico_runtime_package_json_path_or_raise(*, tools_file_path: Path) -> Path:
+    repository_root = common.resolve_repository_root_from_tools_file(tools_file_path=tools_file_path)
+    candidate_path = (
+        repository_root
+        / "tests"
+        / "runtime-conformance"
+        / "golden"
+        / "pico-runtime-packages"
+        / "blink-led.pico-runtime-package.json"
+    )
+    if not candidate_path.is_file():
+        raise FileNotFoundError(f"Default blink-led package missing: {candidate_path}")
+    return candidate_path
+
+
 def main() -> None:
     serial_module = common.try_import_pyserial_serial_module_or_exit()
     arguments = parse_arguments_or_exit(sys.argv[1:])
@@ -64,8 +87,19 @@ def main() -> None:
             repository_root=repository_root,
         )
 
-    # Guard: declared byte count does not match decoded Base64 payload length (firmware `length_mismatch`).
-    corrupted_line_text = "KIBO_PKG schema=1 bytes=9999 crc32=00000000 b64=eyJ9\n"
+    template_path = arguments.template_package_file
+    if template_path is None:
+        template_path = common.resolve_default_blink_led_golden_pico_runtime_package_json_path_or_raise(
+            repository_root=repository_root,
+        )
+
+    template_text = template_path.read_text(encoding="utf-8")
+    template_object = json.loads(template_text)
+    oversized_minified_bytes = common.build_oversized_minified_package_utf8_bytes_from_template_object_or_raise(
+        template_package_object=template_object,
+        minimum_decoded_byte_count=OVERSIZED_TARGET_MIN_DECODED_BYTES,
+    )
+    oversized_line_text = common.build_kibo_pkg_serial_line_from_utf8_json_bytes(oversized_minified_bytes)
 
     port_path = common.resolve_serial_port_path_for_vertical_slice_or_exit(port_argument=arguments.port)
 
@@ -95,20 +129,20 @@ def main() -> None:
         deadline_negative = time.monotonic() + NEGATIVE_GATE_ACK_TIMEOUT_SECONDS
         negative_lines = common.send_kibo_pkg_line_and_collect_serial_lines_until_deadline_or_raise(
             serial_port=serial_port,
-            kibo_pkg_line_text=corrupted_line_text,
+            kibo_pkg_line_text=oversized_line_text,
             deadline_monotonic=deadline_negative,
         )
         negative_ack = common.find_first_kibo_pkg_ack_line(negative_lines)
         if negative_ack is None:
-            print("FAIL: expected kibo_pkg_ack for length mismatch negative gate.", file=sys.stderr)
+            print("FAIL: expected kibo_pkg_ack for oversized package negative gate.", file=sys.stderr)
             raise SystemExit(1)
         print(negative_ack)
-        if "status=error" not in negative_ack or "length_mismatch" not in negative_ack:
-            print("FAIL: expected kibo_pkg_ack status=error with length_mismatch.", file=sys.stderr)
+        if "status=error" not in negative_ack or "package_too_large" not in negative_ack:
+            print("FAIL: expected kibo_pkg_ack status=error with package_too_large.", file=sys.stderr)
             raise SystemExit(1)
 
         if arguments.no_recover or recover_path is None:
-            print("OK: length_mismatch negative gate passed (recovery skipped).")
+            print("OK: package_too_large negative gate passed (recovery skipped).")
             return
 
         minified_recovery_bytes = common.read_minified_pico_runtime_package_utf8_bytes_from_json_path_or_raise(
@@ -121,7 +155,7 @@ def main() -> None:
             expected_ack_substring="status=ok",
         )
         print(recovery_ack)
-        print("OK: length_mismatch negative gate passed and recovery upload acked ok.")
+        print("OK: package_too_large negative gate passed and recovery upload acked ok.")
     finally:
         serial_port.close()
 

@@ -78,6 +78,22 @@ Pop-Location
 - その後、loader firmware + `KIBO_PKG` により firmware rebuild なしで `PicoRuntimePackage` を RAM 差し替えできるところまで確認した。
 - `examples/pico-runtime-samples/led-heartbeat.sc` はシミュレーター UI の `Run simulator & write to Pico` から Pico へ送信し、実機 LED heartbeat と trace 照合まで確認済み。
 
+### KIBO_PKG loader negative gates（実機ログ用テンプレ）
+
+[`docs/pico-loader-protocol-gates.md`](pico-loader-protocol-gates.md) の negative / 復旧 gate 実行記録をここに追記する（ホストに Pico が無い日は空欄のままでよい）。
+
+- 実行 Python の例: `<repo>\\.pico-work\\venv\\Scripts\\python.exe`
+- 各スクリプトは既定で **negative の直後に blink-led golden を再送**して `kibo_pkg_ack status=ok` まで確認する（`--no-recover` で抑止可）。
+
+| gate ID | コマンド（リポジトリルート想定） | 観測した `kibo_pkg_ack`（negative） | 復旧 upload の ack |
+| --- | --- | --- | --- |
+| `LOADER-PKG-LEN-001` | `python scripts/pico/runtime_vertical_slice/tools/send_invalid_kibo_pkg_length.py --port auto` | （実機で記入） | （記入） |
+| `LOADER-PKG-CRC-001` | `python scripts/pico/runtime_vertical_slice/tools/send_invalid_kibo_pkg_crc.py --port auto` | （記入） | （記入） |
+| `LOADER-PKG-SIZE-001` | `python scripts/pico/runtime_vertical_slice/tools/send_oversized_kibo_pkg.py --port auto` | （記入） | （記入） |
+| `LOADER-PKG-B64-001` | `python scripts/pico/runtime_vertical_slice/tools/send_invalid_kibo_pkg_frame.py --port auto --kind invalid_base64` | （記入） | （記入） |
+| `LOADER-PKG-JSON-001` | `python scripts/pico/runtime_vertical_slice/tools/send_invalid_kibo_pkg_frame.py --port auto --kind invalid_json_utf8` | （記入） | （記入） |
+| `LOADER-PKG-SCHEMA-001` | `python scripts/pico/runtime_vertical_slice/tools/send_invalid_kibo_pkg_frame.py --port auto --kind unsupported_schema` | （記入） | （記入） |
+
 確認できた trace:
 
 ```text

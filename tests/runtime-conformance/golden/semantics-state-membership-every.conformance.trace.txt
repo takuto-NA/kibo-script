@@ -1,0 +1,4 @@
+trace schema=1 sim_ms=0 led0=0 btn0=0 dpy_fp=b9d103fd6854a325 vars=ticks_in_on=0 sm=sm=sm.Off
+trace schema=1 sim_ms=100 led0=1 btn0=0 dpy_fp=b9d103fd6854a325 vars=ticks_in_on=1 sm=sm=sm.On
+trace schema=1 sim_ms=200 led0=0 btn0=0 dpy_fp=b9d103fd6854a325 vars=ticks_in_on=2 sm=sm=sm.On
+trace schema=1 sim_ms=300 led0=1 btn0=0 dpy_fp=b9d103fd6854a325 vars=ticks_in_on=3 sm=sm=sm.On

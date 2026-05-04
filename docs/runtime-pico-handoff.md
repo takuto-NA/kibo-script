@@ -74,7 +74,7 @@ Burn-down 計画の分割ドキュメント（**plan ファイル本体は編集
 | 5 サンプル連続 | 要 | `python scripts/pico/runtime_vertical_slice/tools/run_pico_runtime_samples.py --port auto --repo-root . --capture-seconds 8` |
 | MVP 一括 acceptance | 要 | `python scripts/pico/runtime_vertical_slice/tools/run_mvp_hardware_acceptance.py --port auto --repo-root .` |
 | loader 診断 | 要 | `python scripts/pico/runtime_vertical_slice/tools/pico_link_doctor.py --port auto` |
-| negative（宣言長不一致） | 要 | `python scripts/pico/runtime_vertical_slice/tools/send_invalid_kibo_pkg_length.py --port auto`（詳細は [`docs/pico-loader-protocol-gates.md`](pico-loader-protocol-gates.md)） |
+| negative（`KIBO_PKG`） | 要 | 詳細は [`docs/pico-loader-protocol-gates.md`](pico-loader-protocol-gates.md)。例: `send_invalid_kibo_pkg_length.py` / `send_invalid_kibo_pkg_crc.py` / `send_oversized_kibo_pkg.py` / `send_invalid_kibo_pkg_frame.py`（すべて `--port auto` 可） |
 
 ### 5) コミット済み golden package サイズ（UTF-8 ファイル byte 数の目安）
 
@@ -126,7 +126,7 @@ Burn-down 計画の分割ドキュメント（**plan ファイル本体は編集
   - **`check_pico_baseline.py`**（実機 baseline）
   - **`upload_pico_runtime_package.py`**（preflight `KIBO_PING` + `KIBO_PKG` frame 送信 + ack）
   - **`run_mvp_hardware_acceptance.py`**（baseline + negative + 3 package + trace 比較の一括・実機要）
-  - **`send_invalid_kibo_pkg_length.py`**（negative gate）
+  - **`send_invalid_kibo_pkg_length.py`** / **`send_invalid_kibo_pkg_crc.py`** / **`send_oversized_kibo_pkg.py`** / **`send_invalid_kibo_pkg_frame.py`**（negative gate + 既定で復旧 upload）
   - **`test_pico_link_common.py`**（純関数ユニット。`npm test` から `unittest discover` で実行）
 - `runtime/cpp/`
   - C++17 host runtime MVP

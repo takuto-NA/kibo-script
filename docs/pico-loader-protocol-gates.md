@@ -34,10 +34,18 @@
 | `LOADER-PKG-REPEAT-001` | 同一 valid package を **20 回連続** upload | 毎回 ack OK、trace が安定 | なし |
 | `LOADER-PING-RACE-001` | シリアルモニタがポートを掴んだ状態で ping | 失敗しても **診断メッセージが分かる**（Windows は `pico_link_common` の Permission hint） | モニタ終了 → 再実行 |
 
-## ホスト側で追加するとよい sender（未実装なら「次タスク」）
+## ホスト側 sender（実装済み）
 
-- `send_invalid_kibo_pkg_crc.py`（既存 golden package の CRC のみ改変）
-- `send_oversized_kibo_pkg.py`（パディングで `bytes` を一致させつつ decode 後が巨大、など）
+| スクリプト | gate ID |
+| --- | --- |
+| `send_invalid_kibo_pkg_length.py` | `LOADER-PKG-LEN-001` |
+| `send_invalid_kibo_pkg_crc.py` | `LOADER-PKG-CRC-001` |
+| `send_oversized_kibo_pkg.py` | `LOADER-PKG-SIZE-001` |
+| `send_invalid_kibo_pkg_frame.py --kind invalid_base64` | `LOADER-PKG-B64-001` |
+| `send_invalid_kibo_pkg_frame.py --kind invalid_json_utf8` | `LOADER-PKG-JSON-001` |
+| `send_invalid_kibo_pkg_frame.py --kind unsupported_schema` | `LOADER-PKG-SCHEMA-001` |
+
+既定の `--port auto` と、negative 後の **valid package 再送（復旧）** は各スクリプトが `--recover-package-file`（省略時は blink-led golden）で実行する。
 
 ## 調査ログの記録場所
 

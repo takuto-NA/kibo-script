@@ -1,0 +1,133 @@
+{
+  "replaySchemaVersion": 1,
+  "runtimeIrContract": {
+    "compiledProgram": {
+      "animatorDefinitions": [],
+      "constInitializers": [],
+      "deviceAliases": [
+        {
+          "deviceAddress": {
+            "id": 0,
+            "kind": "led"
+          },
+          "refName": "status_led"
+        }
+      ],
+      "everyTasks": [
+        {
+          "intervalMilliseconds": 200,
+          "statements": [
+            {
+              "elseBranchStatements": [
+                {
+                  "arguments": [],
+                  "deviceAddress": {
+                    "id": 0,
+                    "kind": "led"
+                  },
+                  "kind": "do_method_call",
+                  "methodName": "off"
+                }
+              ],
+              "kind": "match_string",
+              "stringCases": [
+                {
+                  "branchStatements": [
+                    {
+                      "arguments": [],
+                      "deviceAddress": {
+                        "id": 0,
+                        "kind": "led"
+                      },
+                      "kind": "do_method_call",
+                      "methodName": "on"
+                    },
+                    {
+                      "kind": "assign_var",
+                      "valueExpression": {
+                        "kind": "string_literal",
+                        "value": "on"
+                      },
+                      "varName": "mode"
+                    }
+                  ],
+                  "patternString": "off"
+                },
+                {
+                  "branchStatements": [
+                    {
+                      "arguments": [],
+                      "deviceAddress": {
+                        "id": 0,
+                        "kind": "led"
+                      },
+                      "kind": "do_method_call",
+                      "methodName": "off"
+                    },
+                    {
+                      "kind": "assign_var",
+                      "valueExpression": {
+                        "kind": "string_literal",
+                        "value": "off"
+                      },
+                      "varName": "mode"
+                    }
+                  ],
+                  "patternString": "on"
+                }
+              ],
+              "targetExpression": {
+                "kind": "var_reference",
+                "varName": "mode"
+              }
+            }
+          ],
+          "taskName": "match_led"
+        }
+      ],
+      "loopTasks": [],
+      "onEventTasks": [],
+      "stateMachines": [],
+      "varInitializers": [
+        {
+          "expression": {
+            "kind": "string_literal",
+            "value": "off"
+          },
+          "varName": "mode"
+        }
+      ],
+      "varWriterAssignments": [
+        {
+          "varName": "mode",
+          "writerTaskName": "match_led"
+        }
+      ]
+    },
+    "runtimeIrContractSchemaVersion": 1
+  },
+  "steps": [
+    {
+      "kind": "collect_trace"
+    },
+    {
+      "elapsedMilliseconds": 200,
+      "kind": "tick_ms"
+    },
+    {
+      "kind": "collect_trace"
+    },
+    {
+      "elapsedMilliseconds": 200,
+      "kind": "tick_ms"
+    },
+    {
+      "kind": "collect_trace"
+    }
+  ],
+  "traceObservation": {
+    "scriptVarNamesToIncludeInTrace": [
+      "mode"
+    ]
+  }
+}

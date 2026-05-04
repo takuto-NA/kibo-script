@@ -26,11 +26,29 @@
 | `FLASH-PWR-001` | 新 package flash 書き込み直後に電源断（何度か） | 次起動で **実行可能な状態**（default へ fallback でも可）に必ず復帰 |
 | `FLASH-PWR-002` | 書き込み途中で電源断 | 破損した候補は読まれず、前回 good または default |
 
-## Gate 判定（計画段階）
+## Gate 判定（採用方針: 2026-05-04）
 
-- **Go**: 上表のポリシー文書化が完了し、試作セクタレイアウトのレビューが済んだ。
-- **Fix first**: RAM loader の ack / ログを少し足せば flash 化の土台になる。
-- **Redesign**: アドレスが他用途と衝突、または recovery 不能な壊れ方が残る。
+| 観点 | 採用 | 補足 |
+| --- | --- | --- |
+| 本 gate の実装タイミング | **Defer until bytecode または JSON decode 上限の 80% 接近** | RAM loader + `KIBO_PKG` で開発速度を優先。flash 書き込みはリスクが高いため、bytecode 縮小や JSON 肥大の見通しが付いてから着手。 |
+| 保存レイアウト（試作前提） | **2 セクタ A/B + 同一 layout** | 常に「非 active」へ全文書き込み → CRC + 必須フィールド検証 OK 後に active ポインタを切替（RAM 上の gating と同じ JSON schema）。 |
+| Header | **magic 4B + `storageLayoutVersion` uint32 + `payloadByteLength` uint32 + `payloadCrc32` uint32** | `picoRuntimePackageSchemaVersion` とは別の storage version を持ち、未知 layout は無視して embedded default へ。 |
+| 電源断 | **active ポインタと blob CRC の二段** | 書き込み途中のセクタは active にしない。CRC 不一致・長さ不一致は候補を破棄し **前回 good または embedded default** へ。 |
+| UF2 / BOOTSEL | **触らない** | アプリ flash のみ。bootloader 領域は変更禁止。 |
+| MicroPython 共存 | **リンカスクリプトで Kibo 専用セクタを明示予約** | 他ファームの filesystem と重ならないことを **UF2 マップ表で先に固定**してから実装（本ドキュメントでは座標は未割当）。 |
+
+### プロトタイプ開始条件（explicit gate）
+
+1. [`docs/bytecode-transfer-design.md`](bytecode-transfer-design.md) の「着手条件」のいずれかが満たされ、縮小・parser コストの見通しが付いたこと。  
+2. `runtime/pico/vertical_slice` の linker script に **専用 flash 範囲**を割り当てるレビューが完了したこと。  
+3. `FLASH-PWR-001` / `FLASH-PWR-002` を実機で再現する harness（電源断シミュレートまたは手動）の手順が用意されたこと。
+
+### 旧ラベルとの対応（監査用）
+
+- **Go（設計）**: 上記「採用方針」表を満たし、プロトタイプ開始条件がレビュー済みであること。  
+- **Fix first**: RAM loader の ack / ログ強化など、flash 前にホスト側で潰す小項目。  
+- **Redesign**: アドレス衝突や recovery 不能パターンが残る場合は、本表を破棄して再設計。  
+- **Defer（実装）**: 上記「本 gate の実装タイミング」のとおり、**方針は確定・実装は保留**。
 
 ## bytecode との順序
 

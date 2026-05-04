@@ -6,7 +6,7 @@ Guard: requires pyserial, Node.js, and a connected Pico with the vertical slice 
 
 Example:
 
-    python scripts/pico/runtime_vertical_slice/tools/run_mvp_hardware_acceptance.py --port COM11 --repo-root .
+    python scripts/pico/runtime_vertical_slice/tools/run_mvp_hardware_acceptance.py --port auto --repo-root .
 """
 
 from __future__ import annotations
@@ -19,7 +19,11 @@ from pathlib import Path
 
 def parse_arguments_or_exit(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run MVP hardware acceptance against a connected Pico.")
-    parser.add_argument("--port", required=True, help="Serial port, e.g. COM11.")
+    parser.add_argument(
+        "--port",
+        default="auto",
+        help="Serial port, e.g. COM11, or `auto` to pick a likely Pico CDC port.",
+    )
     parser.add_argument(
         "--repo-root",
         type=Path,
@@ -63,6 +67,30 @@ def main() -> None:
         repo_root / "scripts" / "pico" / "runtime_vertical_slice" / "tools" / "send_invalid_kibo_pkg_length.py"
     )
     run_subprocess_or_exit([sys.executable, str(negative_length_script), "--port", arguments.port])
+
+    negative_crc_script = (
+        repo_root / "scripts" / "pico" / "runtime_vertical_slice" / "tools" / "send_invalid_kibo_pkg_crc.py"
+    )
+    run_subprocess_or_exit([sys.executable, str(negative_crc_script), "--port", arguments.port])
+
+    negative_oversized_script = (
+        repo_root / "scripts" / "pico" / "runtime_vertical_slice" / "tools" / "send_oversized_kibo_pkg.py"
+    )
+    run_subprocess_or_exit([sys.executable, str(negative_oversized_script), "--port", arguments.port])
+
+    negative_frame_script = (
+        repo_root / "scripts" / "pico" / "runtime_vertical_slice" / "tools" / "send_invalid_kibo_pkg_frame.py"
+    )
+    run_subprocess_or_exit(
+        [
+            sys.executable,
+            str(negative_frame_script),
+            "--port",
+            arguments.port,
+            "--kind",
+            "invalid_base64",
+        ]
+    )
 
     profiles = [
         ("blink-led.pico-runtime-package.json", "blink-led.conformance.trace.txt"),

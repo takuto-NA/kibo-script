@@ -1,28 +1,35 @@
 # pyright: reportMissingImports=false
 """
-Responsibility: send an intentionally invalid `KIBO_PKG` frame (declared `bytes=` does not match decoded payload length) and
-verify `kibo_pkg_ack status=error`, then optionally re-upload a known-good package to prove recovery.
+Responsibility: send intentionally malformed `KIBO_PKG` frames for Base64 / JSON / schema negative gates, then optionally
+re-upload a known-good package to prove recovery.
 
 Example:
 
-    python scripts/pico/runtime_vertical_slice/tools/send_invalid_kibo_pkg_length.py --port auto
+    python scripts/pico/runtime_vertical_slice/tools/send_invalid_kibo_pkg_frame.py --port auto --kind invalid_base64
+    python scripts/pico/runtime_vertical_slice/tools/send_invalid_kibo_pkg_frame.py --port auto --kind invalid_json_utf8
+    python scripts/pico/runtime_vertical_slice/tools/send_invalid_kibo_pkg_frame.py --port auto --kind unsupported_schema
 """
 
 from __future__ import annotations
 
 import argparse
+import base64
+import json
 import sys
 import time
 from pathlib import Path
+from typing import Literal
 
 import pico_link_common as common
+
+NegativeFrameKind = Literal["invalid_base64", "invalid_json_utf8", "unsupported_schema"]
 
 NEGATIVE_GATE_ACK_TIMEOUT_SECONDS = 5.0
 RECOVERY_PACKAGE_ACK_TIMEOUT_SECONDS = 8.0
 
 
 def parse_arguments_or_exit(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Send invalid KIBO_PKG frame (length mismatch) to Pico.")
+    parser = argparse.ArgumentParser(description="Send malformed KIBO_PKG frames (B64 / JSON / schema negative gates).")
     parser.add_argument(
         "--port",
         default="auto",
@@ -33,6 +40,17 @@ def parse_arguments_or_exit(argv: list[str]) -> argparse.Namespace:
         type=int,
         default=common.KIBO_USB_SERIAL_BAUD_RATE,
         help="Serial baud rate (default: 115200).",
+    )
+    parser.add_argument(
+        "--kind",
+        required=True,
+        choices=["invalid_base64", "invalid_json_utf8", "unsupported_schema"],
+        help="Which negative gate payload to send.",
+    )
+    parser.add_argument(
+        "--package-file",
+        type=Path,
+        help="Required for `invalid_json_utf8` and `unsupported_schema` (template package on disk).",
     )
     parser.add_argument(
         "--recover-package-file",
@@ -53,6 +71,42 @@ def parse_arguments_or_exit(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def build_negative_kibo_pkg_line_text_or_raise(*, kind: NegativeFrameKind, package_file_path: Path | None) -> str:
+    if kind == "invalid_base64":
+        # Guard: Base64 length is not a multiple of 4 after whitespace strip, so firmware decode returns empty.
+        return "KIBO_PKG schema=1 bytes=1 crc32=00000000 b64=!!!\n"
+
+    if package_file_path is None:
+        raise ValueError("--package-file is required for this --kind.")
+
+    if kind == "invalid_json_utf8":
+        # Guard: decoded bytes length matches declared bytes=, UTF-8 is valid, but JSON.parse fails on device.
+        invalid_json_utf8_bytes = b'{"invalidJsonGate":"'
+        crc_hex = common.compute_crc32_hex32_lower_from_bytes(payload_bytes=invalid_json_utf8_bytes)
+        b64_text = base64.b64encode(invalid_json_utf8_bytes).decode("ascii")
+        byte_count = len(invalid_json_utf8_bytes)
+        return f"KIBO_PKG schema=1 bytes={byte_count} crc32={crc_hex} b64={b64_text}\n"
+
+    if kind == "unsupported_schema":
+        template_text = package_file_path.read_text(encoding="utf-8")
+        package_object = json.loads(template_text)
+        package_object["packageSchemaVersion"] = 2
+        minified_bytes = json.dumps(package_object, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        return common.build_kibo_pkg_serial_line_from_utf8_json_bytes(minified_bytes)
+
+    raise ValueError(f"Unsupported --kind: {kind}")
+
+
+def expected_ack_substrings_for_kind(*, kind: NegativeFrameKind) -> tuple[str, str]:
+    if kind == "invalid_base64":
+        return ("status=error", "base64_decode_failed")
+    if kind == "invalid_json_utf8":
+        return ("status=error", "json_parse_failed")
+    if kind == "unsupported_schema":
+        return ("status=error", "unsupported_package_schema_version")
+    raise ValueError(f"Unsupported --kind: {kind}")
+
+
 def main() -> None:
     serial_module = common.try_import_pyserial_serial_module_or_exit()
     arguments = parse_arguments_or_exit(sys.argv[1:])
@@ -64,8 +118,18 @@ def main() -> None:
             repository_root=repository_root,
         )
 
-    # Guard: declared byte count does not match decoded Base64 payload length (firmware `length_mismatch`).
-    corrupted_line_text = "KIBO_PKG schema=1 bytes=9999 crc32=00000000 b64=eyJ9\n"
+    kind: NegativeFrameKind = arguments.kind
+    effective_package_file_path = arguments.package_file
+    if kind in ("invalid_json_utf8", "unsupported_schema") and effective_package_file_path is None:
+        effective_package_file_path = common.resolve_default_blink_led_golden_pico_runtime_package_json_path_or_raise(
+            repository_root=repository_root,
+        )
+
+    negative_line_text = build_negative_kibo_pkg_line_text_or_raise(
+        kind=kind,
+        package_file_path=effective_package_file_path,
+    )
+    expected_status, expected_reason = expected_ack_substrings_for_kind(kind=kind)
 
     port_path = common.resolve_serial_port_path_for_vertical_slice_or_exit(port_argument=arguments.port)
 
@@ -95,20 +159,23 @@ def main() -> None:
         deadline_negative = time.monotonic() + NEGATIVE_GATE_ACK_TIMEOUT_SECONDS
         negative_lines = common.send_kibo_pkg_line_and_collect_serial_lines_until_deadline_or_raise(
             serial_port=serial_port,
-            kibo_pkg_line_text=corrupted_line_text,
+            kibo_pkg_line_text=negative_line_text,
             deadline_monotonic=deadline_negative,
         )
         negative_ack = common.find_first_kibo_pkg_ack_line(negative_lines)
         if negative_ack is None:
-            print("FAIL: expected kibo_pkg_ack for length mismatch negative gate.", file=sys.stderr)
+            print("FAIL: expected kibo_pkg_ack for malformed frame negative gate.", file=sys.stderr)
             raise SystemExit(1)
         print(negative_ack)
-        if "status=error" not in negative_ack or "length_mismatch" not in negative_ack:
-            print("FAIL: expected kibo_pkg_ack status=error with length_mismatch.", file=sys.stderr)
+        if expected_status not in negative_ack or expected_reason not in negative_ack:
+            print(
+                f"FAIL: expected kibo_pkg_ack containing {expected_status} and {expected_reason}.",
+                file=sys.stderr,
+            )
             raise SystemExit(1)
 
         if arguments.no_recover or recover_path is None:
-            print("OK: length_mismatch negative gate passed (recovery skipped).")
+            print(f"OK: {kind} negative gate passed (recovery skipped).")
             return
 
         minified_recovery_bytes = common.read_minified_pico_runtime_package_utf8_bytes_from_json_path_or_raise(
@@ -121,7 +188,7 @@ def main() -> None:
             expected_ack_substring="status=ok",
         )
         print(recovery_ack)
-        print("OK: length_mismatch negative gate passed and recovery upload acked ok.")
+        print(f"OK: {kind} negative gate passed and recovery upload acked ok.")
     finally:
         serial_port.close()
 

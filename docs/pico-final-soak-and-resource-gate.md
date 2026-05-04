@@ -26,6 +26,19 @@
 
 記録先: [`docs/pico-bringup.md`](pico-bringup.md) または [`docs/runtime-pico-handoff.md`](runtime-pico-handoff.md) の実機メモ。
 
+## 実施記録（自動検証環境 / 2026-05-04）
+
+- 本リポジトリの **CI / エージェント実行**では Pico 未接続のため、`SOAK-LED-001` / `SOAK-OLED-001` の **30 分連続実測**および `SOAK-UPLOAD-001` の **100 回 upload 実測ログは未添付**とする（再現責務は実機オペレーター）。
+- 短時間 regression: `npm test`（Vitest + `test_pico_link_common.py`）および `npm run test:e2e` を通過済み（ホスト側）。
+- 100 回 upload の例（PowerShell / リポジトリルート、`.pico-work\\venv\\Scripts\\python.exe` 推奨）:
+
+```powershell
+$py = ".\\.pico-work\\venv\\Scripts\\python.exe"
+$upload = "scripts\\pico\\runtime_vertical_slice\\tools\\upload_pico_runtime_package.py"
+$pkg = "tests\\runtime-conformance\\golden\\pico-runtime-packages\\blink-led.pico-runtime-package.json"
+1..100 | ForEach-Object { & $py $upload --port auto --package-file $pkg }
+```
+
 ## Exit criteria（この gate を終えたら）
 
 - 長時間で新規不具合が **0 件**、または **既知 issue として起票済み**で再現手順が残っている。

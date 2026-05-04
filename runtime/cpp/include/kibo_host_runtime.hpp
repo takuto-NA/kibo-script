@@ -55,6 +55,13 @@ private:
     std::optional<TaskExecutionProgress> execution_progress;
   };
 
+  struct LoopTaskRuntime final {
+    std::string task_name;
+    nlohmann::json statements_json;
+    std::unordered_map<std::string, std::int64_t> temp_values;
+    std::optional<TaskExecutionProgress> execution_progress;
+  };
+
   struct OnEventTaskRuntime final {
     std::string task_name;
     std::string device_kind;
@@ -66,6 +73,7 @@ private:
 
   struct EvaluationContext final {
     std::unordered_map<std::string, std::int64_t>* script_vars{};
+    std::unordered_map<std::string, std::string>* script_string_vars{};
     std::unordered_map<std::string, std::int64_t>* const_values{};
     std::unordered_map<std::string, std::int64_t>* temp_values{};
     std::optional<int> nominal_interval_milliseconds{};
@@ -74,30 +82,52 @@ private:
 
   std::int64_t total_ms_{0};
   std::unordered_map<std::string, std::int64_t> script_vars_;
+  std::unordered_map<std::string, std::string> script_string_vars_;
   std::unordered_map<std::string, std::int64_t> const_values_;
   bool led0_is_on_{false};
   bool button0_is_pressed_{false};
   std::array<std::uint8_t, kDisplayPixelCount> draft_pixels_{};
   std::array<std::uint8_t, kDisplayPixelCount> presented_pixels_{};
   std::vector<EveryTaskRuntime> every_tasks_;
+  std::vector<LoopTaskRuntime> loop_tasks_;
   std::vector<OnEventTaskRuntime> on_event_tasks_;
 
   void initialize_script_vars_from_program(const nlohmann::json& compiled_program_json);
   void initialize_const_values_from_program(const nlohmann::json& compiled_program_json);
   void register_every_tasks_from_program(const nlohmann::json& compiled_program_json);
+  void register_loop_tasks_from_program(const nlohmann::json& compiled_program_json);
   void register_on_event_tasks_from_program(const nlohmann::json& compiled_program_json);
 
+  void throw_if_compiled_program_has_unsupported_top_level_features(const nlohmann::json& compiled_program_json);
+
   void resume_waiting_every_tasks();
+  void resume_waiting_loop_tasks();
   void advance_every_tasks(int elapsed_milliseconds);
+  void start_runnable_loop_tasks();
   void drain_every_task_body(EveryTaskRuntime& task);
+  void drain_loop_task_body(LoopTaskRuntime& task);
   void drain_on_event_task_body(OnEventTaskRuntime& task);
 
   std::int64_t evaluate_expression_json(
       const nlohmann::json& expression_json,
       EvaluationContext& evaluation_context);
 
+  [[nodiscard]] bool evaluate_expression_truthy_for_if_comparison(
+      const nlohmann::json& expression_json,
+      EvaluationContext& evaluation_context
+  );
+
+  [[nodiscard]] std::string evaluate_expression_as_utf8_string_or_throw(
+      const nlohmann::json& expression_json,
+      EvaluationContext& evaluation_context
+  );
+
   void execute_statement_json(const nlohmann::json& statement_json, EvaluationContext& evaluation_context);
   void execute_statements_json_array(const nlohmann::json& statements_json_array, EvaluationContext& evaluation_context);
+  void execute_statements_json_array_without_wait_milliseconds(
+      const nlohmann::json& statements_json_array,
+      EvaluationContext& evaluation_context
+  );
 
   void apply_led_effect(const std::string& effect_kind);
   void apply_display_clear();

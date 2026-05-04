@@ -1,0 +1,102 @@
+{
+  "runtimeIrContractSchemaVersion": 1,
+  "compiledProgram": {
+    "animatorDefinitions": [],
+    "constInitializers": [],
+    "deviceAliases": [
+      {
+        "deviceAddress": {
+          "id": 0,
+          "kind": "led"
+        },
+        "refName": "status_led"
+      }
+    ],
+    "everyTasks": [
+      {
+        "intervalMilliseconds": 100,
+        "stateMembershipPath": "sm.On",
+        "statements": [
+          {
+            "kind": "assign_var",
+            "valueExpression": {
+              "kind": "binary_add",
+              "left": {
+                "kind": "var_reference",
+                "varName": "ticks_in_on"
+              },
+              "right": {
+                "kind": "integer_literal",
+                "value": 1
+              }
+            },
+            "varName": "ticks_in_on"
+          },
+          {
+            "arguments": [],
+            "deviceAddress": {
+              "id": 0,
+              "kind": "led"
+            },
+            "kind": "do_method_call",
+            "methodName": "toggle"
+          }
+        ],
+        "taskName": "bump_ticks"
+      }
+    ],
+    "loopTasks": [],
+    "onEventTasks": [],
+    "stateMachines": [
+      {
+        "globalTransitions": [],
+        "initialLeafPath": "sm.Off",
+        "machineName": "sm",
+        "nodes": [
+          {
+            "childPaths": [],
+            "localTransitions": [
+              {
+                "condition": {
+                  "kind": "comparison",
+                  "left": {
+                    "kind": "state_path_elapsed_reference",
+                    "statePathText": "sm.Off"
+                  },
+                  "operator": ">=",
+                  "right": {
+                    "kind": "integer_literal",
+                    "value": 100
+                  }
+                },
+                "targetPath": "sm.On"
+              }
+            ],
+            "path": "sm.Off"
+          },
+          {
+            "childPaths": [],
+            "localTransitions": [],
+            "path": "sm.On"
+          }
+        ],
+        "tickIntervalMilliseconds": 100
+      }
+    ],
+    "varInitializers": [
+      {
+        "expression": {
+          "kind": "integer_literal",
+          "value": 0
+        },
+        "varName": "ticks_in_on"
+      }
+    ],
+    "varWriterAssignments": [
+      {
+        "varName": "ticks_in_on",
+        "writerTaskName": "bump_ticks"
+      }
+    ]
+  }
+}

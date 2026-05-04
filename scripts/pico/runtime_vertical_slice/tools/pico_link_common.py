@@ -19,6 +19,9 @@ from pathlib import Path
 from typing import Any, Iterable
 
 KIBO_USB_SERIAL_BAUD_RATE = 115200
+# Guard: `k_max_decoded_package_bytes` in `runtime/pico/vertical_slice/src/main.cpp` — negative gate scripts must stay aligned.
+KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES = 12288
+KIBO_NEGATIVE_GATE_OVERSIZED_PADDING_FIELD_NAME = "negativeGateOversizedPaddingFieldForLoaderProtocolGateOnly"
 KIBO_SERIAL_PING_COMMAND_TEXT = "KIBO_PING"
 KIBO_LOADER_STATUS_OK_PREFIX = "kibo_loader status=ok"
 VERTICAL_SLICE_BOOT_BANNER_SUBSTRING = "kibo_pico_vertical_slice_boot"
@@ -43,6 +46,21 @@ def try_import_pyserial_serial_module_or_exit() -> Any:
 def resolve_repository_root_from_tools_file(*, tools_file_path: Path) -> Path:
     # Guard: `tools/pico_link_common.py` lives at repoRoot/scripts/pico/runtime_vertical_slice/tools/.
     return tools_file_path.resolve().parents[4]
+
+
+def resolve_default_blink_led_golden_pico_runtime_package_json_path_or_raise(*, repository_root: Path) -> Path:
+    # Guard: golden package used by negative gate recovery smoke scripts and docs examples.
+    candidate_path = (
+        repository_root
+        / "tests"
+        / "runtime-conformance"
+        / "golden"
+        / "pico-runtime-packages"
+        / "blink-led.pico-runtime-package.json"
+    )
+    if not candidate_path.is_file():
+        raise FileNotFoundError(f"Default blink-led golden package missing: {candidate_path}")
+    return candidate_path
 
 
 def split_non_empty_lines_from_text(text: str) -> list[str]:
@@ -311,15 +329,101 @@ def resolve_vertical_slice_firmware_uf2_path_or_none(*, repository_root: Path) -
     return None
 
 
-def build_kibo_pkg_serial_line_from_utf8_json_bytes(json_utf8_bytes: bytes) -> str:
-    import base64
+def compute_crc32_hex32_lower_from_bytes(*, payload_bytes: bytes) -> str:
     import zlib
 
-    crc32_value = zlib.crc32(json_utf8_bytes) & 0xFFFFFFFF
-    crc32_hex_text = f"{crc32_value:08x}"
+    crc32_value = zlib.crc32(payload_bytes) & 0xFFFFFFFF
+    return f"{crc32_value:08x}"
+
+
+def build_kibo_pkg_serial_line_from_utf8_json_bytes(json_utf8_bytes: bytes) -> str:
+    import base64
+
+    crc32_hex_text = compute_crc32_hex32_lower_from_bytes(payload_bytes=json_utf8_bytes)
     base64_payload_text = base64.b64encode(json_utf8_bytes).decode("ascii")
     byte_count = len(json_utf8_bytes)
     return f"KIBO_PKG schema=1 bytes={byte_count} crc32={crc32_hex_text} b64={base64_payload_text}\n"
+
+
+def build_kibo_pkg_serial_line_from_utf8_json_bytes_with_crc32_hex_override(
+    *,
+    json_utf8_bytes: bytes,
+    crc32_hex_text_lower_eight: str,
+) -> str:
+    import base64
+
+    # Guard: intentionally wrong CRC for firmware `crc_mismatch` negative gates; payload bytes and Base64 stay consistent.
+    base64_payload_text = base64.b64encode(json_utf8_bytes).decode("ascii")
+    byte_count = len(json_utf8_bytes)
+    return f"KIBO_PKG schema=1 bytes={byte_count} crc32={crc32_hex_text_lower_eight} b64={base64_payload_text}\n"
+
+
+def minify_pico_runtime_package_json_text_to_utf8_bytes_or_raise(*, package_json_text: str) -> bytes:
+    parsed_package_object = json.loads(package_json_text)
+    return json.dumps(parsed_package_object, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+
+def build_oversized_minified_package_utf8_bytes_from_template_object_or_raise(
+    *,
+    template_package_object: dict[str, Any],
+    minimum_decoded_byte_count: int,
+) -> bytes:
+    # Guard: `minimum_decoded_byte_count` must exceed firmware decode cap so the device returns `package_too_large`.
+    if minimum_decoded_byte_count <= KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES:
+        raise ValueError(
+            "minimum_decoded_byte_count must be greater than KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES.",
+        )
+
+    mutable_package_object = json.loads(json.dumps(template_package_object))
+    padding_character = "a"
+    padding_length = 0
+    while True:
+        mutable_package_object[KIBO_NEGATIVE_GATE_OVERSIZED_PADDING_FIELD_NAME] = padding_character * padding_length
+        candidate_bytes = json.dumps(mutable_package_object, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        if len(candidate_bytes) >= minimum_decoded_byte_count:
+            return candidate_bytes
+        padding_length += 512
+        if padding_length > 10_000_000:
+            raise RuntimeError("Failed to construct oversized package within padding search bound.")
+
+
+def read_minified_pico_runtime_package_utf8_bytes_from_json_path_or_raise(*, package_json_path: Path) -> bytes:
+    package_json_text = package_json_path.read_text(encoding="utf-8")
+    return minify_pico_runtime_package_json_text_to_utf8_bytes_or_raise(package_json_text=package_json_text)
+
+
+def send_kibo_pkg_line_and_collect_serial_lines_until_deadline_or_raise(
+    *,
+    serial_port: Any,
+    kibo_pkg_line_text: str,
+    deadline_monotonic: float,
+) -> list[str]:
+    serial_port.reset_input_buffer()
+    serial_port.reset_output_buffer()
+    write_text_line_and_flush_or_raise(serial_port=serial_port, line_without_newline=kibo_pkg_line_text.rstrip("\n"))
+    return read_serial_lines_until_deadline(serial_port=serial_port, deadline_monotonic=deadline_monotonic)
+
+
+def send_minified_kibo_pkg_from_utf8_json_bytes_and_expect_pkg_ack_substring_or_raise(
+    *,
+    serial_port: Any,
+    minified_package_utf8_bytes: bytes,
+    ack_timeout_seconds: float,
+    expected_ack_substring: str,
+) -> str:
+    frame_line_text = build_kibo_pkg_serial_line_from_utf8_json_bytes(minified_package_utf8_bytes)
+    deadline = time.monotonic() + ack_timeout_seconds
+    captured_lines = send_kibo_pkg_line_and_collect_serial_lines_until_deadline_or_raise(
+        serial_port=serial_port,
+        kibo_pkg_line_text=frame_line_text,
+        deadline_monotonic=deadline,
+    )
+    ack_line = find_first_kibo_pkg_ack_line(captured_lines)
+    if ack_line is None:
+        raise RuntimeError("Did not receive kibo_pkg_ack within timeout after sending recovery package.")
+    if expected_ack_substring not in ack_line:
+        raise RuntimeError(f"Unexpected kibo_pkg_ack line: {ack_line}")
+    return ack_line
 
 
 def resolve_node_and_tsx_invocation_or_exit(*, repository_root: Path) -> list[str]:

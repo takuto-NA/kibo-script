@@ -1,0 +1,95 @@
+{
+  "runtimeIrContractSchemaVersion": 1,
+  "compiledProgram": {
+    "animatorDefinitions": [],
+    "constInitializers": [],
+    "deviceAliases": [
+      {
+        "deviceAddress": {
+          "id": 0,
+          "kind": "led"
+        },
+        "refName": "status_led"
+      }
+    ],
+    "everyTasks": [
+      {
+        "intervalMilliseconds": 100,
+        "statements": [
+          {
+            "conditionExpression": {
+              "kind": "comparison",
+              "left": {
+                "kind": "var_reference",
+                "varName": "branch_toggle"
+              },
+              "operator": "==",
+              "right": {
+                "kind": "integer_literal",
+                "value": 0
+              }
+            },
+            "elseBranchStatements": [
+              {
+                "arguments": [],
+                "deviceAddress": {
+                  "id": 0,
+                  "kind": "led"
+                },
+                "kind": "do_method_call",
+                "methodName": "off"
+              },
+              {
+                "kind": "assign_var",
+                "valueExpression": {
+                  "kind": "integer_literal",
+                  "value": 0
+                },
+                "varName": "branch_toggle"
+              }
+            ],
+            "kind": "if_comparison",
+            "thenBranchStatements": [
+              {
+                "arguments": [],
+                "deviceAddress": {
+                  "id": 0,
+                  "kind": "led"
+                },
+                "kind": "do_method_call",
+                "methodName": "on"
+              },
+              {
+                "kind": "assign_var",
+                "valueExpression": {
+                  "kind": "integer_literal",
+                  "value": 1
+                },
+                "varName": "branch_toggle"
+              }
+            ]
+          }
+        ],
+        "taskName": "if_led_branch"
+      }
+    ],
+    "loopTasks": [],
+    "onEventTasks": [],
+    "stateMachines": [],
+    "varInitializers": [
+      {
+        "expression": {
+          "kind": "integer_literal",
+          "value": 0
+        },
+        "varName": "branch_toggle"
+      }
+    ],
+    "varWriterAssignments": [
+      {
+        "varName": "branch_toggle",
+        "writerTaskName": "if_led_branch"
+      }
+    ]
+  }
+}

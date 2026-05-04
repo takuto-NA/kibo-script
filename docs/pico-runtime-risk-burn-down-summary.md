@@ -12,35 +12,35 @@
 | 6 bytecode 判断 | [`docs/bytecode-transfer-design.md`](bytecode-transfer-design.md) の「JSON 継続 / bytecode 着手の判断材料」 |
 | 7 soak | [`docs/pico-final-soak-and-resource-gate.md`](pico-final-soak-and-resource-gate.md) |
 
-## 判定表（現時点のベストエフォート）
+## 判定表（2026-05-04 更新）
 
 領域 | 判定 | メモ
 --- | --- | ---
 Baseline（5 サンプル + 3 golden package + CLI/Web Serial） | **Go** | 再現コマンドと IR 境界を handoff に固定済み。
-Semantics（`if` / full `wait` / `loop` / `match` / `sm`） | **Redesign 寄り（調査継続）** | C++ は `stateMembershipPath` 等を拒否。probe fixture は設計済みだが未実装 → 実装時に TS↔C++ gate を最優先。
-Loader（`KIBO_PKG`） | **Fix first** | 上限（12288 decode / 16384 行長）はコード固定。CRC 改変・巨大化 sender を増やすとより **Go** に近づく。
-Simulator→Pico UX | **Fix first** | Web Serial 主経路は動作済み。エラー時の恒常的な CLI/UF2 誘導を足すと **Go**。
-Flash 永続化 | **Redesign（未着手）** | アドレスマップ・電源断 recovery 未確定。gate 文書のみ。
-JSON vs bytecode | **Go（現状維持）+ 閾値監視** | MVP package は数 KB 台。12288 に近づいたら bytecode 着手（bytecode doc 参照）。
-最終 soak / リソース | **Pending（最後の gate）** | 条件は [`docs/pico-final-soak-and-resource-gate.md`](pico-final-soak-and-resource-gate.md)。実測は短時間 gate 完了後。
+Semantics（6 probe + 従来 3 fixture） | **Go（TS golden 固定）+ partial C++** | `tests/runtime-conformance/` に trace / replay / IR golden 追加。C++ host は `stateMachines` を拒否（compare テストで skip）。`if` / `wait` / `loop` / `match` は host 側で TS golden と整合する実装済み（ビルドは `npm run build:host-runtime`）。
+Loader（`KIBO_PKG` negative） | **Fix first completed** | `send_invalid_kibo_pkg_crc.py` / `send_oversized_kibo_pkg.py` / `send_invalid_kibo_pkg_frame.py` + 既存 length sender を復旧付きに整理。`pico_link_common` に純粋ユニット拡張。実機ログは [`docs/pico-bringup.md`](pico-bringup.md) テンプレへ貼付前提。
+Simulator→Pico UX | **Fix first completed** | `script-runner-view.ts` で loader / ack / trace mismatch ごとに **install_pico_loader / doctor / upload / pico_link_check（`--repo-root .` + `--trace-var`）** を表示。Playwright fake Web Serial で loader / ack / trace の smoke 追加。
+Flash 永続化 | **Redesign decided（実装 Defer）** | [`docs/pico-flash-persistence-gate.md`](pico-flash-persistence-gate.md) に A/B sector + header CRC + fallback 方針と **プロトタイプ開始条件**を明記。実装は bytecode または JSON 上限接近まで保留。
+JSON vs bytecode | **Go（現状維持）+ 閾値監視** | [`docs/bytecode-transfer-design.md`](bytecode-transfer-design.md) に 5 サンプルの minified byte 数と `KIBO_PKG` 1 行長を実測追記（decode 上限の約半分以下）。
+最終 soak / リソース | **Deferred with explicit gate** | 30 分 ×2 + 100 回 upload の **実機ログはオペレーター責務**。自動環境では未実施を明記し、手順は [`docs/pico-final-soak-and-resource-gate.md`](pico-final-soak-and-resource-gate.md)。Flash/RAM は bringup の `pio run -t size` 行を参照し firmware 更新時に再掲。
 
 ## 次に追加する fixture / IR の推奨順
 
-1. `semantics-if-led-branch`（`if`）: 分岐 + device call の TS/C++ 差分が最も多い。
-2. `semantics-wait-skew`（`wait` + `every`）: 時刻モデルの合流。
-3. `semantics-loop-budget`（有限 `loop`）: 停止境界ポリシー確定。
-4. `semantics-match-string`
-5. `stateMembershipPath` を **either 実装 or コンパイル拒否**で一本化。
+1. ~~`semantics-if-led-branch`（`if`）~~: TS/C++ gate済み（host）。
+2. ~~`semantics-wait-skew`（`wait` + `every`）~~: 同上。
+3. ~~`semantics-loop-budget`（有限 `loop`）~~: 同上。
+4. ~~`semantics-match-string`~~: 同上。
+5. `stateMembershipPath` / state machine: **either Pico 実装 or コンパイル時明示拒否**で一本化（現状 C++ / package builder は拒否、TS golden のみ）。
 
 ## CI と実機の線引き
 
-- **CI（デフォルト）**: `npm test`（Vitest + `test_pico_link_common.py` の純粋ユニット）、golden JSON、可能なら C++ host replay。
-- **実機ジョブ（任意）**: `pico_link_check.py` 1 本、または `run_pico_runtime_samples.py`（USB 必須）。
+- **CI（デフォルト）**: `npm test`（Vitest + `test_pico_link_common.py` の純粋ユニット）、golden JSON、C++ host replay はバイナリがある環境のみ実行（無ければ skip）。
+- **実機ジョブ（任意）**: `pico_link_check.py` 1 本、または `run_pico_runtime_samples.py`（USB 必須）、negative sender 群 + bringup テンプレへのログ貼付。
 
 ## Exit criteria（「調査完了、追加実装へ進んでよい」）
 
 - baseline matrix が手元環境で再現できる。
 - semantics probe の **TS golden が存在**し、C++ が一致するか **unsupported で明示**のどちらかに落ちている。
-- loader negative の表に沿って **最低 3 件**（len / crc / oversize のうち実行可能なもの）を実機ログとして残した。
-- UX audit の `UX-FAIL-*` に対し、README または UI テキストで回復手順が辿れる。
-- soak gate は **計画のみ完了**でもよいが、本番前リリースでは実測必須。
+- loader negative の表に沿って **最低 3 件**（len / crc / oversize / frame のうち実行可能なもの）を実機ログとして残した（テンプレは bringup）。
+- UX audit の `UX-FAIL-*` に対し、UI テキストで回復手順が辿れる（E2E smoke 付き）。
+- soak gate は **実機長時間が未実施の場合は explicit defer** とし、本番前リリースでは実測必須。

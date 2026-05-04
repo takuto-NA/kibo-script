@@ -1,0 +1,82 @@
+{
+  "runtimeIrContractSchemaVersion": 1,
+  "compiledProgram": {
+    "animatorDefinitions": [],
+    "constInitializers": [],
+    "deviceAliases": [
+      {
+        "deviceAddress": {
+          "id": 0,
+          "kind": "led"
+        },
+        "refName": "status_led"
+      }
+    ],
+    "everyTasks": [
+      {
+        "intervalMilliseconds": 200,
+        "statements": [
+          {
+            "arguments": [],
+            "deviceAddress": {
+              "id": 0,
+              "kind": "led"
+            },
+            "kind": "do_method_call",
+            "methodName": "on"
+          },
+          {
+            "durationMillisecondsExpression": {
+              "kind": "integer_literal",
+              "value": 50
+            },
+            "kind": "wait_milliseconds"
+          },
+          {
+            "arguments": [],
+            "deviceAddress": {
+              "id": 0,
+              "kind": "led"
+            },
+            "kind": "do_method_call",
+            "methodName": "off"
+          },
+          {
+            "kind": "assign_var",
+            "valueExpression": {
+              "kind": "binary_add",
+              "left": {
+                "kind": "var_reference",
+                "varName": "waited_count"
+              },
+              "right": {
+                "kind": "integer_literal",
+                "value": 1
+              }
+            },
+            "varName": "waited_count"
+          }
+        ],
+        "taskName": "wait_skew"
+      }
+    ],
+    "loopTasks": [],
+    "onEventTasks": [],
+    "stateMachines": [],
+    "varInitializers": [
+      {
+        "expression": {
+          "kind": "integer_literal",
+          "value": 0
+        },
+        "varName": "waited_count"
+      }
+    ],
+    "varWriterAssignments": [
+      {
+        "varName": "waited_count",
+        "writerTaskName": "wait_skew"
+      }
+    ]
+  }
+}

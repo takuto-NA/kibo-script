@@ -43,5 +43,5 @@
 
 ## `Fix first` 候補（メッセージ改善リスト）
 
-- loader 不在時に **UF2 手順 URL / コマンド**を result パネルへ常時同梱（現状はエラー文のみ）。
-- trace 不一致時に **`--trace-var` の CLI 例**を自動で併記（download package フローと揃える）。
+- ~~loader 不在時に **UF2 手順 URL / コマンド**を result パネルへ常時同梱（現状はエラー文のみ）。~~ → **対応済み**（`script-runner-view.ts` の recovery フッタ + 常時 CLI hint）。
+- ~~trace 不一致時に **`--trace-var` の CLI 例**を自動で併記（download package フローと揃える）。~~ → **対応済み**（trace mismatch 時に `pico_link_check.py --repo-root .` + `--trace-var` を併記）。
