@@ -16,6 +16,7 @@ KIBO_PKG schema=1 bytes=<n> crc32=<8 hex lower> b64=<base64 UTF-8 minified JSON>
 
 - `KIBO_PKG` の `schema=1` は **1 行 frame の JSON package 形式**（CRC + Base64）を指す。
 - 受信結果は `kibo_pkg_ack status=ok` または `kibo_pkg_ack status=error reason=...` で返る。
+- **Kibo Device Protocol v1（バイナリ）**: [`docs/kibo-device-protocol-roadmap.md`](../../docs/kibo-device-protocol-roadmap.md) のフレームを USB Serial へ送ると、`HELLO`/`PING` に `CAPABILITIES`/`PONG` が返り、`file_begin`/`file_chunk`/`file_commit` で staging した後 `run_package` が現行 loader と同一検証で RAM package を差し替える。ホスト例: [`scripts/pico/runtime_vertical_slice/tools/upload_pico_runtime_package_via_device_protocol_v1.py`](../../scripts/pico/runtime_vertical_slice/tools/upload_pico_runtime_package_via_device_protocol_v1.py)。
 - firmware が応答する `kibo_loader ... protocol=1` の **`protocol=1` は loader handshake / USB line protocol の版**であり、`KIBO_PKG schema=1` とは別物（ただし同じ “protocol version = 1” 世代のツールチェーン前提）。
 
 ## Loader handshake（`KIBO_PING`）

@@ -22,6 +22,16 @@
 | `LOADER-PKG-OK-001` | `upload_pico_runtime_package.py --package-file <valid.json>` | `kibo_pkg_ack status=ok` の後、期待 trace が出る |
 | `LOADER-ACCEPTANCE-ALL-001` | `run_mvp_hardware_acceptance.py --port <COM> --repo-root . --profile all` | baseline / negative / golden package / samples / semantics がすべて `status=ok` |
 
+## Kibo Device Protocol v1 gates（`docs/kibo-device-protocol-roadmap.md`）
+
+レガシー `KIBO_PKG` と共存するバイナリ v1。ホスト実装は [`scripts/pico/runtime_vertical_slice/tools/kibo_device_protocol_v1.py`](../scripts/pico/runtime_vertical_slice/tools/kibo_device_protocol_v1.py)、ファームは `runtime/pico/vertical_slice/src/main.cpp` + ingress。
+
+| ID | 手順 | 合格条件 |
+| --- | --- | --- |
+| `DEVICE-PROTO-V1-HOST-001` | `npm test`（Vitest `kibo-device-protocol-v1.test.ts` + Python `test_kibo_device_protocol_v1.py`） | TS/Python の golden frame が一致し、decode negative が期待どおり |
+| `DEVICE-PROTO-V1-PING-001` | `encode ... PING` フレームを実機へ送信（任意ツール）→ CAPABILITIES / PONG をバイナリで受信 | ファームが panic しない |
+| `DEVICE-PROTO-V1-UPLOAD-001` | `python .../upload_pico_runtime_package_via_device_protocol_v1.py --port <COM> --package-file <valid.json>` | 終了時に `kibo_pkg_ack status=ok` がキャプチャされる（`run_package` 成功） |
+
 ## Negative / stress gate（実機）
 
 | ID | 入力 | 期待 | 復旧手順 |

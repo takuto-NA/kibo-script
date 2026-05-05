@@ -7,6 +7,7 @@
 
 - Active script は **RAM 上の package 差し替え**。電源断で消える。
 - 復帰手段: **埋め込み default package**（`embedded_default_pico_runtime_package.hpp`）と **UF2 再書き込み**。
+- **前提（順序固定）**: [`docs/kibo-device-protocol-roadmap.md`](kibo-device-protocol-roadmap.md) の **Kibo Device Protocol v1（chunked `file_*` + `run_package`）** が実機で安定するまで、flash 永続化実装に着手しない（通信・staging・実行経路の切り分けを先に閉じる）。
 
 ## 実装前に決めるべき項目
 

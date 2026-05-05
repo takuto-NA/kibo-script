@@ -1,5 +1,9 @@
 node_modules/
 dist/
+
+# Python bytecode (host tools under scripts/).
+**/__pycache__/
+*.py[cod]
 dist-tsc/
 *.local
 .DS_Store

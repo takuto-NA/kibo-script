@@ -141,6 +141,17 @@ npm run report-pico-package-utf8-breakdown -- --sample radio-state-tuner
 6. **受入（三者同値）**  
    TypeScript `assessKiboPicoRuntimePackageJsonTextPreflightOrThrow`、Python `evaluate_pico_package_payload_preflight_or_raise`（`pico_link_common.py`）、Pico `main.cpp` の定数が同じ境界を指すこと。境界の **+1 byte 超過**は TS の合成 JSON と Python の `build_oversized_minified_package_utf8_bytes_from_template_object_or_raise` で機械的に固定する（[`kibo-pico-package-preflight.test.ts`](../tests/runtime-conformance/kibo-pico-package-preflight.test.ts)、[`test_pico_link_common.py`](../scripts/pico/runtime_vertical_slice/tools/test_pico_link_common.py)）。
 
+### Protocol v1 実測チェックリスト（bytecode 着手前の監視）
+
+bytecode を増やす前に、**転送経路と staging の安定性**を数値で押さえる。
+
+| 監視項目 | 取得方法 | メモ |
+| --- | --- | --- |
+| minified UTF-8 byte 長 | `npm run report-pico-package-utf8-breakdown -- --sample <name>` | `runtimeIrContract` の支配率が異常に高い場合は IR 側の削減を優先 |
+| decode 上限に対する比率 | [`tests/runtime-conformance/pico-runtime-samples.test.ts`](../tests/runtime-conformance/pico-runtime-samples.test.ts) の preflight | `warn`（80% 以上）は bytecode 化のサイン |
+| v1 chunked upload のレイテンシ | [`scripts/pico/runtime_vertical_slice/tools/upload_pico_runtime_package_via_device_protocol_v1.py`](../scripts/pico/runtime_vertical_slice/tools/upload_pico_runtime_package_via_device_protocol_v1.py) 実行ログで人手記録 | `SOAK-PARSE-001` の前提データとして [`docs/pico-final-soak-and-resource-gate.md`](pico-final-soak-and-resource-gate.md) へ転記 |
+| host-only protocol regression | `npm test`（`kibo-device-protocol-v1.test.ts` + Python unittest） | wire format を変更したら golden hex を両言語で同期 |
+
 ### 着手条件（bytecode encoder / decoder）
 
 次のいずれかを満たしたら **bytecode のスパイク実装**を優先する。

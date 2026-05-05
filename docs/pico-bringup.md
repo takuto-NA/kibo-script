@@ -103,6 +103,33 @@ status=ok
 - `examples/pico-runtime-samples`（`samples.json` 全件。baseline 5 + scenario tour）
 - semantics probes（`semantics-if-led-branch` / `semantics-wait-skew` / `semantics-loop-budget` / `semantics-match-string`）
 
+### Kibo Device Protocol v1 Phase 0 baseline（記録先の固定）
+
+**記録先**: 本節を **COM11 実機での現行 loader baseline** の正とする（[`docs/kibo-device-protocol-roadmap.md`](kibo-device-protocol-roadmap.md) の v1 実装前後で回帰比較する）。
+
+**前提**: vertical slice firmware が USB CDC で **115200 8N1**、ポート **COM11**（環境により異なる場合は実測で差し替える）。
+
+**再現コマンド（リポジトリルート、PowerShell 例）**:
+
+```powershell
+$py = ".\\.pico-work\\venv\\Scripts\\python.exe"
+# Guard: 複数シリアルがある場合は --port COM11 を明示する。
+& $py scripts\pico\runtime_vertical_slice\tools\pico_link_doctor.py --port COM11
+& $py scripts\pico\runtime_vertical_slice\tools\run_mvp_hardware_acceptance.py --port COM11 --repo-root . --profile all
+```
+
+**ホスト側ソフトウェア regression（Pico 非接続可）**:
+
+```powershell
+npm test
+npm run typecheck
+# 任意: npm run test:e2e
+```
+
+**合格条件（Phase 0）**: [`docs/pico-loader-protocol-gates.md`](pico-loader-protocol-gates.md) の `LOADER-PING-001`、`LOADER-PKG-OK-001`（または acceptance に含まれる同等経路）、`LOADER-ACCEPTANCE-ALL-001` が **COM11** で `status=ok`。
+
+**2026-05-05 時点の記録**: 上記 acceptance は既に通過済み（本章前面の「full acceptance」表を参照）。v1 firmware へ差し替えた後は **同じコマンドで再実行**し、結果をここに追記する。
+
 ### KIBO_PKG loader negative gates（実機ログ用テンプレ）
 
 [`docs/pico-loader-protocol-gates.md`](pico-loader-protocol-gates.md) の negative / 復旧 gate 実行記録をここに追記する（ホストに Pico が無い日は空欄のままでよい）。
