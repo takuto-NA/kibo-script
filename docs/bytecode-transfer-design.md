@@ -52,6 +52,8 @@
 
 minified `PicoRuntimePackage` は **常に decode 上限以下**であることをホスト側で preflight する（超過は送信前 reject、80% 接近は bytecode 化の判断材料）。**CI**: [`pico-runtime-samples.test.ts`](../tests/runtime-conformance/pico-runtime-samples.test.ts) が `samples.json` 全件で `assessKiboPicoRuntimePackageJsonTextPreflightOrThrow` を実行し、`severity === "reject"` を禁止し、**`warn`（decode 上限の 80% 以上）も禁止**してマニフェストの headroom を維持する。
 
+**重要な invariant**: preflight と実送信は同じ **minified UTF-8 bytes** を正にする。過去に UI の Web Serial 送信だけ pretty JSON を Base64 化し、preflight は通るのに実機が `trace schema=1 diag=serial_line_too_long` を出す不整合があった。`src/ui/script-runner-view.ts` の `build_kibo_package_serial_line()` と `tests/runtime-conformance/kibo-pkg-serial-line-encoding.test.ts` が、この「送信直前 minify」を固定する。
+
 ### 既知の package サイズ（コミット済み golden）
 
 計測は **ファイルの UTF-8 byte 長**（2026-05-05 時点のリポジトリ）。
@@ -119,17 +121,24 @@ npm run report-pico-package-utf8-breakdown -- --sample radio-state-tuner
 
 **目的**: 「JSON のまま載せる」範囲を超えたとき、**RAM・1 行シリアル長・実装コスト**のバランスで次手を固定する。
 
+前提: bytecode は単独の通信プロトコルではなく、[`docs/kibo-device-protocol-roadmap.md`](kibo-device-protocol-roadmap.md) の Kibo Device Protocol v1 に載る **execution payload codec** として扱う。PC terminal / keyboard 代替、device event、telemetry、file transfer、state query は protocol 側の責務であり、bytecode は「実行形式の冗長性と parse cost」を解く責務に限定する。
+
 1. **まず IR / package を薄くする（短期）**  
    state 数・遷移密度・`traceVars` を抑え、`runtimeIrContract` の subtree を削る（preflight が `warn` / `reject` になる前の最優先）。
 
-2. **表現を変えずに載せ続けられない**  
-   - **bytecode（または同等の compact binary）**を優先: minified UTF-8 と `nlohmann::json` parse の両方に効く（上記「着手条件」参照）。  
-   - **分割転送**（複数フレームまたは複数 Serial 行 + ack）を併用検討: Base64 膨張と **`k_max_serial_line_characters`（16384）** の関係をプロトコル仕様で固定する（現状の 1 行 `KIBO_PKG` 前提を崩す変更）。
+2. **Kibo Device Protocol v1 を先に固定する**  
+   `hello` / `capabilities` / `ping` / `log` / `trace` / `error` / `device_event` / `file_begin` / `file_chunk` / `file_commit` / `run_package` を最小 message set として、framing、sequence、CRC、ack / retry、codec negotiation を決める。
 
-3. **`k_max_decoded_package_bytes`（12288）の引き上げだけ**  
+3. **chunked file transfer で 1 行制限を外す**  
+   最初の payload は minified `PicoRuntimePackage` JSON でよい。これにより `k_max_serial_line_characters`（16384）の 1 行制限を protocol 側で解く。ただし JSON の冗長性と parse cost は残る。
+
+4. **compact binary / bytecode を payload codec として追加する**  
+   JSON key 名を送らず、task / statement / expression / device address / string table を section 化する。これは minified UTF-8 と `nlohmann::json` parse の両方に効く（下記「着手条件」参照）。
+
+5. **`k_max_decoded_package_bytes`（12288）の引き上げだけ**  
    実装は軽いが **RAM の decode バッファ**と **parse worst-case** に直撃する。bytecode / 分割より先に採用する場合は、**なぜそれが先か**と受信バッファの根拠（計測 gate）をドキュメントに残す（負債化防止）。
 
-4. **受入（三者同値）**  
+6. **受入（三者同値）**  
    TypeScript `assessKiboPicoRuntimePackageJsonTextPreflightOrThrow`、Python `evaluate_pico_package_payload_preflight_or_raise`（`pico_link_common.py`）、Pico `main.cpp` の定数が同じ境界を指すこと。境界の **+1 byte 超過**は TS の合成 JSON と Python の `build_oversized_minified_package_utf8_bytes_from_template_object_or_raise` で機械的に固定する（[`kibo-pico-package-preflight.test.ts`](../tests/runtime-conformance/kibo-pico-package-preflight.test.ts)、[`test_pico_link_common.py`](../scripts/pico/runtime_vertical_slice/tools/test_pico_link_common.py)）。
 
 ### 着手条件（bytecode encoder / decoder）

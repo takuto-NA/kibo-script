@@ -141,7 +141,73 @@ Burn-down 計画の分割ドキュメント（**plan ファイル本体は編集
 
 ファーム側 decode 上限 **12288 bytes**（`main.cpp`）に対し十分な余裕。肥大化したら [`docs/bytecode-transfer-design.md`](bytecode-transfer-design.md) の閾値へ。
 
-### 6) MVP 土台判定（baseline 固定の結論）
+### 6) 2026-05-05: `radio-state-tuner` 転送失敗の原因と教訓
+
+実機 UI から `radio-state-tuner.sc` を `Run simulator & write to Pico` した際、シミュレーター側は成功したが Pico は package を ack せず、Serial に次の診断を出した。
+
+```text
+FAIL: Pico write/verify failed.
+Pico did not acknowledge the package.
+trace schema=1 diag=serial_line_too_long
+```
+
+原因は **Pico の Flash 容量不足ではない**。直近の `pio run` では Flash 約 22%、RAM 約 7% で、ファーム自体の容量には余裕がある。問題は現行 loader が `PicoRuntimePackage` を **1 行の `KIBO_PKG` frame** として受ける設計であり、ファーム側に次の入口上限があること。
+
+| 上限 | 値 | 意味 |
+| --- | ---: | --- |
+| `k_max_decoded_package_bytes` | 12288 bytes | Base64 decode 後の JSON package を一括で保持 / parse する上限 |
+| `k_max_serial_line_characters` | 16384 chars | USB Serial から読む 1 行 frame の上限 |
+
+今回の直接原因は、preflight が minified JSON で `KIBO_PKG` 行長を計算していた一方、Web Serial 送信 (`src/ui/script-runner-view.ts`) が pretty JSON（改行・スペース込み）をそのまま Base64 化していたこと。`radio-state-tuner` の minified package は上限内でも、pretty JSON を送ると 1 行が膨らみ `serial_line_too_long` になる。
+
+修正済みの invariant:
+
+- `src/ui/script-runner-view.ts` の `build_kibo_package_serial_line()` は、送信直前に `JSON.parse` → `JSON.stringify` して **minified UTF-8 bytes** を `KIBO_PKG` 化する。
+- `tests/runtime-conformance/kibo-pkg-serial-line-encoding.test.ts` は、pretty JSON を渡しても Web Serial frame の Base64 中身が minified JSON になることを固定する。
+- `tests/runtime-conformance/pico-runtime-samples.test.ts` は `samples.json` 全件について preflight を実行し、`reject` だけでなく `warn`（decode 上限の 80% 以上）も禁止する。
+
+このトラブルからの判断:
+
+- `.sc` ソースの行数が直接の上限ではない。compile 後の `runtimeIrContract` JSON が支配的に膨らむ。
+- `radio-state-tuner` のサイズ内訳では `runtimeIrContract` が約 96% を占めた（再現は `npm run report-pico-package-utf8-breakdown -- --sample radio-state-tuner`）。
+- 現状は「JSON file を保存して実行する」機能ではなく、「JSON package を USB Serial 1 行で RAM へ差し替える」開発用 loader である。
+- 長い script を本格的に扱うには、単に `12288` を大きくするより、compact binary / bytecode と chunked transfer へ進むのが正攻法。
+
+### 7) 長い script / 対話基盤への推奨ロードマップ（引き継ぎ）
+
+現行 JSON 1 行転送は MVP / bring-up / デバッグ用として残す。人間が読める JSON と `KIBO_PKG` 1 行は診断しやすく、実機 acceptance の足場として価値がある。ただし、長い script を支える最終形ではない。
+
+重要な方針転換: 次の主作業は **bytecode 単体ではなく、Kibo Device Protocol v1 を先に決める**こと。PC を terminal / keyboard 代わりにする、key / button / sensor event を送る、Pico から trace / log / telemetry / state を受ける、file を送る、bytecode を実行する、といった対話は同じ通信基盤に載せる。詳細は [`docs/kibo-device-protocol-roadmap.md`](kibo-device-protocol-roadmap.md)。
+
+推奨順:
+
+1. **短期 guard を維持**  
+   UI / CLI / Python / firmware の preflight 境界を同期し、`samples.json` は `ok` のみ許容する。`warn` は bytecode 着手のサインとして扱う。
+
+2. **IR / package の冗長さを測る**  
+   `report-pico-package-utf8-breakdown` で `runtimeIrContract` / `replay` / `traceObservation` の支配率を見る。まずは state 数、遷移密度、trace vars、重複 task を削る。
+
+3. **Kibo Device Protocol v1 を定義する**  
+   transport（USB Serial / Web Serial / BLE / TCP）と、framing / envelope / payload codec / domain message を分ける。最小 message は `hello` / `capabilities` / `ping` / `log` / `trace` / `error` / `device_event` / `file_begin` / `file_chunk` / `file_commit` / `run_package`。
+
+4. **chunked file transfer を protocol 上に実装する**  
+   まず payload は現行 minified `PicoRuntimePackage` JSON でよい。`file_begin` / `file_chunk` / `file_commit` に index、offset、length、CRC、ack / retry を持たせ、1 行 `KIBO_PKG` の line length 制限から抜ける。
+
+5. **StaticCoreStructuredData と payload codec を整理する**  
+   JSON / YAML / TOML は人間向け、MessagePack / CBOR は対話 protocol 向け、compact binary / bytecode は実行向けに位置づける。KiboScript の canonical structured data model から各 codec へ落とす。
+
+6. **compact binary / bytecode を execution payload として追加する**  
+   JSON key 名を何度も送らず、task / statement / expression / device address / string table を section 化する。TS encoder / decoder の roundtrip、C++ host decoder、Pico decoder の順に進める。
+
+7. **Flash persistence は protocol / chunked / bytecode の後**  
+   受信済み package を Flash に保存し、起動時に last-good を読む。壊れていたら embedded default へ戻す。詳細 gate は [`docs/pico-flash-persistence-gate.md`](pico-flash-persistence-gate.md)。
+
+8. **バッファ上限引き上げだけで延命しない**  
+   `k_max_decoded_package_bytes` を大きくするだけなら実装は軽いが、RAM 固定バッファと `nlohmann::json` parse worst-case に直撃する。採用する場合は、なぜ bytecode / chunked より先に必要かを計測付きで残す。
+
+通信基盤の詳細は [`docs/kibo-device-protocol-roadmap.md`](kibo-device-protocol-roadmap.md)、execution payload の詳細設計と bytecode 着手条件は [`docs/bytecode-transfer-design.md`](bytecode-transfer-design.md) を正とする。
+
+### 8) MVP 土台判定（baseline 固定の結論）
 
 - **Go**: 上記 5 サンプル + 3 golden package + loader negative + `if` / `wait` / `loop` / `match` semantics probe + **`run_pico_semantics_probes.py` に載せた state subset** + `KIBO_PKG` trace 照合が、CI / 手元手順で固定済み（実機は本ドキュメント末尾の再現コマンド表で `--profile all` または `--profile semantics` を再実行して確認する）。
 - **Fix first completed**: loader negative sender、UX エラー文言、preflight、acceptance profile 化まで実装済み。
