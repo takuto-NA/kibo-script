@@ -10,6 +10,7 @@ import {
   extractReplayInputsFromPicoRuntimePackageUnknownJsonOrThrow,
 } from "../../src/runtime-conformance/build-pico-runtime-package-from-runtime-ir-contract";
 import { executeRuntimeConformanceReplayStepsAndCollectTraceLines } from "../../src/runtime-conformance/execute-runtime-conformance-replay-steps-and-collect-trace-lines";
+import { assessKiboPicoRuntimePackageJsonTextPreflightOrThrow } from "../../src/runtime-conformance/kibo-pico-package-preflight";
 
 type SampleManifest = {
   readonly samples: readonly {
@@ -40,6 +41,11 @@ describe("Pico runtime sample scripts", () => {
       compiledProgram: compileResult.program,
       scriptVarNamesToIncludeInTraceOverride: sample.traceVars,
     });
+    const packagePreflight = assessKiboPicoRuntimePackageJsonTextPreflightOrThrow({
+      canonicalPicoRuntimePackageJsonText: packageText,
+    });
+    expect(packagePreflight.severity).not.toBe("reject");
+
     const replayInputs = extractReplayInputsFromPicoRuntimePackageUnknownJsonOrThrow(JSON.parse(packageText));
     const traceLines = executeRuntimeConformanceReplayStepsAndCollectTraceLines({
       compiledProgram: replayInputs.compiledProgram,

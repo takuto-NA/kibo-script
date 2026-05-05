@@ -25,6 +25,7 @@ const KIBO_SERIAL_PING_COMMAND_TEXT = "KIBO_PING";
 const KIBO_LOADER_STATUS_OK_PREFIX = "kibo_loader status=ok";
 const KIBO_PACKAGE_ACK_OK_TEXT = "kibo_pkg_ack status=ok";
 const KIBO_LOADER_PROTOCOL_VERSION = 1;
+const LEGACY_KIBO_LOADER_MAX_SERIAL_LINE_CHARACTERS = 16384;
 const SERIAL_PING_TIMEOUT_MILLISECONDS = 2500;
 const SERIAL_ACK_TIMEOUT_MILLISECONDS = 5000;
 const SERIAL_TRACE_VERIFY_TIMEOUT_MILLISECONDS = 8000;
@@ -153,6 +154,9 @@ function build_pico_write_failure_recovery_lines_from_error_message(params: {
   if (params.error_message.includes("Pico loader did not respond")) {
     return build_pico_loader_missing_recovery_lines();
   }
+  if (params.error_message.includes("Pico loader firmware is too old")) {
+    return build_pico_loader_missing_recovery_lines();
+  }
   if (params.error_message.includes("Pico did not acknowledge the package")) {
     return build_pico_package_ack_failure_recovery_lines();
   }
@@ -167,8 +171,49 @@ function resolve_browser_serial_api_or_undefined(): KiboSerialApi | undefined {
 }
 
 function build_kibo_package_serial_line(package_text: string): string {
-  const package_bytes = new TextEncoder().encode(package_text);
+  const minified_package_text = JSON.stringify(JSON.parse(package_text));
+  const package_bytes = new TextEncoder().encode(minified_package_text);
   return `${build_kibo_pkg_schema1_serial_line_text_without_newline_from_minified_utf8_bytes(package_bytes)}\n`;
+}
+
+function parse_loader_limit_from_loader_status_line(params: {
+  readonly loader_status_line: string;
+  readonly field_name: string;
+}): number | undefined {
+  const escaped_field_name = params.field_name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = params.loader_status_line.match(new RegExp(`\\b${escaped_field_name}=(\\d+)\\b`));
+  if (match === null) {
+    return undefined;
+  }
+  const text = match[1];
+  if (text === undefined) {
+    return undefined;
+  }
+  return Number.parseInt(text, 10);
+}
+
+function assert_loader_can_accept_kibo_package_line_or_throw(params: {
+  readonly loader_status_line: string;
+  readonly kibo_package_serial_line_text: string;
+}): void {
+  const line_length_without_newline = params.kibo_package_serial_line_text.trimEnd().length;
+  const reported_max_serial_line_characters = parse_loader_limit_from_loader_status_line({
+    loader_status_line: params.loader_status_line,
+    field_name: "max_serial_line_characters",
+  });
+  const effective_max_serial_line_characters =
+    reported_max_serial_line_characters ?? LEGACY_KIBO_LOADER_MAX_SERIAL_LINE_CHARACTERS;
+  if (line_length_without_newline <= effective_max_serial_line_characters) {
+    return;
+  }
+  throw new Error(
+    [
+      "Pico loader firmware is too old for this package size.",
+      `KIBO_PKG line is ${line_length_without_newline} characters, but this loader reports/assumes max ${effective_max_serial_line_characters}.`,
+      `Loader line: ${params.loader_status_line}`,
+      `Flash the latest Pico loader firmware, then retry: python ${INSTALL_PICO_LOADER_SCRIPT_RELATIVE_PATH}`,
+    ].join("\n"),
+  );
 }
 
 function split_non_empty_lines_from_serial_text(text: string): readonly string[] {
@@ -627,10 +672,16 @@ export function createScriptRunnerPanel(params: {
         );
       }
 
+      const kibo_package_serial_line_text = build_kibo_package_serial_line(package_text);
+      assert_loader_can_accept_kibo_package_line_or_throw({
+        loader_status_line: loader_line,
+        kibo_package_serial_line_text,
+      });
+
       resultPre.textContent = `Loader ready: ${loader_line}\nUploading Pico package...`;
       await write_text_to_serial_port({
         port,
-        text: build_kibo_package_serial_line(package_text),
+        text: kibo_package_serial_line_text,
       });
       const ack_lines = await read_serial_lines_until_or_timeout({
         reader,

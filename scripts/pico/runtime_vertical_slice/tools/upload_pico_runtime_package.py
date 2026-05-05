@@ -111,6 +111,10 @@ def main() -> None:
                 print("  - Flash latest firmware.uf2 via BOOTSEL: python .../install_pico_loader.py", file=sys.stderr)
                 print("  - Close other serial monitors / stuck uploaders that may hold the port.", file=sys.stderr)
                 raise SystemExit(1)
+            common.assert_loader_preflight_can_accept_kibo_pkg_line_or_raise(
+                preflight=preflight,
+                kibo_pkg_line_text=frame_line_text,
+            )
 
         serial_port.reset_input_buffer()
         serial_port.reset_output_buffer()

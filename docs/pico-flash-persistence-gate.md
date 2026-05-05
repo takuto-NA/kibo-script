@@ -52,4 +52,4 @@
 
 ## bytecode との順序
 
-- JSON が肥大化して **12288 bytes 制限**に近いなら、flash 保存より先に **bytecode 化または縮小**を検討（[`docs/bytecode-transfer-design.md`](bytecode-transfer-design.md)）。
+- JSON が肥大化して **32768 bytes 制限**に近いなら、flash 保存より先に **bytecode 化または縮小**を検討（[`docs/bytecode-transfer-design.md`](bytecode-transfer-design.md)）。

@@ -47,8 +47,8 @@
 
 `runtime/pico/vertical_slice/src/main.cpp`:
 
-- **Base64 decode 後の JSON 上限**: 12288 bytes（`k_max_decoded_package_bytes`）
-- **1 行シリアル上限**: 16384 characters（`k_max_serial_line_characters`）
+- **Base64 decode 後の JSON 上限**: 32768 bytes（`k_max_decoded_package_bytes`）
+- **1 行シリアル上限**: 49152 characters（`k_max_serial_line_characters`）
 
 minified `PicoRuntimePackage` は **常に decode 上限以下**であることをホスト側で preflight する（超過は送信前 reject、80% 接近は bytecode 化の判断材料）。
 
@@ -88,20 +88,22 @@ npx tsx -e "import { readFileSync } from 'node:fs'; import { join } from 'node:p
 | `looped-pulse-train` | 1396 | 1912 |
 | `pwm-servo-light-show` | 3492 | 4704 |
 | `string-command-router` | 3722 | 5012 |
+| `state-led-pulse` | 1625 | 2216 |
+| `radio-state-tuner` | 18426 | 24617 |
 
-ファーム上限（`main.cpp`）: decode 後 **12288** bytes、1 行 **16384** characters。1 行 Base64 で送ると **decode 上限を超える payload は行長上限を先に超える**ため、ホストが「12288 超え」を送ると実機では `serial_line_too_long` になり得る（`send_oversized_kibo_pkg.py` 参照）。
+ファーム上限（`main.cpp`）: decode 後 **32768** bytes、1 行 **49152** characters。1 行 Base64 で送るため、line 上限は decode 上限より余裕を持たせる。上限超過時は `package_too_large` または `serial_line_too_long` を negative として扱う（`send_oversized_kibo_pkg.py` 参照）。
 
 ### 着手条件（bytecode encoder / decoder）
 
 次のいずれかを満たしたら **bytecode のスパイク実装**を優先する。
 
-1. minified JSON が **decode 上限の 80%（9830 bytes）** を超えそう（余裕がなくなる）
+1. minified JSON が **decode 上限の 80%（26214 bytes）** を超えそう（余裕がなくなる）
 2. `nlohmann::json` parse が **ソフトリアルタイム要件**を満たせない（`SOAK-PARSE-001` で計測し閾値超え）
 3. flash 永続化で JSON を置くと **セクタ消費が非現実**（[`docs/pico-flash-persistence-gate.md`](pico-flash-persistence-gate.md)）
 
 ### JSON 開発フローを続ける期限（現状）
 
-MVP + supported semantics probe 範囲では JSON のまま **Go**（2026-05-05 実機 acceptance 済み。5 サンプル実測でも decode 上限の半分以下）。上限接近の監視だけ継続する。
+MVP + supported semantics probe 範囲では JSON のまま **Go**（2026-05-05 実機 acceptance 済み。`radio-state-tuner` でも decode 上限の約 56%）。上限接近の監視だけ継続する。
 
 ### 実測手順（5 サンプル + parse / upload 時間）
 

@@ -11,6 +11,7 @@ import growing_circle_sc_raw_text from "../../examples/pico-runtime-samples/grow
 import led_heartbeat_sc_raw_text from "../../examples/pico-runtime-samples/led-heartbeat.sc?raw";
 import looped_pulse_train_sc_raw_text from "../../examples/pico-runtime-samples/looped-pulse-train.sc?raw";
 import pwm_servo_light_show_sc_raw_text from "../../examples/pico-runtime-samples/pwm-servo-light-show.sc?raw";
+import radio_state_tuner_sc_raw_text from "../../examples/pico-runtime-samples/radio-state-tuner.sc?raw";
 import rover_scan_sweep_sc_raw_text from "../../examples/pico-runtime-samples/rover-scan-sweep.sc?raw";
 import sensor_alert_dashboard_sc_raw_text from "../../examples/pico-runtime-samples/sensor-alert-dashboard.sc?raw";
 import serial_heartbeat_log_sc_raw_text from "../../examples/pico-runtime-samples/serial-heartbeat-log.sc?raw";
@@ -45,6 +46,7 @@ const SOURCE_TEXT_BY_SOURCE_FILE_NAME: Readonly<Record<string, string>> = {
   "led-heartbeat.sc": led_heartbeat_sc_raw_text,
   "looped-pulse-train.sc": looped_pulse_train_sc_raw_text,
   "pwm-servo-light-show.sc": pwm_servo_light_show_sc_raw_text,
+  "radio-state-tuner.sc": radio_state_tuner_sc_raw_text,
   "rover-scan-sweep.sc": rover_scan_sweep_sc_raw_text,
   "sensor-alert-dashboard.sc": sensor_alert_dashboard_sc_raw_text,
   "serial-heartbeat-log.sc": serial_heartbeat_log_sc_raw_text,

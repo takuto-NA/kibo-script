@@ -73,7 +73,7 @@ class PicoLinkCommonPureHelpersTest(unittest.TestCase):
                 minimum_decoded_byte_count=common.KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES,
             )
 
-    def test_oversized_utf8_that_exceeds_decode_cap_produces_kibo_pkg_line_over_serial_limit(self) -> None:
+    def test_oversized_utf8_that_exceeds_decode_cap_still_fits_serial_line_headroom(self) -> None:
         repository_root = Path(__file__).resolve().parents[4]
         blink_led_package_path = common.resolve_default_blink_led_golden_pico_runtime_package_json_path_or_raise(
             repository_root=repository_root,
@@ -88,7 +88,7 @@ class PicoLinkCommonPureHelpersTest(unittest.TestCase):
             kibo_pkg_line_text=line_text,
         )
         self.assertGreater(len(oversized_utf8_bytes), common.KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES)
-        self.assertGreater(line_character_count, common.KIBO_FIRMWARE_MAX_SERIAL_LINE_CHARACTERS)
+        self.assertLessEqual(line_character_count, common.KIBO_FIRMWARE_MAX_SERIAL_LINE_CHARACTERS)
 
     def test_preflight_ok_for_blink_led_golden_minified(self) -> None:
         repository_root = Path(__file__).resolve().parents[4]

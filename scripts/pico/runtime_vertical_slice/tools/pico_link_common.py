@@ -20,9 +20,9 @@ from typing import Any, Iterable
 
 KIBO_USB_SERIAL_BAUD_RATE = 115200
 # Guard: `k_max_decoded_package_bytes` in `runtime/pico/vertical_slice/src/main.cpp` — negative gate scripts must stay aligned.
-KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES = 12288
+KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES = 32768
 # Guard: `k_max_serial_line_characters` in `runtime/pico/vertical_slice/src/main.cpp` — single-line `KIBO_PKG` 送信の上限。
-KIBO_FIRMWARE_MAX_SERIAL_LINE_CHARACTERS = 16384
+KIBO_FIRMWARE_MAX_SERIAL_LINE_CHARACTERS = 49152
 # Guard: TypeScript `kibo-pico-package-preflight.ts` の警告閾値と一致。
 KIBO_FIRMWARE_PACKAGE_PREFLIGHT_WARN_FRACTION_OF_DECODE_LIMIT = 0.8
 KIBO_NEGATIVE_GATE_OVERSIZED_PADDING_FIELD_NAME = "negativeGateOversizedPaddingFieldForLoaderProtocolGateOnly"
@@ -107,6 +107,14 @@ def find_first_kibo_loader_status_line(serial_lines: Iterable[str]) -> str | Non
 
 def parse_loader_protocol_version_from_loader_status_line(line: str) -> int | None:
     match = re.search(r"\bprotocol=(\d+)\b", line)
+    if match is None:
+        return None
+    return int(match.group(1), 10)
+
+
+def parse_integer_field_from_loader_status_line(line: str, *, field_name: str) -> int | None:
+    escaped_field_name = re.escape(field_name)
+    match = re.search(rf"\b{escaped_field_name}=(\d+)\b", line)
     if match is None:
         return None
     return int(match.group(1), 10)
@@ -471,6 +479,34 @@ def evaluate_pico_package_payload_preflight_or_raise(
     )
 
 
+def assert_loader_preflight_can_accept_kibo_pkg_line_or_raise(
+    *,
+    preflight: "LoaderPreflightResult",
+    kibo_pkg_line_text: str,
+) -> None:
+    effective_max_serial_line_characters = (
+        preflight.max_serial_line_characters
+        if preflight.max_serial_line_characters is not None
+        else 16384
+    )
+    line_character_count = count_kibo_pkg_serial_line_characters_excluding_final_newline(
+        kibo_pkg_line_text=kibo_pkg_line_text,
+    )
+    if line_character_count <= effective_max_serial_line_characters:
+        return
+    print("FAIL: loader firmware is too old for this package size.", file=sys.stderr)
+    print(
+        f"KIBO_PKG line is {line_character_count} characters; "
+        f"loader max is {effective_max_serial_line_characters}.",
+        file=sys.stderr,
+    )
+    print(f"Loader line: {preflight.loader_status_line}", file=sys.stderr)
+    print("Next:", file=sys.stderr)
+    print("  - Flash latest firmware.uf2 via BOOTSEL: python .../install_pico_loader.py", file=sys.stderr)
+    print("  - Re-run pico_link_doctor.py --port auto and confirm the loader max fields.", file=sys.stderr)
+    raise SystemExit(1)
+
+
 def resolve_node_and_tsx_invocation_or_exit(*, repository_root: Path) -> list[str]:
     tsx_cli = repository_root / "node_modules" / "tsx" / "dist" / "cli.mjs"
     if not tsx_cli.is_file():
@@ -570,6 +606,8 @@ class LoaderPreflightResult:
     boot_banner_found: bool
     loader_status_line: str | None
     loader_protocol_version: int | None
+    max_decoded_package_bytes: int | None
+    max_serial_line_characters: int | None
     captured_lines: list[str]
 
 
@@ -582,9 +620,21 @@ def run_loader_preflight_on_open_serial_port(
     boot_banner_found = any(line_contains_vertical_slice_boot_banner(line) for line in lines_after_ping)
     loader_line = find_first_kibo_loader_status_line(lines_after_ping)
     protocol_version = parse_loader_protocol_version_from_loader_status_line(loader_line) if loader_line else None
+    max_decoded_package_bytes = (
+        parse_integer_field_from_loader_status_line(loader_line, field_name="max_decoded_package_bytes")
+        if loader_line
+        else None
+    )
+    max_serial_line_characters = (
+        parse_integer_field_from_loader_status_line(loader_line, field_name="max_serial_line_characters")
+        if loader_line
+        else None
+    )
     return LoaderPreflightResult(
         boot_banner_found=boot_banner_found,
         loader_status_line=loader_line,
         loader_protocol_version=protocol_version,
+        max_decoded_package_bytes=max_decoded_package_bytes,
+        max_serial_line_characters=max_serial_line_characters,
         captured_lines=lines_after_ping,
     )

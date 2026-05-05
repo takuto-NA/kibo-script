@@ -158,6 +158,53 @@ test("Pico write shows loader recovery when KIBO_PING does not return protocol=1
   await expect(status).toContainText("pico_link_doctor.py");
 });
 
+test("Pico write rejects large package before upload when loader does not report raised limits", async ({ page }) => {
+  await page.addInitScript(() => {
+    const encoder = new TextEncoder();
+    let readable_controller: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const enqueue_line = (line: string) => {
+      readable_controller?.enqueue(encoder.encode(`${line}\n`));
+    };
+    const fake_port = {
+      readable: new ReadableStream<Uint8Array>({
+        start(controller) {
+          readable_controller = controller;
+        },
+      }),
+      writable: new WritableStream<Uint8Array>({
+        write(chunk) {
+          const text = new TextDecoder().decode(chunk);
+          if (text.includes("KIBO_PING")) {
+            enqueue_line("kibo_loader status=ok protocol=1 active=old-firmware");
+          }
+          if (text.includes("KIBO_PKG")) {
+            enqueue_line("trace schema=1 diag=serial_line_too_long");
+          }
+        },
+      }),
+      async open() {},
+      async close() {},
+    };
+
+    Object.defineProperty(navigator, "serial", {
+      configurable: true,
+      value: {
+        async requestPort() {
+          return fake_port;
+        },
+      },
+    });
+  });
+  await page.goto("/");
+
+  await page.getByTestId("script-runner-example-select").selectOption("radio-state-tuner");
+  await page.getByTestId("script-runner-write-pico-button").click();
+
+  const status = page.getByRole("status");
+  await expect(status).toContainText("Pico loader firmware is too old for this package size", { timeout: 8000 });
+  await expect(status).toContainText("install_pico_loader.py");
+});
+
 test("Pico write shows ack recovery when package is not acknowledged", async ({ page }) => {
   await page.addInitScript(() => {
     const encoder = new TextEncoder();

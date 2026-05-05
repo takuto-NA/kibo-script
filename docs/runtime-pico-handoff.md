@@ -61,6 +61,7 @@ Burn-down 計画の分割ドキュメント（**plan ファイル本体は編集
 | `pwm-servo-light-show` | `pwm-servo-light-show.sc` | `pwm#0` / `motor#0` / `servo#0`（no-op）+ mode state |
 | `string-command-router` | `string-command-router.sc` | string command routing / display + LED side effects |
 | `state-led-pulse` | `state-led-pulse.sc` | `state machine` + `stateMembershipPath` 付き `every`（subset） |
+| `radio-state-tuner` | `radio-state-tuner.sc` | button-driven radio station request + `state machine` + OLED render per state |
 
 ### 2) 到達パス（どこから package が来るか）
 
@@ -136,7 +137,7 @@ Burn-down 計画の分割ドキュメント（**plan ファイル本体は編集
 | `tests/runtime-conformance/golden/pico-runtime-packages/button-toggle-on-event.pico-runtime-package.json` | 1636 |
 | `tests/runtime-conformance/golden/pico-runtime-packages/circle-animation.pico-runtime-package.json` | 2812 |
 
-ファーム側 decode 上限 **12288 bytes**（`main.cpp`）に対し十分な余裕。肥大化したら [`docs/bytecode-transfer-design.md`](bytecode-transfer-design.md) の閾値へ。
+ファーム側 decode 上限 **32768 bytes**（`main.cpp`）に対し十分な余裕。肥大化したら [`docs/bytecode-transfer-design.md`](bytecode-transfer-design.md) の閾値へ。
 
 ### 6) MVP 土台判定（baseline 固定の結論）
 

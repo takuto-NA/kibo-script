@@ -3,8 +3,8 @@
 Responsibility: send a minified JSON package whose UTF-8 byte length exceeds the firmware decode cap (`package_too_large`),
 then optionally re-upload a known-good smaller package to prove recovery.
 
-Guard: 現行 1 行 `KIBO_PKG` では、decode 上限（12288 bytes）を超える payload の Base64 化が **シリアル 1 行上限（16384 文字）**
-を超えるため、実機では `kibo_pkg_ack ... package_too_large` ではなく `trace ... diag=serial_line_too_long` が出ることがある。
+Guard: 現行 1 行 `KIBO_PKG` では、decode 上限を超える payload の Base64 化が **シリアル 1 行上限**
+を超える場合もあるため、実機では `kibo_pkg_ack ... package_too_large` ではなく `trace ... diag=serial_line_too_long` が出ることがある。
 いずれも「巨大 package を拒否し active を壊さない」negative として扱う（詳細は docs/pico-loader-protocol-gates.md）。
 
 Example:
