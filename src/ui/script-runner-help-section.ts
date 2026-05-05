@@ -7,6 +7,8 @@ import { DOCUMENTATION_LINK_ITEMS_FOR_SIMULATOR_UI } from "./documentation-links
 const INSTALL_PICO_LOADER_SCRIPT_RELATIVE_PATH = "scripts/pico/runtime_vertical_slice/tools/install_pico_loader.py";
 const UPLOAD_PICO_RUNTIME_PACKAGE_SCRIPT_RELATIVE_PATH =
   "scripts/pico/runtime_vertical_slice/tools/upload_pico_runtime_package.py";
+const UPLOAD_PICO_RUNTIME_PACKAGE_VIA_DEVICE_PROTOCOL_V1_SCRIPT_RELATIVE_PATH =
+  "scripts/pico/runtime_vertical_slice/tools/upload_pico_runtime_package_via_device_protocol_v1.py";
 
 export type ScriptRunnerHelpSection = {
   readonly rootElement: HTMLElement;
@@ -17,7 +19,8 @@ function build_cli_reference_text(): string {
     "Pico: build a package in this UI, or use npm script + pyserial.",
     `Loader install (Windows UF2 helper): python ${INSTALL_PICO_LOADER_SCRIPT_RELATIVE_PATH}`,
     "  npm run build-pico-runtime-package -- --input kibo-runtime-ir-contract.json --output package.json",
-    `  python ${UPLOAD_PICO_RUNTIME_PACKAGE_SCRIPT_RELATIVE_PATH} --port auto --package-file package.json`,
+    `  python ${UPLOAD_PICO_RUNTIME_PACKAGE_VIA_DEVICE_PROTOCOL_V1_SCRIPT_RELATIVE_PATH} --port auto --package-file package.json  (device protocol v1 chunked; matches simulator Web Serial)`,
+    `  python ${UPLOAD_PICO_RUNTIME_PACKAGE_SCRIPT_RELATIVE_PATH} --port auto --package-file package.json  (legacy one-line KIBO_PKG)`,
     "Golden packages for MVP fixtures live under tests/runtime-conformance/golden/pico-runtime-packages/.",
     `Preflight: python scripts/pico/runtime_vertical_slice/tools/pico_link_doctor.py --port auto`,
   ].join("\n");

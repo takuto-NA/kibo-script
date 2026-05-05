@@ -120,6 +120,68 @@ class PicoLinkCommonPureHelpersTest(unittest.TestCase):
         self.assertEqual(context.exception.code, 1)
         self.assertIn("package_too_large", stderr_capture.getvalue())
 
+    def test_v1_byte_only_preflight_rejects_12289(self) -> None:
+        oversized = b"y" * (common.KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES + 1)
+        stderr_capture = io.StringIO()
+        with contextlib.redirect_stderr(stderr_capture):
+            with self.assertRaises(SystemExit) as context:
+                common.evaluate_pico_package_minified_utf8_byte_preflight_for_device_protocol_v1_or_raise(
+                    minified_utf8_bytes=oversized,
+                )
+        self.assertEqual(context.exception.code, 1)
+        self.assertIn("package_too_large", stderr_capture.getvalue())
+
+    def test_ram_probe_padding_builder_hits_exact_firmware_limit(self) -> None:
+        repository_root = Path(__file__).resolve().parents[4]
+        path = common.resolve_default_blink_led_golden_pico_runtime_package_json_path_or_raise(repository_root=repository_root)
+        template_object = json.loads(path.read_text(encoding="utf-8"))
+        padded = common.build_minified_pico_runtime_package_utf8_bytes_with_ram_probe_padding_target_length_or_raise(
+            template_package_object=template_object,
+            target_minified_utf8_byte_count=common.KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES,
+        )
+        self.assertEqual(len(padded), common.KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES)
+        common.evaluate_pico_package_minified_utf8_byte_preflight_for_device_protocol_v1_or_raise(minified_utf8_bytes=padded)
+
+    def test_extract_conformance_trace_lines_strips_ram_probe_diagnostics(self) -> None:
+        lines = [
+            "trace schema=1 sim_ms=0 led0=0",
+            "trace schema=1 diag=ram_probe phase=x free_heap=1 used_heap=2 total_heap=3 min_free_heap=1",
+            "trace schema=1 sim_ms=1000 led0=1",
+        ]
+        filtered = common.extract_conformance_trace_lines_from_serial_lines_excluding_ram_probe_diagnostics(lines)
+        self.assertEqual(
+            filtered,
+            ["trace schema=1 sim_ms=0 led0=0", "trace schema=1 sim_ms=1000 led0=1"],
+        )
+        self.assertTrue(
+            common.contains_expected_trace_sequence(actual_trace_lines=filtered, expected_trace_lines=filtered),
+        )
+
+    def test_build_one_byte_over_firmware_limit_from_template(self) -> None:
+        repository_root = Path(__file__).resolve().parents[4]
+        path = common.resolve_default_blink_led_golden_pico_runtime_package_json_path_or_raise(repository_root=repository_root)
+        template_object = json.loads(path.read_text(encoding="utf-8"))
+        over_bytes = common.build_minified_utf8_one_byte_over_firmware_decode_limit_from_template_or_raise(
+            template_package_object=template_object,
+        )
+        self.assertEqual(len(over_bytes), common.KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES + 1)
+
+    def test_v1_preflight_reject_then_valid_preflight_succeeds(self) -> None:
+        oversized = b"z" * (common.KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES + 1)
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                common.evaluate_pico_package_minified_utf8_byte_preflight_for_device_protocol_v1_or_raise(
+                    minified_utf8_bytes=oversized,
+                )
+        repository_root = Path(__file__).resolve().parents[4]
+        path = common.resolve_default_blink_led_golden_pico_runtime_package_json_path_or_raise(repository_root=repository_root)
+        ok_obj = json.loads(path.read_text(encoding="utf-8"))
+        ok_minified = json.dumps(ok_obj, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        try:
+            common.evaluate_pico_package_minified_utf8_byte_preflight_for_device_protocol_v1_or_raise(minified_utf8_bytes=ok_minified)
+        except SystemExit as exc:  # pragma: no cover
+            self.fail(f"unexpected exit: {exc.code}")
+
 
 if __name__ == "__main__":
     unittest.main()

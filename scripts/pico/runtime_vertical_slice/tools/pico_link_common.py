@@ -21,6 +21,8 @@ from typing import Any, Iterable
 KIBO_USB_SERIAL_BAUD_RATE = 115200
 # Guard: `k_max_decoded_package_bytes` in `runtime/pico/vertical_slice/src/main.cpp` — negative gate scripts must stay aligned.
 KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES = 12288
+# Guard: top-level padding key for RAM capacity boundary packages (ignored by firmware fields; preserved in JSON object).
+KIBO_RAM_PROBE_PADDING_TOP_LEVEL_FIELD_NAME = "ramProbePadding"
 # Guard: `k_max_serial_line_characters` in `runtime/pico/vertical_slice/src/main.cpp` — single-line `KIBO_PKG` 送信の上限。
 KIBO_FIRMWARE_MAX_SERIAL_LINE_CHARACTERS = 16384
 # Guard: TypeScript `kibo-pico-package-preflight.ts` の警告閾値と一致。
@@ -81,6 +83,22 @@ def extract_trace_lines_from_serial_lines(serial_lines: Iterable[str]) -> list[s
         if line.startswith("trace "):
             trace_lines.append(line)
     return trace_lines
+
+
+def extract_conformance_trace_lines_from_serial_lines_excluding_ram_probe_diagnostics(serial_lines: Iterable[str]) -> list[str]:
+    """
+    Responsibility: USB Serial から取った行のうち、`diag=ram_probe` 以外の `trace schema=1 ...` 行だけを返す。
+
+    Guard: RAM 容量実験で `ram_probe` が replay trace 行の間に挟まっても、`contains_expected_trace_sequence` で golden と照合できるようにする。
+    """
+    lines: list[str] = []
+    for line in serial_lines:
+        if not line.startswith("trace "):
+            continue
+        if "diag=ram_probe" in line:
+            continue
+        lines.append(line)
+    return lines
 
 
 def contains_expected_trace_sequence(*, actual_trace_lines: list[str], expected_trace_lines: list[str]) -> bool:
@@ -471,6 +489,102 @@ def evaluate_pico_package_payload_preflight_or_raise(
     )
 
 
+def evaluate_pico_package_minified_utf8_byte_preflight_for_device_protocol_v1_or_raise(*, minified_utf8_bytes: bytes) -> None:
+    """
+    Guard: Kibo Device Protocol v1 では 1 行 `KIBO_PKG` 長を使わないため、decode 上限（12288 bytes）のみ検査する。
+    RAM probe 等で minified が 16384 超の「仮想 1 行」を作らない前提で、byte 数だけを hard gate する。
+    """
+    byte_count = len(minified_utf8_bytes)
+    if byte_count > KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES:
+        print(
+            f"FAIL: package_too_large minified_utf8_bytes={byte_count} "
+            f"limit={KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES}",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+    warn_threshold_bytes = int(KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES * KIBO_FIRMWARE_PACKAGE_PREFLIGHT_WARN_FRACTION_OF_DECODE_LIMIT)
+    if byte_count >= warn_threshold_bytes:
+        percent = int(KIBO_FIRMWARE_PACKAGE_PREFLIGHT_WARN_FRACTION_OF_DECODE_LIMIT * 100)
+        print(
+            f"WARN: minified_utf8_bytes={byte_count} is at or above {percent}% "
+            f"of v1 staging limit (threshold {warn_threshold_bytes}). See docs/bytecode-transfer-design.md."
+        )
+    print(f"PREFLIGHT_V1_BYTES_ONLY: ok minified_utf8_bytes={byte_count}/{KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES}")
+
+
+def build_minified_pico_runtime_package_utf8_bytes_with_ram_probe_padding_target_length_or_raise(
+    *,
+    template_package_object: dict[str, Any],
+    target_minified_utf8_byte_count: int,
+) -> bytes:
+    """
+    Responsibility: adjust top-level `ramProbePadding` string so minified UTF-8 JSON matches a target byte length.
+
+    Guard: target must be reachable by lengthening padding (monotone); caller supplies template already below target.
+    """
+    if target_minified_utf8_byte_count > KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES:
+        raise ValueError(
+            f"target_minified_utf8_byte_count {target_minified_utf8_byte_count} exceeds firmware limit "
+            f"{KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES}.",
+        )
+    mutable_package_object = json.loads(json.dumps(template_package_object))
+    low = 0
+    high = target_minified_utf8_byte_count + 4096
+    padding_unit = "x"
+    while True:
+        mutable_package_object[KIBO_RAM_PROBE_PADDING_TOP_LEVEL_FIELD_NAME] = padding_unit * high
+        candidate_high = json.dumps(mutable_package_object, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        if len(candidate_high) >= target_minified_utf8_byte_count:
+            break
+        high *= 2
+        if high > 5_000_000:
+            raise RuntimeError("Failed to bracket ramProbePadding length for target byte count.")
+    best_length = 0
+    while low <= high:
+        mid = (low + high) // 2
+        mutable_package_object[KIBO_RAM_PROBE_PADDING_TOP_LEVEL_FIELD_NAME] = padding_unit * mid
+        candidate_bytes = json.dumps(mutable_package_object, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        candidate_len = len(candidate_bytes)
+        if candidate_len == target_minified_utf8_byte_count:
+            return candidate_bytes
+        if candidate_len < target_minified_utf8_byte_count:
+            best_length = max(best_length, mid)
+            low = mid + 1
+        else:
+            high = mid - 1
+    mutable_package_object[KIBO_RAM_PROBE_PADDING_TOP_LEVEL_FIELD_NAME] = padding_unit * best_length
+    candidate_bytes = json.dumps(mutable_package_object, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    if len(candidate_bytes) != target_minified_utf8_byte_count:
+        raise ValueError(
+            f"Could not reach exact target_minified_utf8_byte_count={target_minified_utf8_byte_count}; "
+            f"best reached {len(candidate_bytes)} with padding length {best_length}.",
+        )
+    return candidate_bytes
+
+
+def build_minified_utf8_one_byte_over_firmware_decode_limit_from_template_or_raise(
+    *,
+    template_package_object: dict[str, Any],
+) -> bytes:
+    """
+    Responsibility: `KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES + 1` バイトの minified JSON を作る（v1 `FILE_BEGIN` の device reject 試験用）。
+
+    Guard: テンプレを `ramProbePadding` でちょうど上限にしたうえで 1 文字だけ延ばす。
+    """
+    at_limit_bytes = build_minified_pico_runtime_package_utf8_bytes_with_ram_probe_padding_target_length_or_raise(
+        template_package_object=template_package_object,
+        target_minified_utf8_byte_count=KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES,
+    )
+    root = json.loads(at_limit_bytes.decode("utf-8"))
+    padding_key = KIBO_RAM_PROBE_PADDING_TOP_LEVEL_FIELD_NAME
+    root[padding_key] = f"{root[padding_key]}x"
+    over_bytes = json.dumps(root, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    expected_len = KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES + 1
+    if len(over_bytes) != expected_len:
+        raise ValueError(f"Expected minified length {expected_len}, got {len(over_bytes)}.")
+    return over_bytes
+
+
 def resolve_node_and_tsx_invocation_or_exit(*, repository_root: Path) -> list[str]:
     tsx_cli = repository_root / "node_modules" / "tsx" / "dist" / "cli.mjs"
     if not tsx_cli.is_file():
@@ -563,6 +677,157 @@ def print_expected_conformance_trace_lines_from_package_using_tsx_or_exit(
         print(completed.stdout, file=sys.stderr)
         raise SystemExit(completed.returncode)
     return split_non_empty_lines_from_text(completed.stdout)
+
+
+def write_device_protocol_v1_frame_and_sleep_or_raise(
+    *,
+    serial_port: Any,
+    frame_bytes: bytes,
+    sleep_seconds: float,
+) -> None:
+    serial_port.write(frame_bytes)
+    serial_port.flush()
+    time.sleep(sleep_seconds)
+
+
+def drain_serial_port_inbound_complete_lines_already_buffered_or_empty(*, serial_port: Any) -> list[str]:
+    """
+    Responsibility: read complete newline-terminated lines already sitting in the USB serial RX driver buffer.
+
+    Guard: v1 upload 中にデバイスが出す `ram_probe` 等がホスト未読のまま溜まり、Windows CDC の受信上限で先頭行が落ちるのを防ぐ。
+    """
+    lines: list[str] = []
+    max_lines_per_drain_call = 10_000
+    for _ in range(max_lines_per_drain_call):
+        waiting_bytes_count = int(serial_port.in_waiting or 0)
+        if waiting_bytes_count <= 0:
+            break
+        raw_line = serial_port.readline()
+        if not raw_line:
+            break
+        lines.append(raw_line.decode("utf-8", errors="replace").rstrip("\r\n"))
+    return lines
+
+
+def upload_minified_pico_runtime_package_utf8_via_device_protocol_v1_and_collect_serial_lines_or_raise(
+    *,
+    serial_port: Any,
+    minified_utf8_bytes: bytes,
+    chunk_utf8_bytes: int,
+    inter_frame_sleep_seconds: float,
+    capture_after_run_seconds: float,
+) -> list[str]:
+    """
+    Responsibility: HELLO → FILE_BEGIN → FILE_CHUNK* → FILE_COMMIT → RUN_PACKAGE then read serial for a bounded time.
+
+    Guard: caller must have completed loader preflight; input buffers should be reset by caller if needed.
+    """
+    import kibo_device_protocol_v1 as kdp
+
+    sequence_counter = 0
+    captured_lines: list[str] = []
+
+    def next_sequence() -> int:
+        nonlocal sequence_counter
+        sequence_counter += 1
+        return sequence_counter
+
+    def write_frame_collect_inbound_or_raise(*, frame_bytes: bytes, sleep_seconds: float) -> None:
+        write_device_protocol_v1_frame_and_sleep_or_raise(
+            serial_port=serial_port,
+            frame_bytes=frame_bytes,
+            sleep_seconds=sleep_seconds,
+        )
+        captured_lines.extend(drain_serial_port_inbound_complete_lines_already_buffered_or_empty(serial_port=serial_port))
+
+    hello_payload = json.dumps(
+        {"hostProtocolVersion": 1, "hostName": "kibo-python-device-protocol-v1-ram-probe"},
+        separators=(",", ":"),
+    ).encode("utf-8")
+    hello_frame = kdp.encode_kibo_device_protocol_v1_frame_or_raise(
+        sequence=next_sequence(),
+        request_id=1,
+        message_kind=kdp.KiboDeviceProtocolV1MessageKind.HELLO,
+        payload_utf8_bytes=hello_payload,
+    )
+    write_frame_collect_inbound_or_raise(
+        frame_bytes=hello_frame,
+        sleep_seconds=inter_frame_sleep_seconds,
+    )
+
+    file_id = 1
+    whole_crc = kdp.compute_crc32_hex8_lower_from_utf8_bytes(minified_utf8_bytes)
+    begin_payload = kdp.build_json_utf8_payload_text_for_file_begin(
+        file_id=file_id,
+        kind="pico_runtime_package_json_minified_utf8",
+        total_byte_length=len(minified_utf8_bytes),
+        whole_payload_crc32_hex_lower=whole_crc,
+    )
+    begin_frame = kdp.encode_kibo_device_protocol_v1_frame_or_raise(
+        sequence=next_sequence(),
+        request_id=1,
+        message_kind=kdp.KiboDeviceProtocolV1MessageKind.FILE_BEGIN,
+        payload_utf8_bytes=begin_payload,
+    )
+    write_frame_collect_inbound_or_raise(
+        frame_bytes=begin_frame,
+        sleep_seconds=inter_frame_sleep_seconds,
+    )
+
+    chunk_index = 0
+    byte_offset = 0
+    chunk_size = max(1, int(chunk_utf8_bytes))
+    while byte_offset < len(minified_utf8_bytes):
+        chunk_bytes = minified_utf8_bytes[byte_offset : byte_offset + chunk_size]
+        chunk_crc = kdp.compute_crc32_hex8_lower_from_utf8_bytes(chunk_bytes)
+        chunk_payload = kdp.build_json_utf8_payload_text_for_file_chunk(
+            file_id=file_id,
+            chunk_index=chunk_index,
+            byte_offset=byte_offset,
+            chunk_crc32_hex_lower=chunk_crc,
+            chunk_payload_utf8_bytes=chunk_bytes,
+        )
+        chunk_frame = kdp.encode_kibo_device_protocol_v1_frame_or_raise(
+            sequence=next_sequence(),
+            request_id=1,
+            message_kind=kdp.KiboDeviceProtocolV1MessageKind.FILE_CHUNK,
+            payload_utf8_bytes=chunk_payload,
+        )
+        write_frame_collect_inbound_or_raise(
+            frame_bytes=chunk_frame,
+            sleep_seconds=inter_frame_sleep_seconds,
+        )
+        byte_offset += len(chunk_bytes)
+        chunk_index += 1
+
+    commit_payload = kdp.build_json_utf8_payload_text_for_file_commit(file_id=file_id)
+    commit_frame = kdp.encode_kibo_device_protocol_v1_frame_or_raise(
+        sequence=next_sequence(),
+        request_id=1,
+        message_kind=kdp.KiboDeviceProtocolV1MessageKind.FILE_COMMIT,
+        payload_utf8_bytes=commit_payload,
+    )
+    write_frame_collect_inbound_or_raise(
+        frame_bytes=commit_frame,
+        sleep_seconds=inter_frame_sleep_seconds,
+    )
+
+    run_payload = kdp.build_json_utf8_payload_text_for_run_package()
+    run_frame = kdp.encode_kibo_device_protocol_v1_frame_or_raise(
+        sequence=next_sequence(),
+        request_id=1,
+        message_kind=kdp.KiboDeviceProtocolV1MessageKind.RUN_PACKAGE,
+        payload_utf8_bytes=run_payload,
+    )
+    write_frame_collect_inbound_or_raise(
+        frame_bytes=run_frame,
+        sleep_seconds=inter_frame_sleep_seconds,
+    )
+
+    captured_lines.extend(
+        read_serial_lines_for_seconds(serial_port=serial_port, capture_seconds=capture_after_run_seconds),
+    )
+    return captured_lines
 
 
 @dataclass(frozen=True)

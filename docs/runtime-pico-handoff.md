@@ -124,7 +124,8 @@ Burn-down 計画の分割ドキュメント（**plan ファイル本体は編集
 | Pico ビルド | 不要（ツールチェーンのみ） | `.pico-work/venv` の `pio.exe run`（手順は [`runtime/pico/vertical_slice/README.md`](../runtime/pico/vertical_slice/README.md)） |
 | 1 本 upload + trace 照合 | 要 | `python .../pico_link_check.py --port auto --repo-root . --package-file <path>` / `--runtime-ir <path>` / `--source-script <path>`（いずれも `[--trace-var ...] [--tick-ms N] [--replay-preset infer]` 可） |
 | `samples.json` 掲載分の連続 upload | 要 | `python scripts/pico/runtime_vertical_slice/tools/run_pico_runtime_samples.py --port auto --repo-root . --capture-seconds 8`（マニフェスト全件。件数増加時は `--capture-seconds` を伸ばす） |
-| 一括 acceptance（profile） | 要 | `python .../run_mvp_hardware_acceptance.py --port auto --repo-root . --profile all`（個別に `baseline` / `negative` / `samples` / `semantics` / `mvp` も可） |
+| 一括 acceptance（profile） | 要 | `python .../run_mvp_hardware_acceptance.py --port auto --repo-root . --profile all`（個別に `baseline` / `negative` / `samples` / `semantics` / `ram` / `mvp` も可） |
+| RAM 容量（v1 upload + heap trace + 境界サイズ + 復旧） | 要 | `python scripts/pico/runtime_vertical_slice/tools/run_mvp_hardware_acceptance.py --port auto --repo-root . --profile ram`。単体は [`probe_pico_runtime_package_ram_capacity.py`](../scripts/pico/runtime_vertical_slice/tools/probe_pico_runtime_package_ram_capacity.py)（`--package-file` 複数可、`--padded-template-package-file` + `--padded-target-minified-bytes` で `ramProbePadding` 調整） |
 | semantics probes のみ | 要 | `python .../run_pico_semantics_probes.py --port auto --repo-root .` |
 | loader 診断 | 要 | `python scripts/pico/runtime_vertical_slice/tools/pico_link_doctor.py --port auto` |
 | negative（`KIBO_PKG`） | 要 | 詳細は [`docs/pico-loader-protocol-gates.md`](pico-loader-protocol-gates.md)。例: `send_invalid_kibo_pkg_length.py` / `send_invalid_kibo_pkg_crc.py` / `send_oversized_kibo_pkg.py` / `send_invalid_kibo_pkg_frame.py`（すべて `--port auto` 可） |
@@ -140,6 +141,30 @@ Burn-down 計画の分割ドキュメント（**plan ファイル本体は編集
 | `tests/runtime-conformance/golden/pico-runtime-packages/circle-animation.pico-runtime-package.json` | 2812 |
 
 ファーム側 decode 上限 **12288 bytes**（`main.cpp`）に対し十分な余裕。肥大化したら [`docs/bytecode-transfer-design.md`](bytecode-transfer-design.md) の閾値へ。
+
+### 5a) RAM 容量計測（`trace schema=1 diag=ram_probe`）
+
+目的: `12288` バイト上限が **通信**ではなく **staging + JSON parse + live runtime** のヒープに効いているかを、フェーズ別の `free_heap` / `used_heap` / `total_heap` とウォーターマーク `min_free_heap` で観測する。
+
+- **ファームウェア**: `runtime/pico/vertical_slice/src/main.cpp` が Earle Philhower `rp2040.getFreeHeap()` 等で上記形式の 1 行 trace を出す（`FILE_BEGIN` 直後、`FILE_COMMIT` 後、`run_package` 経路の parse 前後・dry-run 後・active 代入後・replay 後・live reset 後、および埋め込み default 起動後）。
+- **ホスト**: v1 upload 専用の byte preflight（`pico_link_common.evaluate_pico_package_minified_utf8_byte_preflight_for_device_protocol_v1_or_raise`）は **12288 のみ** hard reject（長い legacy `KIBO_PKG` 1 行は見ない）。境界サイズは golden をテンプレに未知キー **`ramProbePadding`** を載せて minified バイト数を合わせる（`pico_link_common.build_minified_pico_runtime_package_utf8_bytes_with_ram_probe_padding_target_length_or_raise` / TS `pico-runtime-package-ram-probe-padding.ts`）。
+- **実機 gate**: `run_mvp_hardware_acceptance.py --profile ram` が `probe_pico_runtime_package_ram_capacity.py` を呼び出し、`blink-led` と 80% / 90% / `12287` / `12288` を v1 で送る。各成功 upload 後に **golden `blink-led.conformance.trace.txt` と一致する replay trace** を（`diag=ram_probe` 行を除いて）検証し、**全 ram_probe phase** が揃っていることを厳格チェックする。最後に **12289 bytes** をホスト preflight なしで送り `FILE_BEGIN` 側の `file_too_large` 相当で成功 ack にならないことを確認し、続けて **recovery** で `blink-led` が `status=ok` になることを確認する。
+
+**実測メモ（手で追記）**: 計測日 ______ / ファーム rev ______ / COM ポート ______
+
+| ケース | minified bytes | `commit_after_live_runtime_reset` の `free_heap`（例） | soak（20+ 回）で `min_free_heap` 悪化 | メモ |
+| --- | ---: | ---: | --- | --- |
+| blink-led（golden） | | | | |
+| 80% of 12288 | 9830 | | | |
+| 90% of 12288 | 11059 | | | |
+| 12287 | | | | |
+| 12288 | | | | |
+
+**判断（計測後に記入）**
+
+- near-limit で十分な `free_heap` が残り、soak でウォーターマークが単調悪化しない → **`12288` 引き上げを検討**（それでも bytecode 長期方針は [`bytecode-transfer-design.md`](bytecode-transfer-design.md)）。
+- parse / live reset 直後に `free_heap` が薄く、soak で `min_free_heap` が悪化する → **JSON 上限より bytecode / compact payload を優先**。
+- 公式 `samples.json` の **80% warn gate** は実測で余裕が確認できるまで緩めない（[`pico-runtime-samples.test.ts`](../tests/runtime-conformance/pico-runtime-samples.test.ts)）。
 
 ### 6) 2026-05-05: `radio-state-tuner` 転送失敗の原因と教訓
 
@@ -250,7 +275,8 @@ trace schema=1 diag=serial_line_too_long
   - **`pico_link_check.py`**（package または runtime IR → upload → trace 照合。実機要）
   - **`check_pico_baseline.py`**（実機 baseline）
   - **`upload_pico_runtime_package.py`**（preflight `KIBO_PING` + `KIBO_PKG` frame 送信 + ack）
-  - **`run_mvp_hardware_acceptance.py`**（`--profile mvp|baseline|negative|samples|semantics|all` + stdout summary）
+  - **`run_mvp_hardware_acceptance.py`**（`--profile mvp|baseline|negative|samples|semantics|ram|all` + stdout summary）
+  - **`probe_pico_runtime_package_ram_capacity.py`**（v1 RAM probe 収集 + JSONL / markdown 要約）
   - **`run_pico_semantics_probes.py`**（semantics probe を `pico_link_check` で連続実行）
   - **`send_invalid_kibo_pkg_length.py`** / **`send_invalid_kibo_pkg_crc.py`** / **`send_oversized_kibo_pkg.py`** / **`send_invalid_kibo_pkg_frame.py`**（negative gate + 既定で復旧 upload）
   - **`test_pico_link_common.py`**（純関数ユニット。`npm test` から `unittest discover` で実行）
@@ -268,6 +294,8 @@ trace schema=1 diag=serial_line_too_long
   - **default `PicoRuntimePackage` を埋め込み**（`include/embedded_default_pico_runtime_package.hpp`）
   - **USB Serial `KIBO_PING` → `kibo_loader status=ok protocol=1 ...`（host 診断用）**
   - **USB Serial `KIBO_PKG` 1 行 frame で package RAM 差し替え**
+  - **USB Serial Kibo Device Protocol v1（chunked `file_*` + `run_package`）**
+  - **`diag=ram_probe` ヒープ観測 trace（フェーズ別）**
   - acceptance 用 trace を USB Serial へ出力
   - OLED 上では live runtime tick
   - 約 3.2 秒ごとに live runtime をリセットして、円が左側から再開する

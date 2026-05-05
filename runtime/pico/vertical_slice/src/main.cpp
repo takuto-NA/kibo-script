@@ -14,6 +14,7 @@
 #include <Adafruit_SSD1306.h>
 
 #include <array>
+#include <climits>
 #include <cctype>
 #include <cstring>
 #include <cstddef>
@@ -105,6 +106,28 @@ struct FileReceiveSessionForDeviceProtocolV1 {
 FileReceiveSessionForDeviceProtocolV1 g_file_receive_session_for_device_protocol_v1{};
 std::vector<std::uint8_t> g_staged_pico_runtime_package_utf8_bytes{};
 bool g_has_staged_pico_runtime_package_utf8_bytes = false;
+
+// Earle Philhower Arduino-Pico の `rp2040` でヒープ統計を取り、USB Serial に `diag=ram_probe` の trace 1 行を出す（RAM 余裕のフェーズ別観測用）。
+int g_ram_probe_watermark_min_free_heap_bytes = INT_MAX;
+
+void emit_ram_diagnostic_heap_probe_trace_line(const char* phase_text) {
+  const int free_heap_bytes = rp2040.getFreeHeap();
+  const int used_heap_bytes = rp2040.getUsedHeap();
+  const int total_heap_bytes = rp2040.getTotalHeap();
+  if (free_heap_bytes < g_ram_probe_watermark_min_free_heap_bytes) {
+    g_ram_probe_watermark_min_free_heap_bytes = free_heap_bytes;
+  }
+  Serial.print("trace schema=1 diag=ram_probe phase=");
+  Serial.print(phase_text);
+  Serial.print(" free_heap=");
+  Serial.print(free_heap_bytes);
+  Serial.print(" used_heap=");
+  Serial.print(used_heap_bytes);
+  Serial.print(" total_heap=");
+  Serial.print(total_heap_bytes);
+  Serial.print(" min_free_heap=");
+  Serial.println(g_ram_probe_watermark_min_free_heap_bytes);
+}
 
 void render_presented_framebuffer_pixels_to_oled_or_ignore(const kibo::runtime::KiboHostRuntime& host_runtime) {
   g_oled_display.clearDisplay();
@@ -382,6 +405,8 @@ bool try_commit_pico_runtime_package_from_utf8_json_bytes_with_legacy_ack_or_emi
     return false;
   }
 
+  emit_ram_diagnostic_heap_probe_trace_line("commit_before_json_parse");
+
   nlohmann::json parsed_package;
   try {
     parsed_package = nlohmann::json::parse(decoded_utf8_json_bytes.begin(), decoded_utf8_json_bytes.end());
@@ -389,6 +414,8 @@ bool try_commit_pico_runtime_package_from_utf8_json_bytes_with_legacy_ack_or_emi
     emit_kibo_pkg_ack_line("error", "json_parse_failed");
     return false;
   }
+
+  emit_ram_diagnostic_heap_probe_trace_line("commit_after_json_parse");
 
   if (!parsed_package.is_object()) {
     emit_kibo_pkg_ack_line("error", "package_not_object");
@@ -416,6 +443,8 @@ bool try_commit_pico_runtime_package_from_utf8_json_bytes_with_legacy_ack_or_emi
     return false;
   }
 
+  emit_ram_diagnostic_heap_probe_trace_line("commit_after_schema_validation");
+
   try {
     const nlohmann::json replay_document = [&parsed_package]() -> nlohmann::json {
       nlohmann::json replay_document_local;
@@ -433,13 +462,20 @@ bool try_commit_pico_runtime_package_from_utf8_json_bytes_with_legacy_ack_or_emi
     return false;
   }
 
+  emit_ram_diagnostic_heap_probe_trace_line("commit_after_dry_run_replay_ok");
+
   g_active_pico_runtime_package_json = std::move(parsed_package);
   read_live_tick_interval_milliseconds_from_active_package_or_use_default();
   g_boot_fixture_name_text = "loaded-package";
   g_live_runtime_periodic_reset_enabled = false;
 
+  emit_ram_diagnostic_heap_probe_trace_line("commit_after_active_package_assigned");
+
   emit_trace_lines_from_active_package_replay_or_log_exception();
+  emit_ram_diagnostic_heap_probe_trace_line("commit_after_emit_trace_replay");
+
   reset_live_animation_runtime_from_active_package_or_log_exception();
+  emit_ram_diagnostic_heap_probe_trace_line("commit_after_live_runtime_reset");
 
   if (emit_legacy_kibo_pkg_ack_line_on_success) {
     emit_kibo_pkg_ack_line("ok", "");
@@ -510,6 +546,12 @@ void handle_device_protocol_v1_complete_frame_bytes(const std::vector<std::uint8
             static_cast<std::uint32_t>(payload_json.at("totalByteLength").get<std::uint64_t>());
         const std::string whole_crc_hex_text = payload_json.at("wholePayloadCrc32HexLower").get<std::string>();
 
+        // Guard: 新しい file 受信を始める前に常に staging と receive session を捨てる。`totalByteLength` 超過で return しても
+        // 直前の成功 upload の staged bytes が残ると、後続の RUN_PACKAGE が誤って旧 package を commit する。
+        reset_file_receive_session_for_device_protocol_v1_or_ignore();
+        g_has_staged_pico_runtime_package_utf8_bytes = false;
+        g_staged_pico_runtime_package_utf8_bytes.clear();
+
         if (kind_text != "pico_runtime_package_json_minified_utf8") {
           emit_device_protocol_v1_error_payload_frame_or_ignore(
               sequence,
@@ -537,10 +579,6 @@ void handle_device_protocol_v1_complete_frame_bytes(const std::vector<std::uint8
           return;
         }
 
-        reset_file_receive_session_for_device_protocol_v1_or_ignore();
-        g_has_staged_pico_runtime_package_utf8_bytes = false;
-        g_staged_pico_runtime_package_utf8_bytes.clear();
-
         g_file_receive_session_for_device_protocol_v1.active = true;
         g_file_receive_session_for_device_protocol_v1.file_id = file_id;
         g_file_receive_session_for_device_protocol_v1.total_byte_length = total_byte_length;
@@ -548,6 +586,7 @@ void handle_device_protocol_v1_complete_frame_bytes(const std::vector<std::uint8
         g_file_receive_session_for_device_protocol_v1.buffer.assign(total_byte_length, 0);
         g_file_receive_session_for_device_protocol_v1.next_expected_chunk_index = 0;
         g_file_receive_session_for_device_protocol_v1.next_expected_byte_offset = 0;
+        emit_ram_diagnostic_heap_probe_trace_line("v1_file_begin_after_buffer_reserved");
         return;
       }
       case kibo::device_protocol::v1::MessageKind::FILE_CHUNK: {
@@ -698,6 +737,7 @@ void handle_device_protocol_v1_complete_frame_bytes(const std::vector<std::uint8
         g_staged_pico_runtime_package_utf8_bytes = g_file_receive_session_for_device_protocol_v1.buffer;
         g_has_staged_pico_runtime_package_utf8_bytes = true;
         reset_file_receive_session_for_device_protocol_v1_or_ignore();
+        emit_ram_diagnostic_heap_probe_trace_line("v1_file_commit_after_staged_bytes");
 
         nlohmann::json ok_payload;
         ok_payload["status"] = "ok";
@@ -961,6 +1001,7 @@ void setup() {
 
   emit_trace_lines_from_active_package_replay_or_log_exception();
   reset_live_animation_runtime_from_active_package_or_log_exception();
+  emit_ram_diagnostic_heap_probe_trace_line("boot_after_embedded_default_package_live_reset");
   g_last_trace_replay_milliseconds = millis();
   g_last_button_state_log_milliseconds = millis();
   g_last_button_event_poll_milliseconds = millis();

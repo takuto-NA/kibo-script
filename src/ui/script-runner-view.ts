@@ -1,5 +1,6 @@
 /**
  * 責務: ブラウザ上で複数行 script をコンパイルし、SimulationRuntime へ reset 登録または additive 登録するパネル。
+ * Web Serial の Pico 書き込みは Kibo Device Protocol v1（chunked `file_*` + `run_package`）を用い、旧 `KIBO_PKG` 1 行長制限を回避する。
  */
 
 import { compileSourceAndRegisterSimulationTasks } from "../core/compile-and-register-simulation-script";
@@ -10,11 +11,17 @@ import {
   extractReplayInputsFromPicoRuntimePackageUnknownJsonOrThrow,
   inferLiveTickIntervalMillisecondsFromCompiledProgram,
 } from "../runtime-conformance/build-pico-runtime-package-from-runtime-ir-contract";
-import { assessKiboPicoRuntimePackageJsonTextPreflightOrThrow } from "../runtime-conformance/kibo-pico-package-preflight";
+import {
+  assessKiboPicoRuntimePackageJsonTextPreflightForDeviceProtocolV1WebSerialOrThrow,
+} from "../runtime-conformance/kibo-pico-package-preflight";
 import { build_kibo_pkg_schema1_serial_line_text_without_newline_from_minified_utf8_bytes } from "../runtime-conformance/kibo-kibo-pkg-wire-encoding";
 import { executeRuntimeConformanceReplayStepsAndCollectTraceLines } from "../runtime-conformance/execute-runtime-conformance-replay-steps-and-collect-trace-lines";
 import { serializeCompiledProgramToRuntimeIrContractJsonText } from "../runtime-conformance/serialize-compiled-program-to-runtime-ir-contract-json-text";
 import { create_script_runner_help_section } from "./script-runner-help-section";
+import {
+  build_kibo_device_protocol_v1_web_serial_upload_frames_or_throw,
+  KIBO_DEVICE_PROTOCOL_V1_WEB_SERIAL_DEFAULT_CHUNK_RAW_UTF8_BYTE_LENGTH,
+} from "./kibo-device-protocol-v1-web-serial-upload-frames";
 import { PICO_RUNTIME_SAMPLE_CATALOG_ENTRIES, type SampleCatalogEntry } from "./sample-catalog";
 
 const DEFAULT_SOURCE_FILE_NAME = "browser.sc";
@@ -33,6 +40,14 @@ const INSTALL_PICO_LOADER_SCRIPT_RELATIVE_PATH = "scripts/pico/runtime_vertical_
 const PICO_LINK_DOCTOR_SCRIPT_RELATIVE_PATH = "scripts/pico/runtime_vertical_slice/tools/pico_link_doctor.py";
 const UPLOAD_PICO_RUNTIME_PACKAGE_SCRIPT_RELATIVE_PATH =
   "scripts/pico/runtime_vertical_slice/tools/upload_pico_runtime_package.py";
+const UPLOAD_PICO_RUNTIME_PACKAGE_VIA_DEVICE_PROTOCOL_V1_SCRIPT_RELATIVE_PATH =
+  "scripts/pico/runtime_vertical_slice/tools/upload_pico_runtime_package_via_device_protocol_v1.py";
+
+const DEVICE_PROTOCOL_V1_WEB_SERIAL_INTER_FRAME_SLEEP_MILLISECONDS = 20;
+
+const WEB_SERIAL_DEVICE_PROTOCOL_V1_STAGED_FILE_ID = 1;
+const WEB_SERIAL_DEVICE_PROTOCOL_V1_REQUEST_ID = 1;
+const WEB_SERIAL_DEVICE_PROTOCOL_V1_INITIAL_SEQUENCE_BEFORE_FIRST_FRAME = 0;
 
 type SerialReadResult = ReadableStreamReadResult<Uint8Array>;
 
@@ -120,8 +135,9 @@ function build_pico_package_ack_failure_recovery_lines(): readonly string[] {
   return [
     "Next steps (package not acknowledged):",
     `  1) Preflight + loader version: python ${PICO_LINK_DOCTOR_SCRIPT_RELATIVE_PATH} --port auto`,
-    `  2) Try explicit upload: python ${UPLOAD_PICO_RUNTIME_PACKAGE_SCRIPT_RELATIVE_PATH} --port auto --package-file <path>`,
-    "  3) If the line is huge: shrink the script or check firmware decode limits (see docs/pico-loader-protocol-gates.md).",
+    `  2) Try device protocol v1 chunked upload: python ${UPLOAD_PICO_RUNTIME_PACKAGE_VIA_DEVICE_PROTOCOL_V1_SCRIPT_RELATIVE_PATH} --port auto --package-file <path>`,
+    `  3) Or legacy one-line upload: python ${UPLOAD_PICO_RUNTIME_PACKAGE_SCRIPT_RELATIVE_PATH} --port auto --package-file <path>`,
+    "  4) If minified JSON exceeds firmware staging limit: shrink the script or plan bytecode (docs/bytecode-transfer-design.md).",
   ];
 }
 
@@ -220,6 +236,21 @@ async function write_text_to_serial_port(params: {
   const writer = params.port.writable.getWriter();
   try {
     await writer.write(new TextEncoder().encode(params.text));
+  } finally {
+    writer.releaseLock();
+  }
+}
+
+async function write_bytes_to_serial_port(params: {
+  readonly port: KiboSerialPort;
+  readonly bytes: Uint8Array;
+}): Promise<void> {
+  if (params.port.writable === null) {
+    throw new Error("Selected serial port is not writable.");
+  }
+  const writer = params.port.writable.getWriter();
+  try {
+    await writer.write(params.bytes);
   } finally {
     writer.releaseLock();
   }
@@ -479,12 +510,12 @@ export function createScriptRunnerPanel(params: {
       return;
     }
 
-    const preflight = assessKiboPicoRuntimePackageJsonTextPreflightOrThrow({
+    const preflight = assessKiboPicoRuntimePackageJsonTextPreflightForDeviceProtocolV1WebSerialOrThrow({
       canonicalPicoRuntimePackageJsonText: package_text,
     });
     if (preflight.severity === "reject") {
       resultPre.textContent = [
-        "FAIL: Pico package preflight rejected this build (firmware JSON / line limits).",
+        "FAIL: Pico package preflight rejected this build (firmware JSON staging limit for device protocol v1).",
         ...preflight.messages,
         "",
         "Hints: shrink the script, split packages, or plan bytecode (docs/bytecode-transfer-design.md).",
@@ -541,12 +572,12 @@ export function createScriptRunnerPanel(params: {
         compiledProgram: compiled_program,
         scriptVarNamesToIncludeInTraceOverride: trace_var_names_override,
       });
-      const preflight = assessKiboPicoRuntimePackageJsonTextPreflightOrThrow({
+      const preflight = assessKiboPicoRuntimePackageJsonTextPreflightForDeviceProtocolV1WebSerialOrThrow({
         canonicalPicoRuntimePackageJsonText: package_text,
       });
       if (preflight.severity === "reject") {
         resultPre.textContent = [
-          "FAIL: Pico package preflight rejected this build (firmware JSON / line limits).",
+          "FAIL: Pico package preflight rejected this build (firmware JSON staging limit for device protocol v1).",
           ...preflight.messages,
         ].join("\n");
         return undefined;
@@ -629,11 +660,22 @@ export function createScriptRunnerPanel(params: {
         );
       }
 
-      resultPre.textContent = `Loader ready: ${loader_line}\nUploading Pico package...`;
-      await write_text_to_serial_port({
-        port,
-        text: build_kibo_package_serial_line(package_text),
+      const package_root_object = JSON.parse(package_text) as unknown;
+      const minified_package_text = JSON.stringify(package_root_object);
+      const minified_pico_runtime_package_utf8_bytes = new TextEncoder().encode(minified_package_text);
+      const upload_frames = build_kibo_device_protocol_v1_web_serial_upload_frames_or_throw({
+        minifiedPicoRuntimePackageUtf8Bytes: minified_pico_runtime_package_utf8_bytes,
+        chunkRawUtf8ByteLength: KIBO_DEVICE_PROTOCOL_V1_WEB_SERIAL_DEFAULT_CHUNK_RAW_UTF8_BYTE_LENGTH,
+        fileId: WEB_SERIAL_DEVICE_PROTOCOL_V1_STAGED_FILE_ID,
+        requestId: WEB_SERIAL_DEVICE_PROTOCOL_V1_REQUEST_ID,
+        initialSequence: WEB_SERIAL_DEVICE_PROTOCOL_V1_INITIAL_SEQUENCE_BEFORE_FIRST_FRAME,
       });
+
+      resultPre.textContent = `Loader ready: ${loader_line}\nUploading Pico package via device protocol v1...`;
+      for (const frame_bytes of upload_frames) {
+        await write_bytes_to_serial_port({ port, bytes: frame_bytes });
+        await delay(DEVICE_PROTOCOL_V1_WEB_SERIAL_INTER_FRAME_SLEEP_MILLISECONDS);
+      }
       const ack_lines = await read_serial_lines_until_or_timeout({
         reader,
         timeout_milliseconds: SERIAL_ACK_TIMEOUT_MILLISECONDS,
@@ -668,6 +710,7 @@ export function createScriptRunnerPanel(params: {
       resultPre.textContent = [
         `ok: simulator and Pico matched (${loadResult.registeredTaskNames.join(", ")})`,
         `loader: ${loader_line}`,
+        "upload: device protocol v1 chunked Web Serial",
         `trace lines verified: ${expected_trace_lines.length}`,
       ].join("\n");
     } catch (error) {

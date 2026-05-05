@@ -1,7 +1,8 @@
-// 責務: 5 ボタンで preset（0–4）を選ぶ。state machine は Tuned/Mute の 2 状態と global 遷移のみ。表示文字列は `apply_button_requests` が単一更新（IR 削減・Pico package 制限内を狙う）。
+// 責務: 5 ボタンでラジオ preset を切り替え、OLED に局名とチューニングカーソルを表示するデモ。
 
 var band = 0
-var label = "NW"
+var label = "NEWS"
+var scan_x = 18
 var news_button_presses = 0
 var jazz_button_presses = 0
 var weather_button_presses = 0
@@ -50,35 +51,40 @@ task preset_standby on button#4.pressed {
 task apply_button_requests every 200ms {
   if news_button_presses > seen_news_button_presses {
     set band = 0
-    set label = "NW"
+    set label = "NEWS"
+    set scan_x = 18
     set seen_news_button_presses = news_button_presses
   } else {
   }
 
   if jazz_button_presses > seen_jazz_button_presses {
     set band = 1
-    set label = "JZ"
+    set label = "JAZZ"
+    set scan_x = 42
     set seen_jazz_button_presses = jazz_button_presses
   } else {
   }
 
   if weather_button_presses > seen_weather_button_presses {
     set band = 2
-    set label = "WX"
+    set label = "WTHR"
+    set scan_x = 66
     set seen_weather_button_presses = weather_button_presses
   } else {
   }
 
   if rock_button_presses > seen_rock_button_presses {
     set band = 3
-    set label = "RK"
+    set label = "ROCK"
+    set scan_x = 90
     set seen_rock_button_presses = rock_button_presses
   } else {
   }
 
   if standby_button_presses > seen_standby_button_presses {
     set band = 4
-    set label = "--"
+    set label = "MUTE"
+    set scan_x = 114
     set seen_standby_button_presses = standby_button_presses
   } else {
   }
@@ -87,5 +93,6 @@ task apply_button_requests every 200ms {
 task render_radio every 200ms {
   do display#0.clear()
   do display#0.text(0, 0, label)
+  do display#0.circle(scan_x, 46, 3)
   do display#0.present()
 }

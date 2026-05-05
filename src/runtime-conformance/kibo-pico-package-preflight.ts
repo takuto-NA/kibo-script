@@ -1,4 +1,5 @@
 // 責務: Pico vertical slice の JSON package サイズと `KIBO_PKG` 1 行長を、ファームウェア上限（`pico_link_common` / `main.cpp`）に対して評価する。
+// Web Serial の v1 chunked 経路向けは `assessKiboPicoRuntimePackageJsonTextPreflightForDeviceProtocolV1WebSerialOrThrow`（12288 bytes のみ hard reject、長い 1 行は info）。
 //
 // Guard: Python `pico_link_common.KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES` 等と数値を同期すること。
 
@@ -26,6 +27,74 @@ export function buildKiboPkgSerialLineTextFromMinifiedUtf8Bytes(params: {
   readonly minifiedUtf8Bytes: Uint8Array;
 }): string {
   return build_kibo_pkg_schema1_serial_line_text_without_newline_from_minified_utf8_bytes(params.minifiedUtf8Bytes);
+}
+
+/**
+ * Web Serial の Kibo Device Protocol v1 chunked 経路向け preflight。
+ * Guard: 旧 `KIBO_PKG` 1 行長は reject しない（v1 は分割転送のため）。decode 上限 12288 bytes のみ hard reject。
+ */
+export function assessKiboPicoRuntimePackageJsonTextPreflightForDeviceProtocolV1WebSerialOrThrow(params: {
+  readonly canonicalPicoRuntimePackageJsonText: string;
+}): KiboPicoPackagePreflightAssessment {
+  const packageObject: unknown = JSON.parse(params.canonicalPicoRuntimePackageJsonText);
+  const minifiedText = JSON.stringify(packageObject);
+  const minifiedUtf8Bytes = new TextEncoder().encode(minifiedText);
+  const lineText = buildKiboPkgSerialLineTextFromMinifiedUtf8Bytes({ minifiedUtf8Bytes });
+  const minifiedUtf8ByteCount = minifiedUtf8Bytes.byteLength;
+  const kiboPkgSerialLineCharacterCount = lineText.length;
+
+  const messages: string[] = [];
+
+  if (minifiedUtf8ByteCount > KIBO_PICO_FIRMWARE_MAX_DECODED_PACKAGE_UTF8_BYTES) {
+    messages.push(
+      `package_too_large: minified UTF-8 bytes ${minifiedUtf8ByteCount} exceed firmware staging / decode limit ${KIBO_PICO_FIRMWARE_MAX_DECODED_PACKAGE_UTF8_BYTES} (device protocol v1 cannot upload).`,
+    );
+    return {
+      severity: "reject",
+      minifiedUtf8ByteCount,
+      kiboPkgSerialLineCharacterCount,
+      messages,
+    };
+  }
+
+  if (kiboPkgSerialLineCharacterCount > KIBO_PICO_FIRMWARE_MAX_KIBO_PKG_SERIAL_LINE_CHARACTERS) {
+    messages.push(
+      `info: legacy KIBO_PKG single-line frame would be ${kiboPkgSerialLineCharacterCount} characters (firmware line limit ${KIBO_PICO_FIRMWARE_MAX_KIBO_PKG_SERIAL_LINE_CHARACTERS}). Device protocol v1 chunked Web Serial upload avoids this limit.`,
+    );
+  }
+
+  const warnThresholdBytes = Math.floor(
+    KIBO_PICO_FIRMWARE_MAX_DECODED_PACKAGE_UTF8_BYTES *
+      KIBO_PICO_PACKAGE_PREFLIGHT_WARN_MINIFIED_BYTE_FRACTION_OF_DECODE_LIMIT,
+  );
+  if (minifiedUtf8ByteCount >= warnThresholdBytes) {
+    messages.push(
+      `warn: minified UTF-8 bytes ${minifiedUtf8ByteCount} are at or above ${Math.round(
+        KIBO_PICO_PACKAGE_PREFLIGHT_WARN_MINIFIED_BYTE_FRACTION_OF_DECODE_LIMIT * 100,
+      )}% of staging limit ${KIBO_PICO_FIRMWARE_MAX_DECODED_PACKAGE_UTF8_BYTES} (threshold ${warnThresholdBytes}). Consider bytecode (see docs/bytecode-transfer-design.md).`,
+    );
+    return {
+      severity: "warn",
+      minifiedUtf8ByteCount,
+      kiboPkgSerialLineCharacterCount,
+      messages,
+    };
+  }
+
+  messages.push(
+    `ok: minified UTF-8 bytes ${minifiedUtf8ByteCount} / ${KIBO_PICO_FIRMWARE_MAX_DECODED_PACKAGE_UTF8_BYTES} (device protocol v1 staging limit).`,
+  );
+  if (kiboPkgSerialLineCharacterCount <= KIBO_PICO_FIRMWARE_MAX_KIBO_PKG_SERIAL_LINE_CHARACTERS) {
+    messages.push(
+      `ok: legacy KIBO_PKG line would be ${kiboPkgSerialLineCharacterCount} / ${KIBO_PICO_FIRMWARE_MAX_KIBO_PKG_SERIAL_LINE_CHARACTERS} characters.`,
+    );
+  }
+  return {
+    severity: "ok",
+    minifiedUtf8ByteCount,
+    kiboPkgSerialLineCharacterCount,
+    messages,
+  };
 }
 
 export function assessKiboPicoRuntimePackageJsonTextPreflightOrThrow(params: {

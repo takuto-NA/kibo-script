@@ -6,7 +6,7 @@ Guard: requires pyserial, Node.js, and a connected Pico with the vertical slice 
 
 Example:
 
-    python scripts/pico/runtime_vertical_slice/tools/run_mvp_hardware_acceptance.py --port auto --repo-root . --profile all
+    python scripts/pico/runtime_vertical_slice/tools/run_mvp_hardware_acceptance.py --port auto --repo-root . --profile mvp|baseline|negative|samples|semantics|ram|all
 """
 
 from __future__ import annotations
@@ -15,6 +15,8 @@ import argparse
 import subprocess
 import sys
 from pathlib import Path
+
+import pico_link_common as common
 
 
 def parse_arguments_or_exit(argv: list[str]) -> argparse.Namespace:
@@ -34,7 +36,7 @@ def parse_arguments_or_exit(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--profile",
         default="mvp",
-        choices=["mvp", "baseline", "negative", "samples", "semantics", "all"],
+        choices=["mvp", "baseline", "negative", "samples", "semantics", "ram", "all"],
         help="Which gate set to run (default: mvp = baseline + negative + 3 golden packages).",
     )
     return parser.parse_args(argv)
@@ -153,6 +155,42 @@ def run_semantics_gate(*, repo_root: Path, port: str, capture_seconds: int) -> N
     )
 
 
+def run_ram_capacity_gate(*, repo_root: Path, port: str, capture_seconds: int) -> None:
+    probe_script = repo_root / "scripts" / "pico" / "runtime_vertical_slice" / "tools" / "probe_pico_runtime_package_ram_capacity.py"
+    golden_dir = repo_root / "tests" / "runtime-conformance" / "golden"
+    package_dir = golden_dir / "pico-runtime-packages"
+    blink_led = package_dir / "blink-led.pico-runtime-package.json"
+    blink_led_trace = golden_dir / "blink-led.conformance.trace.txt"
+    max_bytes = common.KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES
+    boundary_targets = [
+        int(max_bytes * 0.8),
+        int(max_bytes * 0.9),
+        max_bytes - 1,
+        max_bytes,
+    ]
+    command = [
+        sys.executable,
+        str(probe_script),
+        "--port",
+        port,
+        "--response-read-seconds",
+        str(capture_seconds),
+        "--package-file",
+        str(blink_led),
+        "--padded-template-package-file",
+        str(blink_led),
+        "--recovery-package-file",
+        str(blink_led),
+        "--verify-expected-trace-file",
+        str(blink_led_trace),
+        "--strict-ram-probe-phases",
+        "--device-oversized-file-reject-then-recovery",
+    ]
+    for target in boundary_targets:
+        command.extend(["--padded-target-minified-bytes", str(target)])
+    run_subprocess_or_exit(command)
+
+
 def print_acceptance_summary(*, profile: str, port: str, repo_root: Path) -> None:
     print("")
     print("--- hardware acceptance summary (paste into docs) ---")
@@ -187,6 +225,10 @@ def main() -> None:
     if profile in ("semantics", "all"):
         print("GATE: semantics probes (pico_link_check per probe)")
         run_semantics_gate(repo_root=repo_root, port=arguments.port, capture_seconds=arguments.capture_seconds)
+
+    if profile in ("ram", "all"):
+        print("GATE: RAM capacity probe (v1 upload + diag=ram_probe + padded boundary sizes + recovery)")
+        run_ram_capacity_gate(repo_root=repo_root, port=arguments.port, capture_seconds=arguments.capture_seconds)
 
     print_acceptance_summary(profile=profile, port=arguments.port, repo_root=repo_root)
     print("OK: hardware acceptance profile completed.")
