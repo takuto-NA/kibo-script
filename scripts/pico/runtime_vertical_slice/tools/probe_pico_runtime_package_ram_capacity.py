@@ -40,6 +40,16 @@ def parse_arguments_or_exit(argv: list[str]) -> argparse.Namespace:
         default=[],
         help="Target minified UTF-8 byte counts (repeatable; paired with padded-template).",
     )
+    parser.add_argument(
+        "--experiment-max-minified-bytes",
+        type=int,
+        default=None,
+        help=(
+            "Optional v1 decode byte limit for this run (RAM experiments). Must match firmware "
+            "`-DKIBO_PICO_RUNTIME_PACKAGE_MAX_MINIFIED_UTF8_BYTES`. Production default remains "
+            f"{common.KIBO_PRODUCTION_DEFAULT_MAX_MINIFIED_UTF8_BYTES} when omitted."
+        ),
+    )
     parser.add_argument("--chunk-utf8-bytes", type=int, default=768)
     parser.add_argument("--inter-frame-sleep-seconds", type=float, default=0.02)
     parser.add_argument("--response-read-seconds", type=float, default=8.0)
@@ -77,6 +87,15 @@ def parse_arguments_or_exit(argv: list[str]) -> argparse.Namespace:
 
 
 def build_upload_jobs_from_arguments_or_exit(*, arguments: argparse.Namespace) -> list[tuple[str, bytes]]:
+    experiment_decode_limit = arguments.experiment_max_minified_bytes
+    if experiment_decode_limit is not None:
+        if experiment_decode_limit < 1024:
+            print("FAIL: --experiment-max-minified-bytes must be >= 1024.", file=sys.stderr)
+            raise SystemExit(2)
+        if experiment_decode_limit > common.KIBO_EXPERIMENT_DECODE_LIMIT_BYTE_COUNT_HARD_MAXIMUM:
+            print("FAIL: --experiment-max-minified-bytes exceeds hard maximum.", file=sys.stderr)
+            raise SystemExit(2)
+
     jobs: list[tuple[str, bytes]] = []
     for path in arguments.package_file:
         text = path.read_text(encoding="utf-8")
@@ -95,6 +114,7 @@ def build_upload_jobs_from_arguments_or_exit(*, arguments: argparse.Namespace) -
             padded_bytes = common.build_minified_pico_runtime_package_utf8_bytes_with_ram_probe_padding_target_length_or_raise(
                 template_package_object=template_object,
                 target_minified_utf8_byte_count=int(target),
+                device_protocol_v1_minified_utf8_byte_limit=experiment_decode_limit,
             )
             jobs.append((label, padded_bytes))
 
@@ -120,6 +140,7 @@ def main() -> None:
     serial_module = common.try_import_pyserial_serial_module_or_exit()
     arguments = parse_arguments_or_exit(sys.argv[1:])
     jobs = build_upload_jobs_from_arguments_or_exit(arguments=arguments)
+    experiment_decode_limit = arguments.experiment_max_minified_bytes
 
     port_path = common.resolve_serial_port_path_for_vertical_slice_or_exit(port_argument=arguments.port)
     serial_port = common.open_serial_port_for_kibo_vertical_slice_or_raise(
@@ -162,8 +183,10 @@ def main() -> None:
             raise SystemExit(1)
 
         for label, minified_utf8_bytes in jobs:
+            preflight_limit = experiment_decode_limit if label.startswith("padded:") else None
             common.evaluate_pico_package_minified_utf8_byte_preflight_for_device_protocol_v1_or_raise(
                 minified_utf8_bytes=minified_utf8_bytes,
+                device_protocol_v1_minified_utf8_byte_limit=preflight_limit,
             )
 
             serial_port.reset_input_buffer()
@@ -262,6 +285,7 @@ def main() -> None:
                 raise SystemExit(2)
             oversized_bytes = common.build_minified_utf8_one_byte_over_firmware_decode_limit_from_template_or_raise(
                 template_package_object=recovery_template_object,
+                device_protocol_v1_minified_utf8_byte_limit=experiment_decode_limit,
             )
             serial_port.reset_input_buffer()
             serial_port.reset_output_buffer()

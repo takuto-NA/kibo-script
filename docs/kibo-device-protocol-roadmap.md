@@ -132,7 +132,7 @@ KiboScript の内部データは、特定の表現（JSON / MessagePack / YAML /
 | 定数 | 値 | 意味 |
 | --- | ---: | --- |
 | `k_kibo_device_protocol_v1_max_body_byte_length` | 4096 | 単一フレームの `body_byte_length` 上限（`envelope`+`payload`） |
-| `k_kibo_device_protocol_v1_max_committed_file_byte_length` | 12288 | `file_commit` 後 staging の上限（現行 `k_max_decoded_package_bytes` と整合） |
+| `k_kibo_device_protocol_v1_max_committed_file_byte_length` | 12288 | `file_commit` 後 staging の上限（`k_max_decoded_package_bytes` と同一ソース。既定 macro は [`runtime/cpp/include/kibo_pico_runtime_package_storage_limits.hpp`](../runtime/cpp/include/kibo_pico_runtime_package_storage_limits.hpp)） |
 
 capabilities の `maxBodyByteLength` / `maxCommittedFileByteLength` は上記を報告する。
 

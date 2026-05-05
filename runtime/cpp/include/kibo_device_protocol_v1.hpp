@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "kibo_crc32.hpp"
+#include "kibo_pico_runtime_package_storage_limits.hpp"
 
 namespace kibo::device_protocol::v1 {
 
@@ -28,7 +29,8 @@ inline constexpr std::size_t k_header_crc_input_byte_length = 16;
 inline constexpr std::uint8_t k_codec_id_json_utf8 = 0;
 
 inline constexpr std::size_t k_max_body_byte_length_vertical_slice = 4096;
-inline constexpr std::size_t k_max_committed_file_byte_length_vertical_slice = 12288;
+inline constexpr std::size_t k_max_committed_file_byte_length_vertical_slice =
+    kibo::pico::runtime_package::k_max_minified_utf8_byte_length_for_vertical_slice;
 
 enum class MessageKind : std::uint8_t {
   RESERVED = 0,

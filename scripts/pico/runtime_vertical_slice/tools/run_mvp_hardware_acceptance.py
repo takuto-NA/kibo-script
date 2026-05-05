@@ -6,7 +6,7 @@ Guard: requires pyserial, Node.js, and a connected Pico with the vertical slice 
 
 Example:
 
-    python scripts/pico/runtime_vertical_slice/tools/run_mvp_hardware_acceptance.py --port auto --repo-root . --profile mvp|baseline|negative|samples|semantics|ram|all
+    python scripts/pico/runtime_vertical_slice/tools/run_mvp_hardware_acceptance.py --port auto --repo-root . --profile mvp|baseline|negative|samples|semantics|ram|ram-limit-search|all
 """
 
 from __future__ import annotations
@@ -34,9 +34,34 @@ def parse_arguments_or_exit(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument("--capture-seconds", type=int, default=8, help="Seconds for each serial capture window.")
     parser.add_argument(
+        "--pio-exe",
+        type=Path,
+        default=None,
+        help="ram-limit-search only: explicit path to PlatformIO `pio` when not on PATH.",
+    )
+    parser.add_argument(
+        "--ram-limit-search-candidate-bytes",
+        type=int,
+        action="append",
+        default=[],
+        help="ram-limit-search only: repeatable decode limits; omit to use script defaults.",
+    )
+    parser.add_argument(
+        "--ram-limit-search-soak-iterations",
+        type=int,
+        default=20,
+        help="ram-limit-search only: forwarded to probe_pico_runtime_package_ram_limit_search.py --soak-iterations.",
+    )
+    parser.add_argument(
+        "--ram-limit-search-jsonl-results",
+        type=Path,
+        default=None,
+        help="ram-limit-search only: append per-candidate summary lines (JSONL).",
+    )
+    parser.add_argument(
         "--profile",
         default="mvp",
-        choices=["mvp", "baseline", "negative", "samples", "semantics", "ram", "all"],
+        choices=["mvp", "baseline", "negative", "samples", "semantics", "ram", "ram-limit-search", "all"],
         help="Which gate set to run (default: mvp = baseline + negative + 3 golden packages).",
     )
     return parser.parse_args(argv)
@@ -161,33 +186,49 @@ def run_ram_capacity_gate(*, repo_root: Path, port: str, capture_seconds: int) -
     package_dir = golden_dir / "pico-runtime-packages"
     blink_led = package_dir / "blink-led.pico-runtime-package.json"
     blink_led_trace = golden_dir / "blink-led.conformance.trace.txt"
-    max_bytes = common.KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES
-    boundary_targets = [
-        int(max_bytes * 0.8),
-        int(max_bytes * 0.9),
-        max_bytes - 1,
-        max_bytes,
-    ]
-    command = [
+    command = common.build_vertical_slice_ram_capacity_hardware_probe_argv(
+        python_executable=sys.executable,
+        probe_script_path=probe_script,
+        serial_port_argument=port,
+        response_read_seconds=capture_seconds,
+        blink_led_package_json_path=blink_led,
+        blink_led_conformance_trace_txt_path=blink_led_trace,
+        experiment_max_minified_utf8_bytes=None,
+    )
+    run_subprocess_or_exit(command)
+
+
+def run_ram_limit_search_gate(
+    *,
+    repo_root: Path,
+    port: str,
+    capture_seconds: int,
+    pio_executable: Path | None,
+    candidate_decode_limits: list[int],
+    soak_iterations: int,
+    jsonl_results_path: Path | None,
+) -> None:
+    search_script = (
+        repo_root / "scripts" / "pico" / "runtime_vertical_slice" / "tools" / "probe_pico_runtime_package_ram_limit_search.py"
+    )
+    command: list[str] = [
         sys.executable,
-        str(probe_script),
+        str(search_script),
+        "--repo-root",
+        str(repo_root),
         "--port",
         port,
-        "--response-read-seconds",
+        "--capture-seconds",
         str(capture_seconds),
-        "--package-file",
-        str(blink_led),
-        "--padded-template-package-file",
-        str(blink_led),
-        "--recovery-package-file",
-        str(blink_led),
-        "--verify-expected-trace-file",
-        str(blink_led_trace),
-        "--strict-ram-probe-phases",
-        "--device-oversized-file-reject-then-recovery",
+        "--soak-iterations",
+        str(soak_iterations),
     ]
-    for target in boundary_targets:
-        command.extend(["--padded-target-minified-bytes", str(target)])
+    if pio_executable is not None:
+        command.extend(["--pio-exe", str(pio_executable)])
+    if jsonl_results_path is not None:
+        command.extend(["--jsonl-results", str(jsonl_results_path)])
+    for limit in candidate_decode_limits:
+        command.extend(["--candidate-decode-limit-bytes", str(limit)])
     run_subprocess_or_exit(command)
 
 
@@ -229,6 +270,18 @@ def main() -> None:
     if profile in ("ram", "all"):
         print("GATE: RAM capacity probe (v1 upload + diag=ram_probe + padded boundary sizes + recovery)")
         run_ram_capacity_gate(repo_root=repo_root, port=arguments.port, capture_seconds=arguments.capture_seconds)
+
+    if profile == "ram-limit-search":
+        print("GATE: RAM decode limit exploration (PlatformIO build + BOOTSEL UF2 + hardware RAM gate per candidate)")
+        run_ram_limit_search_gate(
+            repo_root=repo_root,
+            port=arguments.port,
+            capture_seconds=arguments.capture_seconds,
+            pio_executable=arguments.pio_exe,
+            candidate_decode_limits=list(arguments.ram_limit_search_candidate_bytes),
+            soak_iterations=arguments.ram_limit_search_soak_iterations,
+            jsonl_results_path=arguments.ram_limit_search_jsonl_results,
+        )
 
     print_acceptance_summary(profile=profile, port=arguments.port, repo_root=repo_root)
     print("OK: hardware acceptance profile completed.")

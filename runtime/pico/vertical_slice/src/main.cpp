@@ -29,6 +29,7 @@
 #include "kibo_base64_decode.hpp"
 #include "kibo_crc32.hpp"
 #include "kibo_device_protocol_v1.hpp"
+#include "kibo_pico_runtime_package_storage_limits.hpp"
 #include "kibo_device_protocol_v1_serial_ingress.hpp"
 #include "kibo_host_runtime.hpp"
 #include "kibo_json_read_integer.hpp"
@@ -55,7 +56,8 @@ constexpr const char* k_button_device_kind_name = "button";
 constexpr std::array<int, 5> k_button_gpio_pins_by_device_id = {18, 19, 20, 21, 22};
 
 constexpr std::size_t k_max_serial_line_characters = 16384;
-constexpr std::size_t k_max_decoded_package_bytes = 12288;
+constexpr std::size_t k_max_decoded_package_bytes =
+    kibo::pico::runtime_package::k_max_minified_utf8_byte_length_for_vertical_slice;
 
 constexpr std::size_t k_max_kibo_device_protocol_v1_binary_frame_byte_length =
     kibo::device_protocol::v1::k_frame_header_byte_length +

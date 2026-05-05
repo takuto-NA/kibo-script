@@ -12,7 +12,6 @@ import argparse
 import shutil
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 import pico_link_common as common
@@ -71,33 +70,13 @@ def wait_for_loader_handshake_on_serial_or_exit(
     baud_rate: int,
     overall_timeout_seconds: float,
 ) -> None:
-    deadline = time.monotonic() + overall_timeout_seconds
-    while time.monotonic() < deadline:
-        try:
-            port_path = common.resolve_serial_port_path_for_vertical_slice_or_raise_value_error(
-                port_argument=port_argument,
-            )
-            serial_port = common.open_serial_port_for_kibo_vertical_slice_or_raise(
-                serial_module=serial_module,
-                port_path=port_path,
-                baud_rate=baud_rate,
-                read_timeout_seconds=common.DEFAULT_SERIAL_READ_TIMEOUT_SECONDS,
-                write_timeout_seconds=common.DEFAULT_SERIAL_WRITE_TIMEOUT_SECONDS,
-            )
-        except (PermissionError, OSError, ValueError):
-            time.sleep(_POST_COPY_HANDSHAKE_POLL_INTERVAL_SECONDS)
-            continue
-        try:
-            preflight = common.run_loader_preflight_on_open_serial_port(serial_port=serial_port)
-            if preflight.loader_protocol_version == 1:
-                return
-        finally:
-            serial_port.close()
-        time.sleep(_POST_COPY_HANDSHAKE_POLL_INTERVAL_SECONDS)
-
-    print("FAIL: timed out waiting for loader handshake after UF2 install.", file=sys.stderr)
-    print("Next: run scripts/pico/runtime_vertical_slice/tools/pico_link_doctor.py --port auto", file=sys.stderr)
-    raise SystemExit(1)
+    common.wait_for_vertical_slice_loader_protocol_v1_handshake_on_serial_or_raise(
+        serial_module=serial_module,
+        port_argument=port_argument,
+        baud_rate=baud_rate,
+        overall_timeout_seconds=overall_timeout_seconds,
+        poll_interval_seconds=_POST_COPY_HANDSHAKE_POLL_INTERVAL_SECONDS,
+    )
 
 
 def main() -> None:

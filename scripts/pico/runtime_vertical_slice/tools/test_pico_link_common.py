@@ -166,6 +166,42 @@ class PicoLinkCommonPureHelpersTest(unittest.TestCase):
         )
         self.assertEqual(len(over_bytes), common.KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES + 1)
 
+    def test_build_vertical_slice_ram_capacity_hardware_probe_argv_includes_experiment_flag(self) -> None:
+        probe = Path("/repo/scripts/pico/runtime_vertical_slice/tools/probe_pico_runtime_package_ram_capacity.py")
+        blink = Path("/repo/tests/runtime-conformance/golden/pico-runtime-packages/blink-led.pico-runtime-package.json")
+        trace = Path("/repo/tests/runtime-conformance/golden/blink-led.conformance.trace.txt")
+        argv = common.build_vertical_slice_ram_capacity_hardware_probe_argv(
+            python_executable="python",
+            probe_script_path=probe,
+            serial_port_argument="COM11",
+            response_read_seconds=15,
+            blink_led_package_json_path=blink,
+            blink_led_conformance_trace_txt_path=trace,
+            experiment_max_minified_utf8_bytes=16384,
+        )
+        self.assertIn("--experiment-max-minified-bytes", argv)
+        self.assertIn("16384", argv)
+
+    def test_v1_preflight_allows_experiment_padding_above_production_when_limit_matches(self) -> None:
+        repository_root = Path(__file__).resolve().parents[4]
+        path = common.resolve_default_blink_led_golden_pico_runtime_package_json_path_or_raise(repository_root=repository_root)
+        template_object = json.loads(path.read_text(encoding="utf-8"))
+        padded = common.build_minified_pico_runtime_package_utf8_bytes_with_ram_probe_padding_target_length_or_raise(
+            template_package_object=template_object,
+            target_minified_utf8_byte_count=14000,
+            device_protocol_v1_minified_utf8_byte_limit=16384,
+        )
+        self.assertEqual(len(padded), 14000)
+        common.evaluate_pico_package_minified_utf8_byte_preflight_for_device_protocol_v1_or_raise(
+            minified_utf8_bytes=padded,
+            device_protocol_v1_minified_utf8_byte_limit=16384,
+        )
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                common.evaluate_pico_package_minified_utf8_byte_preflight_for_device_protocol_v1_or_raise(
+                    minified_utf8_bytes=padded,
+                )
+
     def test_v1_preflight_reject_then_valid_preflight_succeeds(self) -> None:
         oversized = b"z" * (common.KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES + 1)
         with contextlib.redirect_stderr(io.StringIO()):

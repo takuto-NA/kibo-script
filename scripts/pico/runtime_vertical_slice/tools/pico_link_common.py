@@ -9,8 +9,10 @@ Guard: pyserial is required by callers that open serial ports; import errors mus
 from __future__ import annotations
 
 import json
+import os
 import platform
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -19,8 +21,12 @@ from pathlib import Path
 from typing import Any, Iterable
 
 KIBO_USB_SERIAL_BAUD_RATE = 115200
-# Guard: `k_max_decoded_package_bytes` in `runtime/pico/vertical_slice/src/main.cpp` — negative gate scripts must stay aligned.
-KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES = 12288
+# Guard: production default must match `KIBO_PICO_RUNTIME_PACKAGE_MAX_MINIFIED_UTF8_BYTES` in
+# `runtime/cpp/include/kibo_pico_runtime_package_storage_limits.hpp` and TypeScript preflight until a measured raise is adopted.
+KIBO_PRODUCTION_DEFAULT_MAX_MINIFIED_UTF8_BYTES = 12288
+KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES = KIBO_PRODUCTION_DEFAULT_MAX_MINIFIED_UTF8_BYTES
+# Guard: sanity ceiling for `--experiment-max-minified-bytes` (host tooling); firmware macro should stay well below this.
+KIBO_EXPERIMENT_DECODE_LIMIT_BYTE_COUNT_HARD_MAXIMUM = 500_000
 # Guard: top-level padding key for RAM capacity boundary packages (ignored by firmware fields; preserved in JSON object).
 KIBO_RAM_PROBE_PADDING_TOP_LEVEL_FIELD_NAME = "ramProbePadding"
 # Guard: `k_max_serial_line_characters` in `runtime/pico/vertical_slice/src/main.cpp` — single-line `KIBO_PKG` 送信の上限。
@@ -351,6 +357,181 @@ def resolve_vertical_slice_firmware_uf2_path_or_none(*, repository_root: Path) -
     return None
 
 
+def resolve_platform_io_cli_invocation_argv_or_raise(*, pio_executable_override: Path | None) -> list[str]:
+    """
+    Responsibility: argv prefix to invoke PlatformIO Core (`pio run` equivalent).
+
+    Guard: On Windows, `pio` is often a PowerShell function (`python -m platformio`), which `shutil.which` and
+    child processes cannot see — fall back to `python -m platformio` using the current interpreter.
+    """
+    if pio_executable_override is not None:
+        return [str(pio_executable_override)]
+    from shutil import which
+
+    discovered = which("pio")
+    if discovered is not None:
+        return [discovered]
+    probe_completed = subprocess.run(
+        [sys.executable, "-m", "platformio", "--version"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    if probe_completed.returncode != 0:
+        raise FileNotFoundError(
+            "PlatformIO CLI not found: `pio` not on PATH and `python -m platformio` is unavailable. "
+            "Install PlatformIO Core or pass --pio-exe to a real pio executable.",
+        )
+    return [sys.executable, "-m", "platformio"]
+
+
+def run_vertical_slice_platform_io_build_or_raise(
+    *,
+    vertical_slice_directory: Path,
+    pio_executable_override: Path | None,
+    experiment_max_minified_utf8_bytes: int | None,
+) -> None:
+    """
+    Responsibility: run `pio run` for `runtime/pico/vertical_slice`, optionally appending a decode-limit macro via env.
+
+    Guard: `PLATFORMIO_BUILD_FLAGS` is merged (not replaced) so local developer flags remain intact.
+    """
+    argv_prefix = resolve_platform_io_cli_invocation_argv_or_raise(pio_executable_override=pio_executable_override)
+    environment = os.environ.copy()
+    if experiment_max_minified_utf8_bytes is not None:
+        macro_flag = f"-DKIBO_PICO_RUNTIME_PACKAGE_MAX_MINIFIED_UTF8_BYTES={int(experiment_max_minified_utf8_bytes)}"
+        prior_flags = environment.get("PLATFORMIO_BUILD_FLAGS", "").strip()
+        environment["PLATFORMIO_BUILD_FLAGS"] = f"{macro_flag} {prior_flags}".strip() if prior_flags != "" else macro_flag
+    completed_process = subprocess.run(
+        argv_prefix + ["run"],
+        cwd=str(vertical_slice_directory),
+        env=environment,
+        check=False,
+    )
+    if completed_process.returncode != 0:
+        message = (
+            f"PlatformIO build failed in {vertical_slice_directory} "
+            f"exit_code={completed_process.returncode}"
+        )
+        raise RuntimeError(message)
+
+
+def copy_vertical_slice_firmware_uf2_to_rp2040_bootsel_volume_or_raise(*, repository_root: Path) -> Path:
+    """
+    Responsibility: copy the freshly built `firmware.uf2` to the mounted BOOTSEL `RPI-RP2` drive root.
+
+    Guard: Windows-only automation (same policy as `install_pico_loader.py`).
+    """
+    firmware_path = resolve_vertical_slice_firmware_uf2_path_or_none(repository_root=repository_root)
+    if firmware_path is None:
+        raise FileNotFoundError("firmware.uf2 not found; run a successful `pio run` first.")
+    bootsel_drive_letter = find_rp2040_bootsel_volume_drive_letter_or_none()
+    if bootsel_drive_letter is None:
+        raise RuntimeError(
+            f"BOOTSEL volume {RP2040_UF2_VOLUME_LABEL} not detected; hold BOOTSEL while plugging USB, then retry.",
+        )
+    destination_path = Path(f"{bootsel_drive_letter}:/firmware.uf2")
+    shutil.copy2(firmware_path, destination_path)
+    return destination_path
+
+
+def wait_for_vertical_slice_loader_protocol_v1_handshake_on_serial_or_raise(
+    *,
+    serial_module: Any,
+    port_argument: str,
+    baud_rate: int,
+    overall_timeout_seconds: float,
+    poll_interval_seconds: float,
+) -> None:
+    """
+    Responsibility: poll until `KIBO_PING` returns `kibo_loader ... protocol=1` (used after UF2 flash reboot).
+
+    Guard: mirrors the handshake wait loop in `install_pico_loader.py` so exploration scripts can reuse it.
+    """
+    deadline_monotonic = time.monotonic() + overall_timeout_seconds
+    while time.monotonic() < deadline_monotonic:
+        try:
+            port_path = resolve_serial_port_path_for_vertical_slice_or_raise_value_error(port_argument=port_argument)
+            serial_port = open_serial_port_for_kibo_vertical_slice_or_raise(
+                serial_module=serial_module,
+                port_path=port_path,
+                baud_rate=baud_rate,
+                read_timeout_seconds=DEFAULT_SERIAL_READ_TIMEOUT_SECONDS,
+                write_timeout_seconds=DEFAULT_SERIAL_WRITE_TIMEOUT_SECONDS,
+            )
+        except (PermissionError, OSError, ValueError):
+            time.sleep(poll_interval_seconds)
+            continue
+        try:
+            preflight_result = run_loader_preflight_on_open_serial_port(serial_port=serial_port)
+            if preflight_result.loader_protocol_version == 1:
+                return
+        finally:
+            serial_port.close()
+        time.sleep(poll_interval_seconds)
+    print("FAIL: timed out waiting for loader handshake protocol=1 after firmware boot.", file=sys.stderr)
+    print("Next: run scripts/pico/runtime_vertical_slice/tools/pico_link_doctor.py --port auto", file=sys.stderr)
+    raise RuntimeError("Timed out waiting for vertical slice loader handshake (protocol=1).")
+
+
+def build_vertical_slice_ram_capacity_hardware_probe_argv(
+    *,
+    python_executable: str,
+    probe_script_path: Path,
+    serial_port_argument: str,
+    response_read_seconds: int,
+    blink_led_package_json_path: Path,
+    blink_led_conformance_trace_txt_path: Path,
+    experiment_max_minified_utf8_bytes: int | None,
+) -> list[str]:
+    """
+    Responsibility: argv list for `probe_pico_runtime_package_ram_capacity.py` hardware RAM gate (padded ladder + oversize + recovery).
+
+    Guard: `experiment_max_minified_utf8_bytes` must match the flashed firmware macro when set; otherwise keep None for production 12288 gate.
+    """
+    decode_limit_for_targets = (
+        experiment_max_minified_utf8_bytes
+        if experiment_max_minified_utf8_bytes is not None
+        else KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES
+    )
+    max_bytes = decode_limit_for_targets
+    boundary_targets = [
+        int(max_bytes * 0.8),
+        int(max_bytes * 0.9),
+        max_bytes - 1,
+        max_bytes,
+    ]
+    command: list[str] = [
+        python_executable,
+        str(probe_script_path),
+        "--port",
+        serial_port_argument,
+        "--response-read-seconds",
+        str(response_read_seconds),
+        "--package-file",
+        str(blink_led_package_json_path),
+        "--padded-template-package-file",
+        str(blink_led_package_json_path),
+        "--recovery-package-file",
+        str(blink_led_package_json_path),
+        "--verify-expected-trace-file",
+        str(blink_led_conformance_trace_txt_path),
+        "--strict-ram-probe-phases",
+        "--device-oversized-file-reject-then-recovery",
+    ]
+    if experiment_max_minified_utf8_bytes is not None:
+        command.extend(
+            [
+                "--experiment-max-minified-bytes",
+                str(int(experiment_max_minified_utf8_bytes)),
+            ],
+        )
+    for target in boundary_targets:
+        command.extend(["--padded-target-minified-bytes", str(target)])
+    return command
+
+
 def compute_crc32_hex32_lower_from_bytes(*, payload_bytes: bytes) -> str:
     import zlib
 
@@ -394,11 +575,17 @@ def build_oversized_minified_package_utf8_bytes_from_template_object_or_raise(
     *,
     template_package_object: dict[str, Any],
     minimum_decoded_byte_count: int,
+    firmware_decode_cap_byte_count: int | None = None,
 ) -> bytes:
     # Guard: `minimum_decoded_byte_count` must exceed firmware decode cap so the device returns `package_too_large`.
-    if minimum_decoded_byte_count <= KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES:
+    decode_cap = (
+        firmware_decode_cap_byte_count
+        if firmware_decode_cap_byte_count is not None
+        else KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES
+    )
+    if minimum_decoded_byte_count <= decode_cap:
         raise ValueError(
-            "minimum_decoded_byte_count must be greater than KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES.",
+            f"minimum_decoded_byte_count must be greater than firmware decode cap ({decode_cap}).",
         )
 
     mutable_package_object = json.loads(json.dumps(template_package_object))
@@ -489,43 +676,63 @@ def evaluate_pico_package_payload_preflight_or_raise(
     )
 
 
-def evaluate_pico_package_minified_utf8_byte_preflight_for_device_protocol_v1_or_raise(*, minified_utf8_bytes: bytes) -> None:
+def evaluate_pico_package_minified_utf8_byte_preflight_for_device_protocol_v1_or_raise(
+    *,
+    minified_utf8_bytes: bytes,
+    device_protocol_v1_minified_utf8_byte_limit: int | None = None,
+) -> None:
     """
-    Guard: Kibo Device Protocol v1 では 1 行 `KIBO_PKG` 長を使わないため、decode 上限（12288 bytes）のみ検査する。
+    Guard: Kibo Device Protocol v1 では 1 行 `KIBO_PKG` 長を使わないため、decode 上限（既定 production 12288 bytes）のみ検査する。
     RAM probe 等で minified が 16384 超の「仮想 1 行」を作らない前提で、byte 数だけを hard gate する。
+
+    Guard: `device_protocol_v1_minified_utf8_byte_limit` が指定される場合は実験ビルドの macro と一致させること（ホスト単独では検証不可）。
     """
+    limit = (
+        device_protocol_v1_minified_utf8_byte_limit
+        if device_protocol_v1_minified_utf8_byte_limit is not None
+        else KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES
+    )
+    if limit < 1 or limit > KIBO_EXPERIMENT_DECODE_LIMIT_BYTE_COUNT_HARD_MAXIMUM:
+        raise ValueError(f"device_protocol_v1_minified_utf8_byte_limit out of range: {limit}")
     byte_count = len(minified_utf8_bytes)
-    if byte_count > KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES:
+    if byte_count > limit:
         print(
             f"FAIL: package_too_large minified_utf8_bytes={byte_count} "
-            f"limit={KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES}",
+            f"limit={limit}",
             file=sys.stderr,
         )
         raise SystemExit(1)
-    warn_threshold_bytes = int(KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES * KIBO_FIRMWARE_PACKAGE_PREFLIGHT_WARN_FRACTION_OF_DECODE_LIMIT)
+    warn_threshold_bytes = int(limit * KIBO_FIRMWARE_PACKAGE_PREFLIGHT_WARN_FRACTION_OF_DECODE_LIMIT)
     if byte_count >= warn_threshold_bytes:
         percent = int(KIBO_FIRMWARE_PACKAGE_PREFLIGHT_WARN_FRACTION_OF_DECODE_LIMIT * 100)
         print(
             f"WARN: minified_utf8_bytes={byte_count} is at or above {percent}% "
             f"of v1 staging limit (threshold {warn_threshold_bytes}). See docs/bytecode-transfer-design.md."
         )
-    print(f"PREFLIGHT_V1_BYTES_ONLY: ok minified_utf8_bytes={byte_count}/{KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES}")
+    print(f"PREFLIGHT_V1_BYTES_ONLY: ok minified_utf8_bytes={byte_count}/{limit}")
 
 
 def build_minified_pico_runtime_package_utf8_bytes_with_ram_probe_padding_target_length_or_raise(
     *,
     template_package_object: dict[str, Any],
     target_minified_utf8_byte_count: int,
+    device_protocol_v1_minified_utf8_byte_limit: int | None = None,
 ) -> bytes:
     """
     Responsibility: adjust top-level `ramProbePadding` string so minified UTF-8 JSON matches a target byte length.
 
     Guard: target must be reachable by lengthening padding (monotone); caller supplies template already below target.
     """
-    if target_minified_utf8_byte_count > KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES:
+    limit = (
+        device_protocol_v1_minified_utf8_byte_limit
+        if device_protocol_v1_minified_utf8_byte_limit is not None
+        else KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES
+    )
+    if limit < 1 or limit > KIBO_EXPERIMENT_DECODE_LIMIT_BYTE_COUNT_HARD_MAXIMUM:
+        raise ValueError(f"device_protocol_v1_minified_utf8_byte_limit out of range: {limit}")
+    if target_minified_utf8_byte_count > limit:
         raise ValueError(
-            f"target_minified_utf8_byte_count {target_minified_utf8_byte_count} exceeds firmware limit "
-            f"{KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES}.",
+            f"target_minified_utf8_byte_count {target_minified_utf8_byte_count} exceeds experiment or production limit {limit}.",
         )
     mutable_package_object = json.loads(json.dumps(template_package_object))
     low = 0
@@ -565,21 +772,28 @@ def build_minified_pico_runtime_package_utf8_bytes_with_ram_probe_padding_target
 def build_minified_utf8_one_byte_over_firmware_decode_limit_from_template_or_raise(
     *,
     template_package_object: dict[str, Any],
+    device_protocol_v1_minified_utf8_byte_limit: int | None = None,
 ) -> bytes:
     """
-    Responsibility: `KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES + 1` バイトの minified JSON を作る（v1 `FILE_BEGIN` の device reject 試験用）。
+    Responsibility: `(limit + 1)` バイトの minified JSON を作る（v1 `FILE_BEGIN` の device reject 試験用）。
 
     Guard: テンプレを `ramProbePadding` でちょうど上限にしたうえで 1 文字だけ延ばす。
     """
+    limit = (
+        device_protocol_v1_minified_utf8_byte_limit
+        if device_protocol_v1_minified_utf8_byte_limit is not None
+        else KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES
+    )
     at_limit_bytes = build_minified_pico_runtime_package_utf8_bytes_with_ram_probe_padding_target_length_or_raise(
         template_package_object=template_package_object,
-        target_minified_utf8_byte_count=KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES,
+        target_minified_utf8_byte_count=limit,
+        device_protocol_v1_minified_utf8_byte_limit=device_protocol_v1_minified_utf8_byte_limit,
     )
     root = json.loads(at_limit_bytes.decode("utf-8"))
     padding_key = KIBO_RAM_PROBE_PADDING_TOP_LEVEL_FIELD_NAME
     root[padding_key] = f"{root[padding_key]}x"
     over_bytes = json.dumps(root, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-    expected_len = KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES + 1
+    expected_len = limit + 1
     if len(over_bytes) != expected_len:
         raise ValueError(f"Expected minified length {expected_len}, got {len(over_bytes)}.")
     return over_bytes
