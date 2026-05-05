@@ -5,10 +5,10 @@
 import { build_kibo_pkg_schema1_serial_line_text_without_newline_from_minified_utf8_bytes } from "./kibo-kibo-pkg-wire-encoding";
 
 /** `runtime/pico/vertical_slice/src/main.cpp` の `k_max_decoded_package_bytes` と一致。 */
-export const KIBO_PICO_FIRMWARE_MAX_DECODED_PACKAGE_UTF8_BYTES = 32768;
+export const KIBO_PICO_FIRMWARE_MAX_DECODED_PACKAGE_UTF8_BYTES = 12288;
 
 /** `runtime/pico/vertical_slice/src/main.cpp` の `k_max_serial_line_characters` と一致。 */
-export const KIBO_PICO_FIRMWARE_MAX_KIBO_PKG_SERIAL_LINE_CHARACTERS = 49152;
+export const KIBO_PICO_FIRMWARE_MAX_KIBO_PKG_SERIAL_LINE_CHARACTERS = 16384;
 
 /** minified UTF-8 byte 数がこの割合を超えたら警告（bytecode 着手の目安）。 */
 export const KIBO_PICO_PACKAGE_PREFLIGHT_WARN_MINIFIED_BYTE_FRACTION_OF_DECODE_LIMIT = 0.8;

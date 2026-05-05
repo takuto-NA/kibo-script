@@ -99,14 +99,6 @@ def main() -> None:
             diagnosis_lines.append(f"Loader handshake: OK ({preflight.loader_status_line})")
             if preflight.loader_protocol_version != 1:
                 diagnosis_lines.append(f"Unexpected loader protocol version: {preflight.loader_protocol_version}")
-            if preflight.max_decoded_package_bytes is None or preflight.max_serial_line_characters is None:
-                diagnosis_lines.append("Loader limits: not reported (old loader firmware; large packages may fail).")
-            else:
-                diagnosis_lines.append(
-                    "Loader limits: "
-                    f"max_decoded_package_bytes={preflight.max_decoded_package_bytes} "
-                    f"max_serial_line_characters={preflight.max_serial_line_characters}"
-                )
 
     if bootsel_letter is not None:
         diagnosis_lines.append(f"BOOTSEL UF2 volume detected: {bootsel_letter}: ({common.RP2040_UF2_VOLUME_LABEL})")

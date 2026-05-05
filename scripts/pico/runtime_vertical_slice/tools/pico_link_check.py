@@ -9,7 +9,6 @@ Guard: requires pyserial + `npm install` (tsx) at the repository root. Intended 
 from __future__ import annotations
 
 import argparse
-import json
 import subprocess
 import sys
 import tempfile
@@ -235,13 +234,6 @@ def main() -> None:
             print("Next:", file=sys.stderr)
             print(f"  python {_INSTALL_SCRIPT_PATH} --repo-root {repo_root} --port {arguments.port}", file=sys.stderr)
             raise SystemExit(1)
-        package_object = json.loads(package_path.read_text(encoding="utf-8"))
-        minified_utf8_bytes = json.dumps(package_object, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-        frame_line_text = common.build_kibo_pkg_serial_line_from_utf8_json_bytes(minified_utf8_bytes)
-        common.assert_loader_preflight_can_accept_kibo_pkg_line_or_raise(
-            preflight=preflight,
-            kibo_pkg_line_text=frame_line_text,
-        )
 
         if arguments.expected_trace_file is not None:
             expected_text = arguments.expected_trace_file.read_text(encoding="utf-8")

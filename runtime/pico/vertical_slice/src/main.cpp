@@ -49,8 +49,8 @@ constexpr const char* k_button_pressed_event_name = "pressed";
 constexpr const char* k_button_device_kind_name = "button";
 constexpr std::array<int, 5> k_button_gpio_pins_by_device_id = {18, 19, 20, 21, 22};
 
-constexpr std::size_t k_max_serial_line_characters = 49152;
-constexpr std::size_t k_max_decoded_package_bytes = 32768;
+constexpr std::size_t k_max_serial_line_characters = 16384;
+constexpr std::size_t k_max_decoded_package_bytes = 12288;
 
 // Host tools (`pico_link_doctor`, uploader preflight) use this to distinguish loader-capable firmware from older builds.
 constexpr int k_kibo_loader_protocol_version = 1;
@@ -411,10 +411,6 @@ bool try_apply_pico_runtime_package_from_kibo_pkg_serial_line(const std::string&
 void emit_kibo_loader_ping_response_line() {
   Serial.print("kibo_loader status=ok protocol=");
   Serial.print(k_kibo_loader_protocol_version);
-  Serial.print(" max_decoded_package_bytes=");
-  Serial.print(k_max_decoded_package_bytes);
-  Serial.print(" max_serial_line_characters=");
-  Serial.print(k_max_serial_line_characters);
   Serial.print(" active=");
   Serial.println(g_boot_fixture_name_text.c_str());
 }

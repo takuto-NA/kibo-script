@@ -13,6 +13,8 @@ Or:
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import unittest
 from pathlib import Path
@@ -73,7 +75,7 @@ class PicoLinkCommonPureHelpersTest(unittest.TestCase):
                 minimum_decoded_byte_count=common.KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES,
             )
 
-    def test_oversized_utf8_that_exceeds_decode_cap_still_fits_serial_line_headroom(self) -> None:
+    def test_oversized_utf8_that_exceeds_decode_cap_produces_kibo_pkg_line_over_serial_limit(self) -> None:
         repository_root = Path(__file__).resolve().parents[4]
         blink_led_package_path = common.resolve_default_blink_led_golden_pico_runtime_package_json_path_or_raise(
             repository_root=repository_root,
@@ -88,7 +90,7 @@ class PicoLinkCommonPureHelpersTest(unittest.TestCase):
             kibo_pkg_line_text=line_text,
         )
         self.assertGreater(len(oversized_utf8_bytes), common.KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES)
-        self.assertLessEqual(line_character_count, common.KIBO_FIRMWARE_MAX_SERIAL_LINE_CHARACTERS)
+        self.assertGreater(line_character_count, common.KIBO_FIRMWARE_MAX_SERIAL_LINE_CHARACTERS)
 
     def test_preflight_ok_for_blink_led_golden_minified(self) -> None:
         repository_root = Path(__file__).resolve().parents[4]
@@ -103,6 +105,20 @@ class PicoLinkCommonPureHelpersTest(unittest.TestCase):
             )
         except SystemExit as exc:  # pragma: no cover - failure path
             self.fail(f"unexpected SystemExit from preflight: {exc.code}")
+
+    def test_preflight_rejects_when_minified_utf8_exceeds_firmware_decode_cap(self) -> None:
+        """Guard: TS `kibo-pico-package-preflight.test.ts` の oversized reject と同じ境界（12288 超）。"""
+        oversized_minified_utf8_bytes = b"x" * (common.KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES + 1)
+        line_text = common.build_kibo_pkg_serial_line_from_utf8_json_bytes(oversized_minified_utf8_bytes)
+        stderr_capture = io.StringIO()
+        with contextlib.redirect_stderr(stderr_capture):
+            with self.assertRaises(SystemExit) as context:
+                common.evaluate_pico_package_payload_preflight_or_raise(
+                    minified_utf8_bytes=oversized_minified_utf8_bytes,
+                    kibo_pkg_line_text_without_newline=line_text.rstrip("\n"),
+                )
+        self.assertEqual(context.exception.code, 1)
+        self.assertIn("package_too_large", stderr_capture.getvalue())
 
 
 if __name__ == "__main__":

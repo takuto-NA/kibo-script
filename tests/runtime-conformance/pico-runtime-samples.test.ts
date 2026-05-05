@@ -10,7 +10,11 @@ import {
   extractReplayInputsFromPicoRuntimePackageUnknownJsonOrThrow,
 } from "../../src/runtime-conformance/build-pico-runtime-package-from-runtime-ir-contract";
 import { executeRuntimeConformanceReplayStepsAndCollectTraceLines } from "../../src/runtime-conformance/execute-runtime-conformance-replay-steps-and-collect-trace-lines";
-import { assessKiboPicoRuntimePackageJsonTextPreflightOrThrow } from "../../src/runtime-conformance/kibo-pico-package-preflight";
+import {
+  assessKiboPicoRuntimePackageJsonTextPreflightOrThrow,
+  KIBO_PICO_PACKAGE_PREFLIGHT_WARN_MINIFIED_BYTE_FRACTION_OF_DECODE_LIMIT,
+  KIBO_PICO_FIRMWARE_MAX_DECODED_PACKAGE_UTF8_BYTES,
+} from "../../src/runtime-conformance/kibo-pico-package-preflight";
 
 type SampleManifest = {
   readonly samples: readonly {
@@ -41,11 +45,16 @@ describe("Pico runtime sample scripts", () => {
       compiledProgram: compileResult.program,
       scriptVarNamesToIncludeInTraceOverride: sample.traceVars,
     });
-    const packagePreflight = assessKiboPicoRuntimePackageJsonTextPreflightOrThrow({
+    const preflight_assessment = assessKiboPicoRuntimePackageJsonTextPreflightOrThrow({
       canonicalPicoRuntimePackageJsonText: packageText,
     });
-    expect(packagePreflight.severity).not.toBe("reject");
-
+    // マニフェスト sample は decode 上限の warn 閾値（80%）未満を維持し severity は ok のみとする（warn は bytecode 着手の合図のため実験用に限定）。
+    const warn_threshold_minified_utf8_bytes = Math.floor(
+      KIBO_PICO_FIRMWARE_MAX_DECODED_PACKAGE_UTF8_BYTES *
+        KIBO_PICO_PACKAGE_PREFLIGHT_WARN_MINIFIED_BYTE_FRACTION_OF_DECODE_LIMIT,
+    );
+    expect(preflight_assessment.minifiedUtf8ByteCount).toBeLessThan(warn_threshold_minified_utf8_bytes);
+    expect(preflight_assessment.severity).toBe("ok");
     const replayInputs = extractReplayInputsFromPicoRuntimePackageUnknownJsonOrThrow(JSON.parse(packageText));
     const traceLines = executeRuntimeConformanceReplayStepsAndCollectTraceLines({
       compiledProgram: replayInputs.compiledProgram,

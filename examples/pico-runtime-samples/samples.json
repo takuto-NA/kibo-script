@@ -78,7 +78,7 @@
     {
       "name": "radio-state-tuner",
       "sourceFile": "radio-state-tuner.sc",
-      "traceVars": ["requested_station", "tune_count"]
+      "traceVars": ["band", "label"]
     }
   ]
 }

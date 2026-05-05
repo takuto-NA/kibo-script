@@ -9,8 +9,8 @@
 
 | 定数 | 値 | 意味 |
 | --- | ---: | --- |
-| `k_max_serial_line_characters` | 49152 | 1 行 `KIBO_PKG ...` の最大文字数（超過は行バッファ破棄寄りの扱い） |
-| `k_max_decoded_package_bytes` | 32768 | Base64 decode 後の JSON バイト上限 |
+| `k_max_serial_line_characters` | 16384 | 1 行 `KIBO_PKG ...` の最大文字数（超過は行バッファ破棄寄りの扱い） |
+| `k_max_decoded_package_bytes` | 12288 | Base64 decode 後の JSON バイト上限 |
 
 **実装済みポリシー**: host / UI / uploader は minified `PicoRuntimePackage` UTF-8 と `KIBO_PKG` 1 行長を preflight し、decode 上限 80% で warning、上限超過で送信前 reject する。
 

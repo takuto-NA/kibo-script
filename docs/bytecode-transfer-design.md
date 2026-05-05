@@ -47,10 +47,10 @@
 
 `runtime/pico/vertical_slice/src/main.cpp`:
 
-- **Base64 decode 後の JSON 上限**: 32768 bytes（`k_max_decoded_package_bytes`）
-- **1 行シリアル上限**: 49152 characters（`k_max_serial_line_characters`）
+- **Base64 decode 後の JSON 上限**: 12288 bytes（`k_max_decoded_package_bytes`）
+- **1 行シリアル上限**: 16384 characters（`k_max_serial_line_characters`）
 
-minified `PicoRuntimePackage` は **常に decode 上限以下**であることをホスト側で preflight する（超過は送信前 reject、80% 接近は bytecode 化の判断材料）。
+minified `PicoRuntimePackage` は **常に decode 上限以下**であることをホスト側で preflight する（超過は送信前 reject、80% 接近は bytecode 化の判断材料）。**CI**: [`pico-runtime-samples.test.ts`](../tests/runtime-conformance/pico-runtime-samples.test.ts) が `samples.json` 全件で `assessKiboPicoRuntimePackageJsonTextPreflightOrThrow` を実行し、`severity === "reject"` を禁止し、**`warn`（decode 上限の 80% 以上）も禁止**してマニフェストの headroom を維持する。
 
 ### 既知の package サイズ（コミット済み golden）
 
@@ -89,21 +89,60 @@ npx tsx -e "import { readFileSync } from 'node:fs'; import { join } from 'node:p
 | `pwm-servo-light-show` | 3492 | 4704 |
 | `string-command-router` | 3722 | 5012 |
 | `state-led-pulse` | 1625 | 2216 |
-| `radio-state-tuner` | 18426 | 24617 |
+| `radio-state-tuner` | 8838 | 11832 |
 
-ファーム上限（`main.cpp`）: decode 後 **32768** bytes、1 行 **49152** characters。1 行 Base64 で送るため、line 上限は decode 上限より余裕を持たせる。上限超過時は `package_too_large` または `serial_line_too_long` を negative として扱う（`send_oversized_kibo_pkg.py` 参照）。
+ファーム上限（`main.cpp`）: decode 後 **12288** bytes、1 行 **16384** characters。1 行 Base64 で送ると **decode 上限を超える payload は行長上限を先に超える**ため、ホストが「12288 超え」を送ると実機では `serial_line_too_long` になり得る（`send_oversized_kibo_pkg.py` 参照）。
+
+### トップレベルキー別 UTF-8（原因追求）
+
+minify 後の `PicoRuntimePackage` 全体の UTF-8 byte 長は、**トップレベル各キーの値部分木** `JSON.stringify(root[key])` の byte 長を並べると「どこが支配的か」が一目で分かる（部分木の合計は全体と一致しないが、`runtimeIrContract` が最大かどうかの判断に使える）。
+
+再現（リポジトリルート、例: `radio-state-tuner` のみ）:
+
+```bash
+npm run report-pico-package-utf8-breakdown -- --sample radio-state-tuner
+```
+
+2026-05-05 時点の出力例（`radio-state-tuner`）:
+
+| top-level key | value subtree UTF-8 bytes | 全体に対する概算比 |
+| --- | ---: | ---: |
+| `runtimeIrContract` | 8494 | ~96% |
+| `replay` | 176 | ~2% |
+| `traceObservation` | 51 | ~1% |
+| `live` | 32 | 未満 1% |
+| `packageSchemaVersion` | 1 | 未満 1% |
+
+実装: [`break-down-minified-pico-runtime-package-utf8-by-top-level-keys.ts`](../src/runtime-conformance/break-down-minified-pico-runtime-package-utf8-by-top-level-keys.ts)、CLI [`report_pico_runtime_package_utf8_breakdown_by_top_level_key_cli.ts`](../scripts/pico/runtime_vertical_slice/tools/report_pico_runtime_package_utf8_breakdown_by_top_level_key_cli.ts)。回帰は [`pico-runtime-package-utf8-breakdown-by-top-level-key.test.ts`](../tests/runtime-conformance/pico-runtime-package-utf8-breakdown-by-top-level-key.test.ts)。
+
+### 長尺転送・容量の決定木（ロードマップ）
+
+**目的**: 「JSON のまま載せる」範囲を超えたとき、**RAM・1 行シリアル長・実装コスト**のバランスで次手を固定する。
+
+1. **まず IR / package を薄くする（短期）**  
+   state 数・遷移密度・`traceVars` を抑え、`runtimeIrContract` の subtree を削る（preflight が `warn` / `reject` になる前の最優先）。
+
+2. **表現を変えずに載せ続けられない**  
+   - **bytecode（または同等の compact binary）**を優先: minified UTF-8 と `nlohmann::json` parse の両方に効く（上記「着手条件」参照）。  
+   - **分割転送**（複数フレームまたは複数 Serial 行 + ack）を併用検討: Base64 膨張と **`k_max_serial_line_characters`（16384）** の関係をプロトコル仕様で固定する（現状の 1 行 `KIBO_PKG` 前提を崩す変更）。
+
+3. **`k_max_decoded_package_bytes`（12288）の引き上げだけ**  
+   実装は軽いが **RAM の decode バッファ**と **parse worst-case** に直撃する。bytecode / 分割より先に採用する場合は、**なぜそれが先か**と受信バッファの根拠（計測 gate）をドキュメントに残す（負債化防止）。
+
+4. **受入（三者同値）**  
+   TypeScript `assessKiboPicoRuntimePackageJsonTextPreflightOrThrow`、Python `evaluate_pico_package_payload_preflight_or_raise`（`pico_link_common.py`）、Pico `main.cpp` の定数が同じ境界を指すこと。境界の **+1 byte 超過**は TS の合成 JSON と Python の `build_oversized_minified_package_utf8_bytes_from_template_object_or_raise` で機械的に固定する（[`kibo-pico-package-preflight.test.ts`](../tests/runtime-conformance/kibo-pico-package-preflight.test.ts)、[`test_pico_link_common.py`](../scripts/pico/runtime_vertical_slice/tools/test_pico_link_common.py)）。
 
 ### 着手条件（bytecode encoder / decoder）
 
 次のいずれかを満たしたら **bytecode のスパイク実装**を優先する。
 
-1. minified JSON が **decode 上限の 80%（26214 bytes）** を超えそう（余裕がなくなる）
+1. minified JSON が **decode 上限の 80%（9830 bytes）** を超えそう（余裕がなくなる）
 2. `nlohmann::json` parse が **ソフトリアルタイム要件**を満たせない（`SOAK-PARSE-001` で計測し閾値超え）
 3. flash 永続化で JSON を置くと **セクタ消費が非現実**（[`docs/pico-flash-persistence-gate.md`](pico-flash-persistence-gate.md)）
 
 ### JSON 開発フローを続ける期限（現状）
 
-MVP + supported semantics probe 範囲では JSON のまま **Go**（2026-05-05 実機 acceptance 済み。`radio-state-tuner` でも decode 上限の約 56%）。上限接近の監視だけ継続する。
+MVP + supported semantics probe 範囲では JSON のまま **Go**（2026-05-05 実機 acceptance 済み。5 サンプル実測でも decode 上限の半分以下）。上限接近の監視だけ継続する。
 
 ### 実測手順（5 サンプル + parse / upload 時間）
 

@@ -49,6 +49,8 @@ Burn-down 計画の分割ドキュメント（**plan ファイル本体は編集
 
 #### Scenario tour（シミュレーター UI の Example 用。`npm test` の `pico-runtime-samples.test.ts` で compile / package / replay を固定）
 
+`examples/pico-runtime-samples/samples.json` にエントリを追加するときは、同テストが **`assessKiboPicoRuntimePackageJsonTextPreflightOrThrow` で `severity` が `reject` または `warn`（decode 上限の 80% 以上）にならないまで merge しない**（閾値と内訳手順は [`docs/bytecode-transfer-design.md`](bytecode-transfer-design.md)）。
+
 | sample `name` | ソース | 主な文法・API（概念） |
 | --- | --- | --- |
 | `sensor-alert-dashboard` | `sensor-alert-dashboard.sc` | `read adc#0` / `if` / `match` / `display#0.text,circle` |
@@ -61,7 +63,7 @@ Burn-down 計画の分割ドキュメント（**plan ファイル本体は編集
 | `pwm-servo-light-show` | `pwm-servo-light-show.sc` | `pwm#0` / `motor#0` / `servo#0`（no-op）+ mode state |
 | `string-command-router` | `string-command-router.sc` | string command routing / display + LED side effects |
 | `state-led-pulse` | `state-led-pulse.sc` | `state machine` + `stateMembershipPath` 付き `every`（subset） |
-| `radio-state-tuner` | `radio-state-tuner.sc` | button-driven radio station request + `state machine` + OLED render per state |
+| `radio-state-tuner` | `radio-state-tuner.sc` | 5 `button#` + 2 状態 `state`（global 遷移）+ 単一 `label` 描画（package サイズ優先） |
 
 ### 2) 到達パス（どこから package が来るか）
 
@@ -137,7 +139,7 @@ Burn-down 計画の分割ドキュメント（**plan ファイル本体は編集
 | `tests/runtime-conformance/golden/pico-runtime-packages/button-toggle-on-event.pico-runtime-package.json` | 1636 |
 | `tests/runtime-conformance/golden/pico-runtime-packages/circle-animation.pico-runtime-package.json` | 2812 |
 
-ファーム側 decode 上限 **32768 bytes**（`main.cpp`）に対し十分な余裕。肥大化したら [`docs/bytecode-transfer-design.md`](bytecode-transfer-design.md) の閾値へ。
+ファーム側 decode 上限 **12288 bytes**（`main.cpp`）に対し十分な余裕。肥大化したら [`docs/bytecode-transfer-design.md`](bytecode-transfer-design.md) の閾値へ。
 
 ### 6) MVP 土台判定（baseline 固定の結論）
 

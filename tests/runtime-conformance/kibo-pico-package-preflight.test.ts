@@ -17,4 +17,14 @@ describe("kibo-pico-package-preflight", () => {
     });
     expect(result.severity).toBe("ok");
   });
+
+  it("rejects minified UTF-8 payload above firmware decode limit", () => {
+    const oversized_object = { filler: "y".repeat(15000) };
+    const canonical_text = JSON.stringify(oversized_object);
+    const result = assessKiboPicoRuntimePackageJsonTextPreflightOrThrow({
+      canonicalPicoRuntimePackageJsonText: canonical_text,
+    });
+    expect(result.severity).toBe("reject");
+    expect(result.messages.some((message) => message.includes("package_too_large"))).toBe(true);
+  });
 });
