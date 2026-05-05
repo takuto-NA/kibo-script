@@ -100,7 +100,7 @@ status=ok
 - baseline（circle-animation golden trace）
 - loader negative（length / crc / oversized / invalid base64）
 - 3 golden package
-- `examples/pico-runtime-samples` 5 本
+- `examples/pico-runtime-samples`（`samples.json` 全件。baseline 5 + scenario tour）
 - semantics probes（`semantics-if-led-branch` / `semantics-wait-skew` / `semantics-loop-budget` / `semantics-match-string`）
 
 ### KIBO_PKG loader negative gates（実機ログ用テンプレ）

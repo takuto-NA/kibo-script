@@ -24,6 +24,51 @@
       "name": "button-led-toggle",
       "sourceFile": "button-led-toggle.sc",
       "traceVars": []
+    },
+    {
+      "name": "sensor-alert-dashboard",
+      "sourceFile": "sensor-alert-dashboard.sc",
+      "traceVars": ["sensor_raw", "alert_level", "alert_count"]
+    },
+    {
+      "name": "countdown-marquee",
+      "sourceFile": "countdown-marquee.sc",
+      "traceVars": ["seconds_left", "marker_x"]
+    },
+    {
+      "name": "button-mode-dashboard",
+      "sourceFile": "button-mode-dashboard.sc",
+      "traceVars": ["selected_mode", "mode_changes"]
+    },
+    {
+      "name": "rover-scan-sweep",
+      "sourceFile": "rover-scan-sweep.sc",
+      "traceVars": ["scan_x", "scan_step", "servo_angle", "drive_power"]
+    },
+    {
+      "name": "serial-heartbeat-log",
+      "sourceFile": "serial-heartbeat-log.sc",
+      "traceVars": ["heartbeat_state", "heartbeat_count"]
+    },
+    {
+      "name": "waited-status-beacon",
+      "sourceFile": "waited-status-beacon.sc",
+      "traceVars": ["beacon_phase", "beacon_cycles"]
+    },
+    {
+      "name": "looped-pulse-train",
+      "sourceFile": "looped-pulse-train.sc",
+      "traceVars": ["pulse_count"]
+    },
+    {
+      "name": "pwm-servo-light-show",
+      "sourceFile": "pwm-servo-light-show.sc",
+      "traceVars": ["show_mode", "pwm_level", "motor_power", "servo_angle"]
+    },
+    {
+      "name": "string-command-router",
+      "sourceFile": "string-command-router.sc",
+      "traceVars": ["command", "command_count"]
     }
   ]
 }

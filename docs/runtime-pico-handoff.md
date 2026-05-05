@@ -35,7 +35,9 @@ Burn-down 計画の分割ドキュメント（**plan ファイル本体は編集
 
 ## Risk burn-down: baseline matrix（再現の固定）
 
-### 1) `examples/pico-runtime-samples`（5 本）と主な IR 要素
+### 1) `examples/pico-runtime-samples`（baseline 5 本 + scenario tour 9 本）
+
+#### Baseline（実機 `run_pico_runtime_samples` 連続 upload の主対象）
 
 | sample `name` | ソース | 主な IR 要素（概念） | コミット済み `PicoRuntimePackage` golden |
 | --- | --- | --- | --- |
@@ -44,6 +46,20 @@ Burn-down 計画の分割ドキュメント（**plan ファイル本体は編集
 | `two-circle-chase` | `two-circle-chase.sc` | 上記 + `temp` + 複数 `circle` | sample acceptance で生成 package + trace 照合済み |
 | `growing-circle` | `growing-circle.sc` | `every` / `var` 半径 + `display#0` | sample acceptance で生成 package + trace 照合済み |
 | `button-led-toggle` | `button-led-toggle.sc` | `on_event` `button#0.pressed` / `led#0.toggle` | `button-toggle-on-event.pico-runtime-package.json` と同等系 |
+
+#### Scenario tour（シミュレーター UI の Example 用。`npm test` の `pico-runtime-samples.test.ts` で compile / package / replay を固定）
+
+| sample `name` | ソース | 主な文法・API（概念） |
+| --- | --- | --- |
+| `sensor-alert-dashboard` | `sensor-alert-dashboard.sc` | `read adc#0` / `if` / `match` / `display#0.text,circle` |
+| `countdown-marquee` | `countdown-marquee.sc` | countdown state / arithmetic / wrap-around branch |
+| `button-mode-dashboard` | `button-mode-dashboard.sc` | `on_event` + periodic render / string `match` |
+| `rover-scan-sweep` | `rover-scan-sweep.sc` | scan position / `motor#0` / `servo#0` / display |
+| `serial-heartbeat-log` | `serial-heartbeat-log.sc` | `serial#0.println`（no-op）+ heartbeat state |
+| `waited-status-beacon` | `waited-status-beacon.sc` | `every` body `wait` / phase trace |
+| `looped-pulse-train` | `looped-pulse-train.sc` | `task ... loop` / pulse timing |
+| `pwm-servo-light-show` | `pwm-servo-light-show.sc` | `pwm#0` / `motor#0` / `servo#0`（no-op）+ mode state |
+| `string-command-router` | `string-command-router.sc` | string command routing / display + LED side effects |
 
 ### 2) 到達パス（どこから package が来るか）
 
@@ -74,7 +90,7 @@ Burn-down 計画の分割ドキュメント（**plan ファイル本体は編集
 | C++ host replay 比較 | 不要 | `npm run build:host-runtime` 後、`KIBO_RUNTIME_REPLAY_EXECUTABLE_PATH=<kibo_runtime_replay のパス> npm test`（バイナリ無しでは skip） |
 | Pico ビルド | 不要（ツールチェーンのみ） | `.pico-work/venv` の `pio.exe run`（手順は [`runtime/pico/vertical_slice/README.md`](../runtime/pico/vertical_slice/README.md)） |
 | 1 本 upload + trace 照合 | 要 | `python .../pico_link_check.py --port auto --repo-root . --package-file <path>` / `--runtime-ir <path>` / `--source-script <path>`（いずれも `[--trace-var ...] [--tick-ms N] [--replay-preset infer]` 可） |
-| 5 サンプル連続 | 要 | `python scripts/pico/runtime_vertical_slice/tools/run_pico_runtime_samples.py --port auto --repo-root . --capture-seconds 8` |
+| `samples.json` 掲載分の連続 upload | 要 | `python scripts/pico/runtime_vertical_slice/tools/run_pico_runtime_samples.py --port auto --repo-root . --capture-seconds 8`（マニフェスト全件。件数増加時は `--capture-seconds` を伸ばす） |
 | 一括 acceptance（profile） | 要 | `python .../run_mvp_hardware_acceptance.py --port auto --repo-root . --profile all`（個別に `baseline` / `negative` / `samples` / `semantics` / `mvp` も可） |
 | semantics probes のみ | 要 | `python .../run_pico_semantics_probes.py --port auto --repo-root .` |
 | loader 診断 | 要 | `python scripts/pico/runtime_vertical_slice/tools/pico_link_doctor.py --port auto` |
@@ -182,9 +198,10 @@ Burn-down 計画の分割ドキュメント（**plan ファイル本体は編集
   - baseline（circle-animation golden trace）
   - loader negative（length / crc / oversized / invalid base64）
   - 3 golden package
-  - `examples/pico-runtime-samples` 5 本
+  - `examples/pico-runtime-samples` baseline 5 本（`samples.json` の先頭 5 件に相当）
   - semantics probes（`if` / `wait-skew` / `loop-budget` / `match-string`）
-- `examples/pico-runtime-samples/` の 5 サンプル（LED heartbeat / circle sweep / two-circle chase / growing circle / button event toggle）は、`run_pico_runtime_samples.py --port auto --repo-root . --capture-seconds 8` で順に upload され、各 sample が TypeScript replay trace と Pico serial trace の一致まで確認済み。
+- `examples/pico-runtime-samples/` の **baseline 5 サンプル**（LED heartbeat / circle sweep / two-circle chase / growing circle / button event toggle）は、`run_pico_runtime_samples.py --port auto --repo-root . --capture-seconds 8` で順に upload され、各 sample が TypeScript replay trace と Pico serial trace の一致まで確認済み。
+- `samples.json` には上記に加え **scenario tour**（センサー alert、button mode、rover scan、serial heartbeat など）を載せており、シミュレーター UI の Example ドロップダウンと同一。TypeScript 側は `pico-runtime-samples.test.ts` がマニフェスト全件を compile / package / replay で固定する。**scenario tour を含む全本の実機連続 upload を再記録する場合は** `run_pico_runtime_samples.py` を十分な `--capture-seconds` で再実行する。
 - 実機ボタンは `button#0..#4 = PIN24/25/26/27/29 = GP18/19/20/21/22`。loader firmware は物理押下の edge を live runtime の `button#N.pressed` に dispatch する。シミュレータ UI も同じ 5 ボタンを表示し、`Press` で対応する `button#N.pressed` を dispatch する。`button-led-toggle.sc` は `button#0`（PIN24 / GP18）で LED toggle する。
 - シミュレーター UI から `Run simulator & write to Pico` で Pico へ送る流れも動作確認済み。少なくとも `examples/pico-runtime-samples/led-heartbeat.sc` は、シミュレーターで compile / run した内容を `PicoRuntimePackage` 化し、USB Serial `KIBO_PKG` で Pico へ送り、実機側で LED heartbeat と trace 確認までできた。
 

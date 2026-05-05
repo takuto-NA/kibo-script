@@ -3,11 +3,20 @@
  */
 
 import pico_runtime_samples_manifest from "../../examples/pico-runtime-samples/samples.json";
+import button_mode_dashboard_sc_raw_text from "../../examples/pico-runtime-samples/button-mode-dashboard.sc?raw";
 import button_led_toggle_sc_raw_text from "../../examples/pico-runtime-samples/button-led-toggle.sc?raw";
 import circle_sweep_sc_raw_text from "../../examples/pico-runtime-samples/circle-sweep.sc?raw";
+import countdown_marquee_sc_raw_text from "../../examples/pico-runtime-samples/countdown-marquee.sc?raw";
 import growing_circle_sc_raw_text from "../../examples/pico-runtime-samples/growing-circle.sc?raw";
 import led_heartbeat_sc_raw_text from "../../examples/pico-runtime-samples/led-heartbeat.sc?raw";
+import looped_pulse_train_sc_raw_text from "../../examples/pico-runtime-samples/looped-pulse-train.sc?raw";
+import pwm_servo_light_show_sc_raw_text from "../../examples/pico-runtime-samples/pwm-servo-light-show.sc?raw";
+import rover_scan_sweep_sc_raw_text from "../../examples/pico-runtime-samples/rover-scan-sweep.sc?raw";
+import sensor_alert_dashboard_sc_raw_text from "../../examples/pico-runtime-samples/sensor-alert-dashboard.sc?raw";
+import serial_heartbeat_log_sc_raw_text from "../../examples/pico-runtime-samples/serial-heartbeat-log.sc?raw";
+import string_command_router_sc_raw_text from "../../examples/pico-runtime-samples/string-command-router.sc?raw";
 import two_circle_chase_sc_raw_text from "../../examples/pico-runtime-samples/two-circle-chase.sc?raw";
+import waited_status_beacon_sc_raw_text from "../../examples/pico-runtime-samples/waited-status-beacon.sc?raw";
 
 export type SampleCatalogEntry = {
   readonly sampleName: string;
@@ -27,11 +36,20 @@ type SampleManifestJson = {
 };
 
 const SOURCE_TEXT_BY_SOURCE_FILE_NAME: Readonly<Record<string, string>> = {
+  "button-mode-dashboard.sc": button_mode_dashboard_sc_raw_text,
   "button-led-toggle.sc": button_led_toggle_sc_raw_text,
   "circle-sweep.sc": circle_sweep_sc_raw_text,
+  "countdown-marquee.sc": countdown_marquee_sc_raw_text,
   "growing-circle.sc": growing_circle_sc_raw_text,
   "led-heartbeat.sc": led_heartbeat_sc_raw_text,
+  "looped-pulse-train.sc": looped_pulse_train_sc_raw_text,
+  "pwm-servo-light-show.sc": pwm_servo_light_show_sc_raw_text,
+  "rover-scan-sweep.sc": rover_scan_sweep_sc_raw_text,
+  "sensor-alert-dashboard.sc": sensor_alert_dashboard_sc_raw_text,
+  "serial-heartbeat-log.sc": serial_heartbeat_log_sc_raw_text,
+  "string-command-router.sc": string_command_router_sc_raw_text,
   "two-circle-chase.sc": two_circle_chase_sc_raw_text,
+  "waited-status-beacon.sc": waited_status_beacon_sc_raw_text,
 };
 
 function normalize_line_endings_to_lf(text: string): string {
