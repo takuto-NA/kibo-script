@@ -17,7 +17,7 @@
 領域 | 判定 | メモ
 --- | --- | ---
 Baseline（5 サンプル + 3 golden package + CLI/Web Serial） | **Go** | 再現コマンドと IR 境界を handoff に固定済み。
-Semantics（6 probe + 従来 3 fixture） | **Go（TS golden 固定）+ partial C++** | `tests/runtime-conformance/` に trace / replay / IR golden 追加。C++ host は `stateMachines` を拒否（compare テストで skip）。`if` / `wait` / `loop` / `match` は host 側で TS golden と整合する実装済み（ビルドは `npm run build:host-runtime`）。
+Semantics（6 probe + 従来 3 fixture + device slice fixtures） | **Go（TS golden 固定）+ Go（C++ host 整合）** | `tests/runtime-conformance/` に trace / replay / IR golden。C++ host は `stateMachines` を拒否（compare テストで skip）。`if` / `wait` / `loop` / `match` / `display.text` / `adc#0.raw` read / actuator no-op などは host で TS golden と整合。
 Loader（`KIBO_PKG` negative） | **Fix first completed** | `send_invalid_kibo_pkg_crc.py` / `send_oversized_kibo_pkg.py`（`package_too_large` または `serial_line_too_long`）/ `send_invalid_kibo_pkg_frame.py` + length sender。`pico_link_common` ユニット拡張。実機ログは bringup テンプレへ。
 Simulator→Pico UX | **Fix first completed** | `script-runner-view.ts` で loader / ack / trace mismatch ごとに **install_pico_loader / doctor / upload / pico_link_check（`--repo-root .` + `--trace-var`）** を表示。Playwright fake Web Serial で loader / ack / trace の smoke 追加。
 Flash 永続化 | **Redesign decided（実装 Defer）** | [`docs/pico-flash-persistence-gate.md`](pico-flash-persistence-gate.md) に A/B sector + header CRC + fallback 方針と **プロトタイプ開始条件**を明記。実装は bytecode または JSON 上限接近まで保留。

@@ -93,6 +93,23 @@ export function mapDoMethodCallToDeviceEffects(params: {
         },
       ];
     }
+    if (
+      methodName === "text" &&
+      argumentsList.length === 3 &&
+      argumentsList[0]?.kind === "integer" &&
+      argumentsList[1]?.kind === "integer" &&
+      argumentsList[2]?.kind === "string"
+    ) {
+      return [
+        {
+          kind: "display.text",
+          address,
+          x: argumentsList[0].value,
+          y: argumentsList[1].value,
+          text: argumentsList[2].value,
+        },
+      ];
+    }
   }
 
   if (address.kind === "pwm" && methodName === "level" && argumentsList.length === 1) {

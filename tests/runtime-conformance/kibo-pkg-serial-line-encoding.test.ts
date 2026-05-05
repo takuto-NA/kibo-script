@@ -1,10 +1,11 @@
-// 責務: `KIBO_PKG` serial line の CRC32 / Base64 が Python `zlib.crc32` と整合することを固定する。
+// 責務: `KIBO_PKG` serial line の CRC32 / Base64 が Python `zlib.crc32` / Node `crc32` と整合することを固定する。
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { crc32 } from "node:zlib";
+import { build_kibo_pkg_schema1_serial_line_text_without_newline_from_minified_utf8_bytes } from "../../src/runtime-conformance/kibo-kibo-pkg-wire-encoding";
 
 describe("KIBO_PKG serial line encoding", () => {
   it("builds a decodable frame for the blink-led golden package (minified JSON bytes)", () => {
@@ -17,8 +18,13 @@ describe("KIBO_PKG serial line encoding", () => {
 
     const crc32_value = crc32(Buffer.from(minified_bytes)) >>> 0;
     const base64_payload = Buffer.from(minified_bytes).toString("base64");
-    const line = `KIBO_PKG schema=1 bytes=${minified_bytes.length} crc32=${crc32_value.toString(16).padStart(8, "0")} b64=${base64_payload}`;
+    const line_expected = `KIBO_PKG schema=1 bytes=${minified_bytes.length} crc32=${crc32_value.toString(16).padStart(8, "0")} b64=${base64_payload}`;
 
+    const line_from_shared_encoder =
+      build_kibo_pkg_schema1_serial_line_text_without_newline_from_minified_utf8_bytes(minified_bytes);
+    expect(line_from_shared_encoder).toBe(line_expected);
+
+    const line = line_expected;
     expect(line.startsWith("KIBO_PKG ")).toBe(true);
 
     const marker = " b64=";

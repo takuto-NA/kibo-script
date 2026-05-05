@@ -57,6 +57,13 @@ function assertExpressionIsSupportedByPicoVerticalSliceOrThrow(expression: Execu
     assertExpressionIsSupportedByPicoVerticalSliceOrThrow(expression.right);
     return;
   }
+  if (expression.kind === "read_property") {
+    const addressText = formatDeviceAddress(expression.deviceAddress);
+    if (addressText === "adc#0" && expression.propertyName === "raw") {
+      return;
+    }
+    throw new Error(`Pico vertical slice does not support read_property: ${addressText}.${expression.propertyName}`);
+  }
   throw new Error(`Pico vertical slice does not support expression kind: ${expression.kind}`);
 }
 
@@ -72,8 +79,24 @@ function assertStatementIsSupportedByPicoVerticalSliceOrThrow(statement: Executa
       addressText === "display#0" &&
       ((statement.methodName === "clear" && statement.arguments.length === 0) ||
         (statement.methodName === "present" && statement.arguments.length === 0) ||
-        (statement.methodName === "circle" && statement.arguments.length === 3));
-    if (!isSupportedLedMethod && !isSupportedDisplayMethod) {
+        (statement.methodName === "circle" && statement.arguments.length === 3) ||
+        (statement.methodName === "text" && statement.arguments.length === 3));
+    const isSupportedSerialMethod =
+      addressText === "serial#0" && statement.methodName === "println" && statement.arguments.length === 1;
+    const isSupportedPwmMethod =
+      addressText === "pwm#0" && statement.methodName === "level" && statement.arguments.length === 1;
+    const isSupportedMotorMethod =
+      addressText === "motor#0" && statement.methodName === "power" && statement.arguments.length === 1;
+    const isSupportedServoMethod =
+      addressText === "servo#0" && statement.methodName === "angle" && statement.arguments.length === 1;
+    if (
+      !isSupportedLedMethod &&
+      !isSupportedDisplayMethod &&
+      !isSupportedSerialMethod &&
+      !isSupportedPwmMethod &&
+      !isSupportedMotorMethod &&
+      !isSupportedServoMethod
+    ) {
       throw new Error(`Pico vertical slice does not support method call: ${methodText}`);
     }
     for (const argument of statement.arguments) {
@@ -169,6 +192,25 @@ export function inferLiveTickIntervalMillisecondsFromCompiledProgram(compiledPro
   return DEFAULT_LIVE_TICK_INTERVAL_MILLISECONDS_WHEN_NO_EVERY_TASK;
 }
 
+function inferReplayTickMillisecondsFromLoopTaskWaitOrUndefined(compiledProgram: CompiledProgram): number | undefined {
+  for (const loopTask of compiledProgram.loopTasks) {
+    for (const statement of loopTask.statements) {
+      if (statement.kind !== "wait_milliseconds") {
+        continue;
+      }
+      const durationExpression = statement.durationMillisecondsExpression;
+      if (durationExpression.kind !== "integer_literal") {
+        continue;
+      }
+      if (durationExpression.value < 1) {
+        continue;
+      }
+      return durationExpression.value;
+    }
+  }
+  return undefined;
+}
+
 export function inferReplayStepsFromCompiledProgramOrThrow(compiledProgram: CompiledProgram): readonly RuntimeConformanceReplayStep[] {
   if (compiledProgram.everyTasks.length > 0) {
     const tickMilliseconds = compiledProgram.everyTasks[0].intervalMilliseconds;
@@ -210,6 +252,17 @@ export function inferReplayStepsFromCompiledProgramOrThrow(compiledProgram: Comp
     ];
   }
 
+  const loopTaskWaitTickMilliseconds = inferReplayTickMillisecondsFromLoopTaskWaitOrUndefined(compiledProgram);
+  if (loopTaskWaitTickMilliseconds !== undefined) {
+    return [
+      { kind: "collect_trace" },
+      { kind: "tick_ms", elapsedMilliseconds: loopTaskWaitTickMilliseconds },
+      { kind: "collect_trace" },
+      { kind: "tick_ms", elapsedMilliseconds: loopTaskWaitTickMilliseconds },
+      { kind: "collect_trace" },
+    ];
+  }
+
   const tickMilliseconds = DEFAULT_REPLAY_TICK_MILLISECONDS_WHEN_NO_EVERY_OR_ON_EVENT_TASK;
   return [
     { kind: "collect_trace" },
@@ -218,6 +271,61 @@ export function inferReplayStepsFromCompiledProgramOrThrow(compiledProgram: Comp
     { kind: "tick_ms", elapsedMilliseconds: tickMilliseconds },
     { kind: "collect_trace" },
   ];
+}
+
+export type PicoRuntimePackageReplayPresetId = "infer" | "basic-3-trace" | "button-toggle-2-press" | "sample-manifest";
+
+const REPLAY_STEPS_TWO_BUTTON_PRESSES: readonly RuntimeConformanceReplayStep[] = [
+  { kind: "collect_trace" },
+  {
+    kind: "dispatch_device_event",
+    deviceKind: "button",
+    deviceId: 0,
+    eventName: "pressed",
+  },
+  { kind: "collect_trace" },
+  {
+    kind: "dispatch_device_event",
+    deviceKind: "button",
+    deviceId: 0,
+    eventName: "pressed",
+  },
+  { kind: "collect_trace" },
+];
+
+function resolveReplayStepsForPicoRuntimePackageBuildOrThrow(params: {
+  readonly compiledProgram: CompiledProgram;
+  readonly replayStepsOverride: readonly RuntimeConformanceReplayStep[] | undefined;
+  readonly replayPresetId: PicoRuntimePackageReplayPresetId | undefined;
+}): readonly RuntimeConformanceReplayStep[] {
+  if (params.replayStepsOverride !== undefined) {
+    return params.replayStepsOverride;
+  }
+  const preset: PicoRuntimePackageReplayPresetId = params.replayPresetId ?? "infer";
+  if (preset === "infer") {
+    return inferReplayStepsFromCompiledProgramOrThrow(params.compiledProgram);
+  }
+  if (preset === "basic-3-trace") {
+    let tickMilliseconds = DEFAULT_REPLAY_TICK_MILLISECONDS_WHEN_NO_EVERY_OR_ON_EVENT_TASK;
+    if (params.compiledProgram.everyTasks.length > 0) {
+      tickMilliseconds = params.compiledProgram.everyTasks[0].intervalMilliseconds;
+    }
+    return [
+      { kind: "collect_trace" },
+      { kind: "tick_ms", elapsedMilliseconds: tickMilliseconds },
+      { kind: "collect_trace" },
+      { kind: "tick_ms", elapsedMilliseconds: tickMilliseconds },
+      { kind: "collect_trace" },
+    ];
+  }
+  if (preset === "button-toggle-2-press") {
+    return REPLAY_STEPS_TWO_BUTTON_PRESSES;
+  }
+  if (preset === "sample-manifest") {
+    // Guard: 現状は `infer` と同じ（将来 samples manifest 専用 replay に差し替え可能）。
+    return inferReplayStepsFromCompiledProgramOrThrow(params.compiledProgram);
+  }
+  throw new Error(`Unsupported replay preset: ${String(preset)}`);
 }
 
 export function resolveDefaultScriptVarNamesForTraceFromCompiledProgram(compiledProgram: CompiledProgram): readonly string[] {
@@ -249,12 +357,25 @@ export function parseCompiledProgramFromRuntimeIrContractRootOrThrow(root: unkno
 export function buildPicoRuntimePackageCanonicalJsonTextFromRuntimeIrContractJsonTextOrThrow(params: {
   readonly runtimeIrContractJsonText: string;
   readonly scriptVarNamesToIncludeInTraceOverride: readonly string[] | undefined;
+  readonly liveTickIntervalMillisecondsOverride?: number | undefined;
+  readonly replayStepsOverride?: readonly RuntimeConformanceReplayStep[] | undefined;
+  readonly replayPresetId?: PicoRuntimePackageReplayPresetId | undefined;
 }): string {
   const parsedRoot: unknown = JSON.parse(params.runtimeIrContractJsonText);
   const compiledProgram = parseCompiledProgramFromRuntimeIrContractRootOrThrow(parsedRoot);
   assertCompiledProgramIsSupportedByPicoVerticalSliceOrThrow(compiledProgram);
-  const replaySteps = inferReplayStepsFromCompiledProgramOrThrow(compiledProgram);
-  const liveTickIntervalMilliseconds = inferLiveTickIntervalMillisecondsFromCompiledProgram(compiledProgram);
+  const replaySteps = resolveReplayStepsForPicoRuntimePackageBuildOrThrow({
+    compiledProgram,
+    replayStepsOverride: params.replayStepsOverride,
+    replayPresetId: params.replayPresetId,
+  });
+  let liveTickIntervalMilliseconds = inferLiveTickIntervalMillisecondsFromCompiledProgram(compiledProgram);
+  if (params.liveTickIntervalMillisecondsOverride !== undefined) {
+    if (params.liveTickIntervalMillisecondsOverride < 1) {
+      throw new Error("liveTickIntervalMillisecondsOverride must be >= 1.");
+    }
+    liveTickIntervalMilliseconds = params.liveTickIntervalMillisecondsOverride;
+  }
   const scriptVarNamesToIncludeInTrace =
     params.scriptVarNamesToIncludeInTraceOverride ?? resolveDefaultScriptVarNamesForTraceFromCompiledProgram(compiledProgram);
 
@@ -269,10 +390,23 @@ export function buildPicoRuntimePackageCanonicalJsonTextFromRuntimeIrContractJso
 export function buildPicoRuntimePackageCanonicalJsonTextFromCompiledProgramWithInferenceOrThrow(params: {
   readonly compiledProgram: CompiledProgram;
   readonly scriptVarNamesToIncludeInTraceOverride: readonly string[] | undefined;
+  readonly liveTickIntervalMillisecondsOverride?: number | undefined;
+  readonly replayStepsOverride?: readonly RuntimeConformanceReplayStep[] | undefined;
+  readonly replayPresetId?: PicoRuntimePackageReplayPresetId | undefined;
 }): string {
   assertCompiledProgramIsSupportedByPicoVerticalSliceOrThrow(params.compiledProgram);
-  const replaySteps = inferReplayStepsFromCompiledProgramOrThrow(params.compiledProgram);
-  const liveTickIntervalMilliseconds = inferLiveTickIntervalMillisecondsFromCompiledProgram(params.compiledProgram);
+  const replaySteps = resolveReplayStepsForPicoRuntimePackageBuildOrThrow({
+    compiledProgram: params.compiledProgram,
+    replayStepsOverride: params.replayStepsOverride,
+    replayPresetId: params.replayPresetId,
+  });
+  let liveTickIntervalMilliseconds = inferLiveTickIntervalMillisecondsFromCompiledProgram(params.compiledProgram);
+  if (params.liveTickIntervalMillisecondsOverride !== undefined) {
+    if (params.liveTickIntervalMillisecondsOverride < 1) {
+      throw new Error("liveTickIntervalMillisecondsOverride must be >= 1.");
+    }
+    liveTickIntervalMilliseconds = params.liveTickIntervalMillisecondsOverride;
+  }
   const scriptVarNamesToIncludeInTrace =
     params.scriptVarNamesToIncludeInTraceOverride ?? resolveDefaultScriptVarNamesForTraceFromCompiledProgram(params.compiledProgram);
 

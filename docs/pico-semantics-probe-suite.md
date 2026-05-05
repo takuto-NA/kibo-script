@@ -53,6 +53,11 @@ Pico に先に持ち込むと、loader / OLED / timing のノイズで semantics
 
 - 現状 C++ host は `stateMembershipPath` を **明示的に unsupported** としている（MVP）。probe 追加時は **実装 or 拒否ポリシー**のどちらかに振り分ける。
 
+## State machine / animator（現状）
+
+- IR に `stateMachines` / `animatorDefinitions` が含まれる場合、**Pico vertical slice package builder は拒否**し、C++ host compare テストは **明示 skip** する。
+- supported へ昇格する場合は、**TS golden を先に固定**し、`compare-typescript-cpp-host-runtime-replay.test.ts` の skip を解除する（[`docs/runtime-pico-handoff.md`](runtime-pico-handoff.md) のバックログ順）。
+
 ## 成果物チェックリスト
 
 - [ ] 各 probe の `*.runtime-ir-contract.golden.json`（または既存 golden 手順）

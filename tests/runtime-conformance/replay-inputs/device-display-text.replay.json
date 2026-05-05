@@ -1,0 +1,86 @@
+{
+  "replaySchemaVersion": 1,
+  "runtimeIrContract": {
+    "compiledProgram": {
+      "animatorDefinitions": [],
+      "constInitializers": [],
+      "deviceAliases": [],
+      "everyTasks": [
+        {
+          "intervalMilliseconds": 100,
+          "statements": [
+            {
+              "arguments": [],
+              "deviceAddress": {
+                "id": 0,
+                "kind": "display"
+              },
+              "kind": "do_method_call",
+              "methodName": "clear"
+            },
+            {
+              "arguments": [
+                {
+                  "kind": "integer_literal",
+                  "value": 0
+                },
+                {
+                  "kind": "integer_literal",
+                  "value": 0
+                },
+                {
+                  "kind": "string_literal",
+                  "value": "Hi"
+                }
+              ],
+              "deviceAddress": {
+                "id": 0,
+                "kind": "display"
+              },
+              "kind": "do_method_call",
+              "methodName": "text"
+            },
+            {
+              "arguments": [],
+              "deviceAddress": {
+                "id": 0,
+                "kind": "display"
+              },
+              "kind": "do_method_call",
+              "methodName": "present"
+            }
+          ],
+          "taskName": "draw_text"
+        }
+      ],
+      "loopTasks": [],
+      "onEventTasks": [],
+      "stateMachines": [],
+      "varInitializers": [],
+      "varWriterAssignments": []
+    },
+    "runtimeIrContractSchemaVersion": 1
+  },
+  "steps": [
+    {
+      "kind": "collect_trace"
+    },
+    {
+      "elapsedMilliseconds": 100,
+      "kind": "tick_ms"
+    },
+    {
+      "kind": "collect_trace"
+    },
+    {
+      "elapsedMilliseconds": 100,
+      "kind": "tick_ms"
+    },
+    {
+      "kind": "collect_trace"
+    }
+  ],
+  "traceObservation": {
+    "scriptVarNamesToIncludeInTrace": []
+  }
+}

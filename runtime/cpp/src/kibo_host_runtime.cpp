@@ -3,6 +3,7 @@
 #include "kibo_host_runtime.hpp"
 
 #include "kibo_display_geometry.hpp"
+#include "kibo_display_glcd_text.hpp"
 #include "kibo_fnv1a64.hpp"
 #include "kibo_json_read_integer.hpp"
 
@@ -85,6 +86,8 @@ KiboHostRuntime::KiboHostRuntime(const nlohmann::json& runtime_ir_contract_root)
   register_every_tasks_from_program(compiled_program_json);
   register_loop_tasks_from_program(compiled_program_json);
   register_on_event_tasks_from_program(compiled_program_json);
+  // Guard: TypeScript SimulationRuntime starts `task ... loop` bodies at simulation time 0 before the first trace.
+  start_runnable_loop_tasks();
 }
 
 void KiboHostRuntime::throw_if_compiled_program_has_unsupported_top_level_features(const nlohmann::json& compiled_program_json) {
@@ -526,6 +529,40 @@ void KiboHostRuntime::execute_statement_json(
       }
     }
 
+    if (device_kind == "serial" && device_id == 0 && method_name == "println" && arguments_json.size() == 1) {
+      const auto& argument0 = arguments_json.at(0);
+      const std::string argument_kind = argument0.at("kind").get<std::string>();
+      const bool is_stringish = [&]() -> bool {
+        if (argument_kind == "string_literal") {
+          return true;
+        }
+        if (argument_kind != "var_reference") {
+          return false;
+        }
+        const std::string var_name = argument0.at("varName").get<std::string>();
+        return evaluation_context.script_string_vars->find(var_name) != evaluation_context.script_string_vars->end();
+      }();
+      if (is_stringish) {
+        (void)evaluate_expression_as_utf8_string_or_throw(argument0, evaluation_context);
+        return;
+      }
+      (void)evaluate_expression_json(argument0, evaluation_context);
+      return;
+    }
+
+    if (device_kind == "pwm" && device_id == 0 && method_name == "level" && arguments_json.size() == 1) {
+      (void)evaluate_expression_json(arguments_json.at(0), evaluation_context);
+      return;
+    }
+    if (device_kind == "motor" && device_id == 0 && method_name == "power" && arguments_json.size() == 1) {
+      (void)evaluate_expression_json(arguments_json.at(0), evaluation_context);
+      return;
+    }
+    if (device_kind == "servo" && device_id == 0 && method_name == "angle" && arguments_json.size() == 1) {
+      (void)evaluate_expression_json(arguments_json.at(0), evaluation_context);
+      return;
+    }
+
     if (device_kind == "display" && device_id == 0) {
       if (method_name == "clear" && arguments_json.empty()) {
         apply_display_clear();
@@ -540,6 +577,13 @@ void KiboHostRuntime::execute_statement_json(
         const int center_y = static_cast<int>(evaluate_expression_json(arguments_json.at(1), evaluation_context));
         const int radius = static_cast<int>(evaluate_expression_json(arguments_json.at(2), evaluation_context));
         apply_display_circle(center_x, center_y, radius);
+        return;
+      }
+      if (method_name == "text" && arguments_json.size() == 3) {
+        const int origin_x = static_cast<int>(evaluate_expression_json(arguments_json.at(0), evaluation_context));
+        const int origin_y = static_cast<int>(evaluate_expression_json(arguments_json.at(1), evaluation_context));
+        const std::string text = evaluate_expression_as_utf8_string_or_throw(arguments_json.at(2), evaluation_context);
+        apply_display_text(origin_x, origin_y, text);
         return;
       }
     }
@@ -788,6 +832,21 @@ std::int64_t KiboHostRuntime::evaluate_expression_json(
     return static_cast<std::int64_t>(evaluation_context.nominal_interval_milliseconds.value());
   }
 
+  if (kind == "read_property") {
+    const auto& device_address = expression_json.at("deviceAddress");
+    const std::string device_kind = device_address.at("kind").get<std::string>();
+    const int device_id = device_address.at("id").get<int>();
+    const std::string property_name = expression_json.at("propertyName").get<std::string>();
+    if (device_kind == "adc" && device_id == 0 && property_name == "raw") {
+      // Guard: TypeScript `create-default-devices.ts` の `AdcDevice` 既定 raw と一致させる。
+      constexpr std::int64_t k_default_adc0_raw_value_for_host_replay = 512;
+      return k_default_adc0_raw_value_for_host_replay;
+    }
+    std::ostringstream oss;
+    oss << "Unsupported read_property: " << device_kind << "#" << device_id << "." << property_name;
+    throw_unsupported_runtime_ir(oss.str());
+  }
+
   std::ostringstream oss;
   oss << "Unsupported expression kind: " << kind;
   throw_unsupported_runtime_ir(oss.str());
@@ -819,6 +878,10 @@ void KiboHostRuntime::apply_display_circle(int center_x, int center_y, int radiu
 
 void KiboHostRuntime::apply_display_present() {
   presented_pixels_ = draft_pixels_;
+}
+
+void KiboHostRuntime::apply_display_text(int origin_x, int origin_y, const std::string& utf8_text) {
+  draw_glcd_font_text_ascii_on_framebuffer(draft_pixels_, origin_x, origin_y, utf8_text);
 }
 
 std::string KiboHostRuntime::collect_conformance_trace_line(

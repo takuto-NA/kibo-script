@@ -75,6 +75,11 @@ def main() -> None:
     minified_utf8_bytes = json.dumps(package_object, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     frame_line_text = common.build_kibo_pkg_serial_line_from_utf8_json_bytes(minified_utf8_bytes)
 
+    common.evaluate_pico_package_payload_preflight_or_raise(
+        minified_utf8_bytes=minified_utf8_bytes,
+        kibo_pkg_line_text_without_newline=frame_line_text.rstrip("\n"),
+    )
+
     port_path = common.resolve_serial_port_path_for_vertical_slice_or_exit(port_argument=arguments.port)
 
     try:

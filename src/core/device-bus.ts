@@ -39,6 +39,13 @@ export type DeviceEffect =
       address: DeviceAddress;
     }
   | {
+      kind: "display.text";
+      address: DeviceAddress;
+      x: number;
+      y: number;
+      text: string;
+    }
+  | {
       kind: "led.on";
       address: DeviceAddress;
     }

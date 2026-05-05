@@ -23,6 +23,8 @@ KIBO_USB_SERIAL_BAUD_RATE = 115200
 KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES = 12288
 # Guard: `k_max_serial_line_characters` in `runtime/pico/vertical_slice/src/main.cpp` — single-line `KIBO_PKG` 送信の上限。
 KIBO_FIRMWARE_MAX_SERIAL_LINE_CHARACTERS = 16384
+# Guard: TypeScript `kibo-pico-package-preflight.ts` の警告閾値と一致。
+KIBO_FIRMWARE_PACKAGE_PREFLIGHT_WARN_FRACTION_OF_DECODE_LIMIT = 0.8
 KIBO_NEGATIVE_GATE_OVERSIZED_PADDING_FIELD_NAME = "negativeGateOversizedPaddingFieldForLoaderProtocolGateOnly"
 KIBO_SERIAL_PING_COMMAND_TEXT = "KIBO_PING"
 KIBO_LOADER_STATUS_OK_PREFIX = "kibo_loader status=ok"
@@ -433,6 +435,42 @@ def send_minified_kibo_pkg_from_utf8_json_bytes_and_expect_pkg_ack_substring_or_
     return ack_line
 
 
+def evaluate_pico_package_payload_preflight_or_raise(
+    *,
+    minified_utf8_bytes: bytes,
+    kibo_pkg_line_text_without_newline: str,
+) -> None:
+    """Guard: TS `assessKiboPicoRuntimePackageJsonTextPreflightOrThrow` と同じ拒否 / 警告ルール。"""
+    byte_count = len(minified_utf8_bytes)
+    line_char_count = len(kibo_pkg_line_text_without_newline)
+    if byte_count > KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES:
+        print(
+            f"FAIL: package_too_large minified_utf8_bytes={byte_count} "
+            f"limit={KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES}",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+    if line_char_count > KIBO_FIRMWARE_MAX_SERIAL_LINE_CHARACTERS:
+        print(
+            f"FAIL: serial_line_too_long kibo_pkg_line_characters={line_char_count} "
+            f"limit={KIBO_FIRMWARE_MAX_SERIAL_LINE_CHARACTERS}",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+    warn_threshold_bytes = int(KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES * KIBO_FIRMWARE_PACKAGE_PREFLIGHT_WARN_FRACTION_OF_DECODE_LIMIT)
+    if byte_count >= warn_threshold_bytes:
+        percent = int(KIBO_FIRMWARE_PACKAGE_PREFLIGHT_WARN_FRACTION_OF_DECODE_LIMIT * 100)
+        print(
+            f"WARN: minified_utf8_bytes={byte_count} is at or above {percent}% "
+            f"of decode limit (threshold {warn_threshold_bytes}). See docs/bytecode-transfer-design.md."
+        )
+    print(
+        "PREFLIGHT: "
+        f"ok minified_utf8_bytes={byte_count}/{KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES} "
+        f"kibo_pkg_line_chars={line_char_count}/{KIBO_FIRMWARE_MAX_SERIAL_LINE_CHARACTERS}"
+    )
+
+
 def resolve_node_and_tsx_invocation_or_exit(*, repository_root: Path) -> list[str]:
     tsx_cli = repository_root / "node_modules" / "tsx" / "dist" / "cli.mjs"
     if not tsx_cli.is_file():
@@ -450,6 +488,8 @@ def build_pico_runtime_package_using_tsx_cli_or_exit(
     runtime_ir_contract_json_path: Path,
     output_package_json_path: Path,
     trace_var_names_comma_separated: str | None,
+    live_tick_interval_milliseconds: int | None = None,
+    replay_preset_id: str | None = None,
 ) -> None:
     base = resolve_node_and_tsx_invocation_or_exit(repository_root=repository_root)
     cli_script = repository_root / "scripts" / "pico" / "runtime_vertical_slice" / "tools" / "build_pico_runtime_package_cli.ts"
@@ -463,6 +503,10 @@ def build_pico_runtime_package_using_tsx_cli_or_exit(
     ]
     if trace_var_names_comma_separated is not None:
         command.extend(["--trace-var", trace_var_names_comma_separated])
+    if live_tick_interval_milliseconds is not None:
+        command.extend(["--tick-ms", str(int(live_tick_interval_milliseconds))])
+    if replay_preset_id is not None:
+        command.extend(["--replay-preset", replay_preset_id])
     completed = subprocess.run(command, check=False, cwd=str(repository_root))
     if completed.returncode != 0:
         raise SystemExit(completed.returncode)
@@ -474,6 +518,8 @@ def build_pico_runtime_package_from_source_using_tsx_cli_or_exit(
     source_script_path: Path,
     output_package_json_path: Path,
     trace_var_names_comma_separated: str | None,
+    live_tick_interval_milliseconds: int | None = None,
+    replay_preset_id: str | None = None,
 ) -> None:
     base = resolve_node_and_tsx_invocation_or_exit(repository_root=repository_root)
     cli_script = repository_root / "scripts" / "pico" / "runtime_vertical_slice" / "tools" / "build_pico_runtime_package_from_script_cli.ts"
@@ -487,6 +533,10 @@ def build_pico_runtime_package_from_source_using_tsx_cli_or_exit(
     ]
     if trace_var_names_comma_separated is not None:
         command.extend(["--trace-var", trace_var_names_comma_separated])
+    if live_tick_interval_milliseconds is not None:
+        command.extend(["--tick-ms", str(int(live_tick_interval_milliseconds))])
+    if replay_preset_id is not None:
+        command.extend(["--replay-preset", replay_preset_id])
     completed = subprocess.run(command, check=False, cwd=str(repository_root))
     if completed.returncode != 0:
         raise SystemExit(completed.returncode)

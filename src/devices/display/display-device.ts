@@ -4,6 +4,7 @@ import type { ScriptValue } from "../../core/value";
 import { stringValue } from "../../core/value";
 import { DisplayBuffer128x64 } from "./display-buffer";
 import { DISPLAY_HEIGHT_PIXELS, DISPLAY_WIDTH_PIXELS } from "./display-constants";
+import { drawGlcdFontTextAsciiOnDisplayBuffer } from "./draw-glcdfont-text-on-display-buffer";
 
 /**
  * Virtual display#N: 128×64 1-bit buffer; `present` copies draft to visible frame.
@@ -59,6 +60,15 @@ pages: ${meta.pages} (page height ${meta.pageHeight}px)`;
         effect.centerY,
         effect.radius,
       );
+      return;
+    }
+    if (effect.kind === "display.text" && isSameAddress(effect.address, this.address)) {
+      drawGlcdFontTextAsciiOnDisplayBuffer({
+        buffer: this.draftBuffer,
+        originX: effect.x,
+        originY: effect.y,
+        asciiText: effect.text,
+      });
       return;
     }
     if (effect.kind === "display.present" && isSameAddress(effect.address, this.address)) {

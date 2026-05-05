@@ -90,6 +90,20 @@ class PicoLinkCommonPureHelpersTest(unittest.TestCase):
         self.assertGreater(len(oversized_utf8_bytes), common.KIBO_FIRMWARE_MAX_DECODED_PACKAGE_BYTES)
         self.assertGreater(line_character_count, common.KIBO_FIRMWARE_MAX_SERIAL_LINE_CHARACTERS)
 
+    def test_preflight_ok_for_blink_led_golden_minified(self) -> None:
+        repository_root = Path(__file__).resolve().parents[4]
+        path = common.resolve_default_blink_led_golden_pico_runtime_package_json_path_or_raise(repository_root=repository_root)
+        obj = json.loads(path.read_text(encoding="utf-8"))
+        minified = json.dumps(obj, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        line = common.build_kibo_pkg_serial_line_from_utf8_json_bytes(minified)
+        try:
+            common.evaluate_pico_package_payload_preflight_or_raise(
+                minified_utf8_bytes=minified,
+                kibo_pkg_line_text_without_newline=line.rstrip("\n"),
+            )
+        except SystemExit as exc:  # pragma: no cover - failure path
+            self.fail(f"unexpected SystemExit from preflight: {exc.code}")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,78 @@
+{
+  "runtimeIrContractSchemaVersion": 1,
+  "compiledProgram": {
+    "animatorDefinitions": [],
+    "constInitializers": [],
+    "deviceAliases": [
+      {
+        "deviceAddress": {
+          "id": 0,
+          "kind": "led"
+        },
+        "refName": "status_led"
+      }
+    ],
+    "everyTasks": [
+      {
+        "intervalMilliseconds": 100,
+        "statements": [
+          {
+            "kind": "assign_temp",
+            "tempName": "v",
+            "valueExpression": {
+              "deviceAddress": {
+                "id": 0,
+                "kind": "adc"
+              },
+              "kind": "read_property",
+              "propertyName": "raw"
+            }
+          },
+          {
+            "conditionExpression": {
+              "kind": "comparison",
+              "left": {
+                "kind": "temp_reference",
+                "tempName": "v"
+              },
+              "operator": ">",
+              "right": {
+                "kind": "integer_literal",
+                "value": 400
+              }
+            },
+            "elseBranchStatements": [
+              {
+                "arguments": [],
+                "deviceAddress": {
+                  "id": 0,
+                  "kind": "led"
+                },
+                "kind": "do_method_call",
+                "methodName": "off"
+              }
+            ],
+            "kind": "if_comparison",
+            "thenBranchStatements": [
+              {
+                "arguments": [],
+                "deviceAddress": {
+                  "id": 0,
+                  "kind": "led"
+                },
+                "kind": "do_method_call",
+                "methodName": "on"
+              }
+            ]
+          }
+        ],
+        "taskName": "tick"
+      }
+    ],
+    "loopTasks": [],
+    "onEventTasks": [],
+    "stateMachines": [],
+    "varInitializers": [],
+    "varWriterAssignments": []
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "runtimeIrContractSchemaVersion": 1,
+  "compiledProgram": {
+    "animatorDefinitions": [],
+    "constInitializers": [],
+    "deviceAliases": [
+      {
+        "deviceAddress": {
+          "id": 0,
+          "kind": "led"
+        },
+        "refName": "status_led"
+      }
+    ],
+    "everyTasks": [
+      {
+        "intervalMilliseconds": 100,
+        "statements": [
+          {
+            "arguments": [
+              {
+                "kind": "integer_literal",
+                "value": 50
+              }
+            ],
+            "deviceAddress": {
+              "id": 0,
+              "kind": "pwm"
+            },
+            "kind": "do_method_call",
+            "methodName": "level"
+          },
+          {
+            "arguments": [],
+            "deviceAddress": {
+              "id": 0,
+              "kind": "led"
+            },
+            "kind": "do_method_call",
+            "methodName": "toggle"
+          }
+        ],
+        "taskName": "tick"
+      }
+    ],
+    "loopTasks": [],
+    "onEventTasks": [],
+    "stateMachines": [],
+    "varInitializers": [],
+    "varWriterAssignments": []
+  }
+}

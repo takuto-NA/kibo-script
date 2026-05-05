@@ -1,0 +1,84 @@
+{
+  "replaySchemaVersion": 1,
+  "runtimeIrContract": {
+    "compiledProgram": {
+      "animatorDefinitions": [],
+      "constInitializers": [],
+      "deviceAliases": [
+        {
+          "deviceAddress": {
+            "id": 0,
+            "kind": "serial"
+          },
+          "refName": "port"
+        },
+        {
+          "deviceAddress": {
+            "id": 0,
+            "kind": "led"
+          },
+          "refName": "status_led"
+        }
+      ],
+      "everyTasks": [
+        {
+          "intervalMilliseconds": 100,
+          "statements": [
+            {
+              "arguments": [
+                {
+                  "kind": "string_literal",
+                  "value": "x"
+                }
+              ],
+              "deviceAddress": {
+                "id": 0,
+                "kind": "serial"
+              },
+              "kind": "do_method_call",
+              "methodName": "println"
+            },
+            {
+              "arguments": [],
+              "deviceAddress": {
+                "id": 0,
+                "kind": "led"
+              },
+              "kind": "do_method_call",
+              "methodName": "toggle"
+            }
+          ],
+          "taskName": "tick"
+        }
+      ],
+      "loopTasks": [],
+      "onEventTasks": [],
+      "stateMachines": [],
+      "varInitializers": [],
+      "varWriterAssignments": []
+    },
+    "runtimeIrContractSchemaVersion": 1
+  },
+  "steps": [
+    {
+      "kind": "collect_trace"
+    },
+    {
+      "elapsedMilliseconds": 100,
+      "kind": "tick_ms"
+    },
+    {
+      "kind": "collect_trace"
+    },
+    {
+      "elapsedMilliseconds": 100,
+      "kind": "tick_ms"
+    },
+    {
+      "kind": "collect_trace"
+    }
+  ],
+  "traceObservation": {
+    "scriptVarNamesToIncludeInTrace": []
+  }
+}

@@ -61,6 +61,17 @@ def parse_arguments_or_exit(argv: list[str]) -> argparse.Namespace:
         help="Comma-separated script var names for trace observation (passed to package build CLI).",
     )
     parser.add_argument(
+        "--tick-ms",
+        type=int,
+        default=None,
+        help="Override live tick / replay tick interval when building from --source-script or --runtime-ir (passed to package CLI).",
+    )
+    parser.add_argument(
+        "--replay-preset",
+        default=None,
+        help="Replay preset when building from source/runtime IR: infer|basic-3-trace|button-toggle-2-press|sample-manifest.",
+    )
+    parser.add_argument(
         "--capture-seconds",
         type=float,
         default=8.0,
@@ -134,6 +145,8 @@ def resolve_package_path_and_generated_flag_or_exit(*, arguments: argparse.Names
             runtime_ir_contract_json_path=arguments.runtime_ir.resolve(),
             output_package_json_path=temporary_path,
             trace_var_names_comma_separated=arguments.trace_var,
+            live_tick_interval_milliseconds=arguments.tick_ms,
+            replay_preset_id=arguments.replay_preset,
         )
     else:
         common.build_pico_runtime_package_from_source_using_tsx_cli_or_exit(
@@ -141,6 +154,8 @@ def resolve_package_path_and_generated_flag_or_exit(*, arguments: argparse.Names
             source_script_path=arguments.source_script.resolve(),
             output_package_json_path=temporary_path,
             trace_var_names_comma_separated=arguments.trace_var,
+            live_tick_interval_milliseconds=arguments.tick_ms,
+            replay_preset_id=arguments.replay_preset,
         )
     return temporary_path, True
 

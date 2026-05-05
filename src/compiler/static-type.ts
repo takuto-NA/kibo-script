@@ -21,6 +21,7 @@ export const DEVICE_METHOD_SIGNATURES: Record<
     line: { minimumParameterCount: 4, maximumParameterCount: 4 },
     pixel: { minimumParameterCount: 2, maximumParameterCount: 2 },
     present: { minimumParameterCount: 0, maximumParameterCount: 0 },
+    text: { minimumParameterCount: 3, maximumParameterCount: 3 },
   },
   imu: {},
   led: {

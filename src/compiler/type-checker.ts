@@ -736,7 +736,9 @@ function collectMethodCallTypeDiagnostics(params: {
           ? [0, 1]
           : statement.methodName === "line"
             ? [0, 1, 2, 3]
-            : [];
+            : statement.methodName === "text"
+              ? [0, 1]
+              : [];
 
     for (const parameterIndex of expectsIntegerParameterIndexes) {
       const argumentExpression = statement.arguments[parameterIndex];
@@ -759,6 +761,29 @@ function collectMethodCallTypeDiagnostics(params: {
           }),
         );
         return;
+      }
+    }
+
+    if (statement.methodName === "text") {
+      const thirdArgument = statement.arguments[2];
+      if (thirdArgument === undefined) {
+        return;
+      }
+      const thirdKind = inferBoundExpressionValueKind(
+        thirdArgument,
+        params.stateValueKinds,
+        params.tempValueKinds,
+        params.boundProgram,
+      );
+      if (thirdKind !== "string") {
+        params.diagnostics.push(
+          buildTypeArgumentTypeMismatch({
+            message: "Argument 3 of display.text must be a string expression.",
+            range: convertAstRangeToSourceRange(statement.range),
+            expected: { kind: "string", value: "string" },
+            actual: { kind: "string", value: thirdKind ?? "unknown" },
+          }),
+        );
       }
     }
     return;

@@ -1,7 +1,7 @@
 # pyright: reportMissingImports=false
 """
 Responsibility: verify that a USB-connected Raspberry Pi Pico running the vertical slice
-firmware emits the expected boot banner and conformance trace sequence (hardware baseline).
+firmware emits the expected conformance trace sequence (hardware baseline).
 
 Guard: this script requires pyserial on the host. It is not part of the default npm test suite.
 
@@ -47,6 +47,11 @@ def parse_arguments_or_exit(argv: list[str]) -> argparse.Namespace:
         required=True,
         help="Path to golden trace text file (e.g. circle-animation.conformance.trace.txt).",
     )
+    parser.add_argument(
+        "--require-boot-banner",
+        action="store_true",
+        help="Also require the boot banner in the capture window. Use only immediately after firmware reset.",
+    )
     return parser.parse_args(argv)
 
 
@@ -86,12 +91,15 @@ def main() -> None:
         capture_seconds=arguments.capture_seconds,
     )
 
-    if not any(common.line_contains_vertical_slice_boot_banner(line) for line in captured_lines):
+    captured_boot_banner = any(common.line_contains_vertical_slice_boot_banner(line) for line in captured_lines)
+    if arguments.require_boot_banner and not captured_boot_banner:
         print("FAIL: did not find kibo_pico_vertical_slice_boot in captured serial output.", file=sys.stderr)
         print("--- captured (first 40 lines) ---", file=sys.stderr)
         for line in captured_lines[:40]:
             print(line, file=sys.stderr)
         raise SystemExit(1)
+    if not captured_boot_banner:
+        print("NOTE: boot banner was not captured; Pico may already be running. Continuing with trace baseline.")
 
     actual_trace_lines = common.extract_trace_lines_from_serial_lines(captured_lines)
     if not common.contains_expected_trace_sequence(actual_trace_lines=actual_trace_lines, expected_trace_lines=expected_trace_lines):
@@ -102,7 +110,7 @@ def main() -> None:
         print("\n".join(actual_trace_lines), file=sys.stderr)
         raise SystemExit(1)
 
-    print("OK: baseline boot banner and trace sequence verified.")
+    print("OK: baseline trace sequence verified.")
 
 
 if __name__ == "__main__":

@@ -15,7 +15,8 @@
     "typecheck": "tsc --noEmit",
     "build-pico-runtime-package": "tsx scripts/pico/runtime_vertical_slice/tools/build_pico_runtime_package_cli.ts",
     "build-pico-runtime-package-from-script": "tsx scripts/pico/runtime_vertical_slice/tools/build_pico_runtime_package_from_script_cli.ts",
-    "print-expected-conformance-trace-from-pico-package": "tsx scripts/pico/runtime_vertical_slice/tools/print_expected_conformance_trace_lines_from_pico_runtime_package_cli.ts"
+    "print-expected-conformance-trace-from-pico-package": "tsx scripts/pico/runtime_vertical_slice/tools/print_expected_conformance_trace_lines_from_pico_runtime_package_cli.ts",
+    "generate:glcdfont": "node scripts/generate-kibo-glcdfont-hpp.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",

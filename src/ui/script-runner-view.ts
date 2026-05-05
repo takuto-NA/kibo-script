@@ -10,6 +10,8 @@ import {
   extractReplayInputsFromPicoRuntimePackageUnknownJsonOrThrow,
   inferLiveTickIntervalMillisecondsFromCompiledProgram,
 } from "../runtime-conformance/build-pico-runtime-package-from-runtime-ir-contract";
+import { assessKiboPicoRuntimePackageJsonTextPreflightOrThrow } from "../runtime-conformance/kibo-pico-package-preflight";
+import { build_kibo_pkg_schema1_serial_line_text_without_newline_from_minified_utf8_bytes } from "../runtime-conformance/kibo-kibo-pkg-wire-encoding";
 import { executeRuntimeConformanceReplayStepsAndCollectTraceLines } from "../runtime-conformance/execute-runtime-conformance-replay-steps-and-collect-trace-lines";
 import { serializeCompiledProgramToRuntimeIrContractJsonText } from "../runtime-conformance/serialize-compiled-program-to-runtime-ir-contract-json-text";
 import { create_script_runner_help_section } from "./script-runner-help-section";
@@ -22,19 +24,10 @@ const KIBO_USB_SERIAL_BAUD_RATE = 115200;
 const KIBO_SERIAL_PING_COMMAND_TEXT = "KIBO_PING";
 const KIBO_LOADER_STATUS_OK_PREFIX = "kibo_loader status=ok";
 const KIBO_PACKAGE_ACK_OK_TEXT = "kibo_pkg_ack status=ok";
-const KIBO_PACKAGE_LINE_SCHEMA_VERSION = 1;
 const KIBO_LOADER_PROTOCOL_VERSION = 1;
 const SERIAL_PING_TIMEOUT_MILLISECONDS = 2500;
 const SERIAL_ACK_TIMEOUT_MILLISECONDS = 5000;
 const SERIAL_TRACE_VERIFY_TIMEOUT_MILLISECONDS = 8000;
-const CRC32_POLYNOMIAL = 0xedb88320;
-const CRC32_INITIAL_VALUE = 0xffffffff;
-const BYTE_VALUE_MASK = 0xff;
-const CRC32_FINAL_XOR_VALUE = 0xffffffff;
-const CRC32_BITS_PER_BYTE = 8;
-const HEX_RADIX = 16;
-const CRC32_HEX_DIGIT_COUNT = 8;
-const BASE64_BINARY_CHUNK_SIZE_BYTES = 0x8000;
 const SERIAL_STATUS_PREVIEW_LINE_COUNT = 12;
 const INSTALL_PICO_LOADER_SCRIPT_RELATIVE_PATH = "scripts/pico/runtime_vertical_slice/tools/install_pico_loader.py";
 const PICO_LINK_DOCTOR_SCRIPT_RELATIVE_PATH = "scripts/pico/runtime_vertical_slice/tools/pico_link_doctor.py";
@@ -107,7 +100,8 @@ function build_pico_link_check_command_hint_text(params: {
   const trace_var_flag =
     params.trace_var_names_text.trim().length > 0 ? ` --trace-var ${params.trace_var_names_text.trim()}` : "";
   return (
-    `Pico one-shot (host, from repo root): python scripts/pico/runtime_vertical_slice/tools/pico_link_check.py --port auto --repo-root . --runtime-ir ${DEFAULT_RUNTIME_IR_DOWNLOAD_FILE_NAME}\n` +
+    `Pico one-shot (host, from downloaded runtime IR JSON): python scripts/pico/runtime_vertical_slice/tools/pico_link_check.py --port auto --repo-root . --runtime-ir ${DEFAULT_RUNTIME_IR_DOWNLOAD_FILE_NAME}\n` +
+    `Pico one-shot (host, from .sc): python scripts/pico/runtime_vertical_slice/tools/pico_link_check.py --port auto --repo-root . --source-script <path>${trace_var_flag} [--tick-ms 100] [--replay-preset infer]\n` +
     `Pico one-shot (host, after downloading package file): python scripts/pico/runtime_vertical_slice/tools/pico_link_check.py --port auto --repo-root . --package-file ${params.pico_runtime_package_download_file_name}${trace_var_flag}\n` +
     `Preflight only: python ${PICO_LINK_DOCTOR_SCRIPT_RELATIVE_PATH} --port auto`
   );
@@ -172,45 +166,9 @@ function resolve_browser_serial_api_or_undefined(): KiboSerialApi | undefined {
   return (navigator as NavigatorWithKiboSerial).serial;
 }
 
-function build_crc32_table(): readonly number[] {
-  const table: number[] = [];
-  for (let byte = 0; byte <= BYTE_VALUE_MASK; byte += 1) {
-    let crc = byte;
-    for (let bit_index = 0; bit_index < CRC32_BITS_PER_BYTE; bit_index += 1) {
-      const least_significant_bit_is_set = (crc & 1) === 1;
-      crc = least_significant_bit_is_set ? (crc >>> 1) ^ CRC32_POLYNOMIAL : crc >>> 1;
-    }
-    table.push(crc >>> 0);
-  }
-  return table;
-}
-
-const CRC32_TABLE = build_crc32_table();
-
-function compute_crc32_lower_hex8(bytes: Uint8Array): string {
-  let crc = CRC32_INITIAL_VALUE;
-  for (const byte of bytes) {
-    const table_index = (crc ^ byte) & BYTE_VALUE_MASK;
-    crc = (crc >>> 8) ^ (CRC32_TABLE[table_index] ?? 0);
-  }
-  const final_crc = (crc ^ CRC32_FINAL_XOR_VALUE) >>> 0;
-  return final_crc.toString(HEX_RADIX).padStart(CRC32_HEX_DIGIT_COUNT, "0");
-}
-
-function encode_utf8_bytes_to_base64(bytes: Uint8Array): string {
-  let binary_text = "";
-  for (let offset = 0; offset < bytes.length; offset += BASE64_BINARY_CHUNK_SIZE_BYTES) {
-    const chunk = bytes.subarray(offset, offset + BASE64_BINARY_CHUNK_SIZE_BYTES);
-    binary_text += String.fromCharCode(...chunk);
-  }
-  return btoa(binary_text);
-}
-
 function build_kibo_package_serial_line(package_text: string): string {
   const package_bytes = new TextEncoder().encode(package_text);
-  const crc32_text = compute_crc32_lower_hex8(package_bytes);
-  const base64_payload_text = encode_utf8_bytes_to_base64(package_bytes);
-  return `KIBO_PKG schema=${KIBO_PACKAGE_LINE_SCHEMA_VERSION} bytes=${package_bytes.length} crc32=${crc32_text} b64=${base64_payload_text}\n`;
+  return `${build_kibo_pkg_schema1_serial_line_text_without_newline_from_minified_utf8_bytes(package_bytes)}\n`;
 }
 
 function split_non_empty_lines_from_serial_text(text: string): readonly string[] {
@@ -519,6 +477,19 @@ export function createScriptRunnerPanel(params: {
       return;
     }
 
+    const preflight = assessKiboPicoRuntimePackageJsonTextPreflightOrThrow({
+      canonicalPicoRuntimePackageJsonText: package_text,
+    });
+    if (preflight.severity === "reject") {
+      resultPre.textContent = [
+        "FAIL: Pico package preflight rejected this build (firmware JSON / line limits).",
+        ...preflight.messages,
+        "",
+        "Hints: shrink the script, split packages, or plan bytecode (docs/bytecode-transfer-design.md).",
+      ].join("\n");
+      return;
+    }
+
     const live_tick_interval_milliseconds = inferLiveTickIntervalMillisecondsFromCompiledProgram(
       last_successful_reset_compiled_program,
     );
@@ -543,6 +514,7 @@ export function createScriptRunnerPanel(params: {
     resultPre.textContent = [
       `ok: downloaded ${DEFAULT_PICO_RUNTIME_PACKAGE_DOWNLOAD_FILE_NAME}`,
       `Inferred live.tickIntervalMilliseconds=${live_tick_interval_milliseconds} (first every interval: ${first_every_interval_milliseconds})`,
+      ...preflight.messages.map((line) => `PREFLIGHT: ${line}`),
       "",
       pico_link_hint,
     ].join("\n");
@@ -563,10 +535,21 @@ export function createScriptRunnerPanel(params: {
   ): string | undefined {
     const trace_var_names_override = split_comma_separated_trace_var_names_or_undefined(traceVarInput.value);
     try {
-      return buildPicoRuntimePackageCanonicalJsonTextFromCompiledProgramWithInferenceOrThrow({
+      const package_text = buildPicoRuntimePackageCanonicalJsonTextFromCompiledProgramWithInferenceOrThrow({
         compiledProgram: compiled_program,
         scriptVarNamesToIncludeInTraceOverride: trace_var_names_override,
       });
+      const preflight = assessKiboPicoRuntimePackageJsonTextPreflightOrThrow({
+        canonicalPicoRuntimePackageJsonText: package_text,
+      });
+      if (preflight.severity === "reject") {
+        resultPre.textContent = [
+          "FAIL: Pico package preflight rejected this build (firmware JSON / line limits).",
+          ...preflight.messages,
+        ].join("\n");
+        return undefined;
+      }
+      return package_text;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       resultPre.textContent = `FAIL: could not build PicoRuntimePackage from compiled program: ${message}`;

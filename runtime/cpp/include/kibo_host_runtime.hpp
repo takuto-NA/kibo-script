@@ -133,6 +133,7 @@ private:
   void apply_display_clear();
   void apply_display_circle(int center_x, int center_y, int radius);
   void apply_display_present();
+  void apply_display_text(int origin_x, int origin_y, const std::string& utf8_text);
 };
 
 }  // namespace kibo::runtime

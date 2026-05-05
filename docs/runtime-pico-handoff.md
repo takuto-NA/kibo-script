@@ -57,11 +57,13 @@ Burn-down 計画の分割ドキュメント（**plan ファイル本体は編集
 
 | 分類 | 内容 |
 | --- | --- |
-| `supported` | `runtimeIrContractSchemaVersion == 1` の root / `compiledProgram` object、`varInitializers` / `constInitializers`、`everyTasks` / `onEventTasks`（`triggerKind == device_event` のみ）、statement: `do_method_call`（`led#0` toggle/on/off、`display#0` clear/circle/present）、`assign_var`、`assign_temp`、expression: `integer_literal`、`var_reference`、`const_reference`、`temp_reference`、`binary_add/sub/mul/div`、`unary_minus`、`dt_interval_ms`（`every` 文脈のみ） |
-| `partial` | `every` タスク本体の `wait_milliseconds`（`drain_every_task_body` のみ resume 管理）。`on_event` 同期実行パスでは `wait` を同様に扱う **MVP 外**（要 probe） |
-| `unsupported`（明示的に throw） | `stateMembershipPath` 付き task、`onEvent` の `triggerKind != device_event`、上記以外の statement / expression / `do_method_call` 先、`if` / `match` / `loop` など |
+| `supported` | `runtimeIrContractSchemaVersion == 1` の root / `compiledProgram` object、`varInitializers` / `constInitializers`、`everyTasks` / `onEventTasks`（`triggerKind == device_event` のみ）、`loopTasks`（有限ループ・budget 付き IR）、statement: `do_method_call`（`led#0` toggle/on/off、`display#0` clear/circle/present/**text(x,y,msg)**、`serial#0.println` は **trace に影響しない no-op**、`pwm#0.level` / `motor#0.power` / `servo#0.angle` も同様に no-op）、`assign_var`（int/string）/`assign_temp`、`wait_milliseconds`（`every` / `loop` 本体中心）、`if_comparison`（int/string 比較）、`match_string`、expression: `integer_literal` / `string_literal` / `var_reference` / `const_reference` / `temp_reference` / `read_property`（**`adc#0.raw` のみ**。既定値 **512** は TypeScript `AdcDevice` と一致）、算術、`comparison`、`dt_interval_ms`（`every` 文脈のみ） |
+| `partial` | `on_event` 同期実行パスでの `wait_milliseconds` の扱いは **MVP 外**（要 probe）。 |
+| `unsupported`（明示的に throw） | `stateMembershipPath` 付き task、`onEvent` の `triggerKind != device_event`、上記以外の statement / expression / `do_method_call` / `read_property`、`stateMachines`、`animatorDefinitions` など |
 
 `unknown` は **コンパイラが新フィールドを出した場合**にホストが黙殺しないよう、テストで検知する（現状は throw 方針）。
+
+**Pico 実装バックログで最初に揃える semantics slice（実機 trace）**: `semantics-wait-skew`（`wait_milliseconds` + `every` の時刻モデル）。host / TS golden は既に整合済み。実機ゲートは `run_pico_semantics_probes.py` を参照。
 
 ### 4) 再現コマンド（コピペ用）
 
@@ -69,10 +71,12 @@ Burn-down 計画の分割ドキュメント（**plan ファイル本体は編集
 | --- | --- | --- |
 | 単体・golden | 不要 | `npm test` |
 | E2E（ブラウザ） | 不要（既定） | `npm run test:e2e` |
+| C++ host replay 比較 | 不要 | `npm run build:host-runtime` 後、`KIBO_RUNTIME_REPLAY_EXECUTABLE_PATH=<kibo_runtime_replay のパス> npm test`（バイナリ無しでは skip） |
 | Pico ビルド | 不要（ツールチェーンのみ） | `.pico-work/venv` の `pio.exe run`（手順は [`runtime/pico/vertical_slice/README.md`](../runtime/pico/vertical_slice/README.md)） |
-| 1 本 upload + trace 照合 | 要 | `python scripts/pico/runtime_vertical_slice/tools/pico_link_check.py --port auto --repo-root . --package-file <path>` または `--runtime-ir <path>` |
+| 1 本 upload + trace 照合 | 要 | `python .../pico_link_check.py --port auto --repo-root . --package-file <path>` / `--runtime-ir <path>` / `--source-script <path>`（いずれも `[--trace-var ...] [--tick-ms N] [--replay-preset infer]` 可） |
 | 5 サンプル連続 | 要 | `python scripts/pico/runtime_vertical_slice/tools/run_pico_runtime_samples.py --port auto --repo-root . --capture-seconds 8` |
-| MVP 一括 acceptance | 要 | `python scripts/pico/runtime_vertical_slice/tools/run_mvp_hardware_acceptance.py --port auto --repo-root .` |
+| 一括 acceptance（profile） | 要 | `python .../run_mvp_hardware_acceptance.py --port auto --repo-root . --profile mvp`（`baseline` / `negative` / `samples` / `semantics` / `all`） |
+| semantics probes のみ | 要 | `python .../run_pico_semantics_probes.py --port auto --repo-root .` |
 | loader 診断 | 要 | `python scripts/pico/runtime_vertical_slice/tools/pico_link_doctor.py --port auto` |
 | negative（`KIBO_PKG`） | 要 | 詳細は [`docs/pico-loader-protocol-gates.md`](pico-loader-protocol-gates.md)。例: `send_invalid_kibo_pkg_length.py` / `send_invalid_kibo_pkg_crc.py` / `send_oversized_kibo_pkg.py` / `send_invalid_kibo_pkg_frame.py`（すべて `--port auto` 可） |
 
@@ -125,14 +129,15 @@ Burn-down 計画の分割ドキュメント（**plan ファイル本体は編集
   - **`pico_link_check.py`**（package または runtime IR → upload → trace 照合。実機要）
   - **`check_pico_baseline.py`**（実機 baseline）
   - **`upload_pico_runtime_package.py`**（preflight `KIBO_PING` + `KIBO_PKG` frame 送信 + ack）
-  - **`run_mvp_hardware_acceptance.py`**（baseline + negative + 3 package + trace 比較の一括・実機要）
+  - **`run_mvp_hardware_acceptance.py`**（`--profile mvp|baseline|negative|samples|semantics|all` + stdout summary）
+  - **`run_pico_semantics_probes.py`**（semantics probe を `pico_link_check` で連続実行）
   - **`send_invalid_kibo_pkg_length.py`** / **`send_invalid_kibo_pkg_crc.py`** / **`send_oversized_kibo_pkg.py`** / **`send_invalid_kibo_pkg_frame.py`**（negative gate + 既定で復旧 upload）
   - **`test_pico_link_common.py`**（純関数ユニット。`npm test` から `unittest discover` で実行）
 - `runtime/cpp/`
   - C++17 host runtime MVP
   - `every` task / `on button#0.pressed` event の最小 replay
   - 整数式、`var` 初期化、`set`
-  - `led#0` と `display#0.clear/circle/present`
+  - `led#0` と `display#0.clear/circle/present/text`（Adafruit GLCD 5×7 互換、`runtime/shared/kibo-glcdfont-5x7-bytes.json`）
   - `kibo_runtime_replay` CLI
   - **`kibo_crc32.hpp` / `kibo_base64_decode.hpp`（Pico 受信検証用）**
 - `runtime/pico/vertical_slice/`
@@ -201,20 +206,16 @@ $pio = Join-Path $picoVenvPath 'Scripts\pio.exe'
 
 ## まだできないこと
 
-- Pico flash への package 永続保存、OTA、暗号署名
-- Pico 側の bytecode / compact binary loader（設計は `docs/bytecode-transfer-design.md`）
+- Pico flash への package 永続保存、OTA、暗号署名（着手手順: [`docs/pico-flash-persistence-implementation-notes.md`](pico-flash-persistence-implementation-notes.md)）
+- Pico 側の bytecode / compact binary loader（設計は `docs/bytecode-transfer-design.md`。TS spike: `src/bytecode/kibo-bytecode-spike.ts`）
 - USB Serial 以外の転送経路（Wi-Fi 等）
-- C++ runtime の full semantics
-  - `loop`
-  - `wait_milliseconds` の **一般**対応（現状は **`every` タスク本体**に限定。`on_event` 同期実行パスは未整理）
-  - `if`
-  - `match`
-  - state machine
-  - animator
-  - single-writer / ownership
-  - display text
-  - serial input
-  - motor / servo / IMU など
+- C++ / Pico runtime の **未対応領域**
+  - `stateMachines` / `animatorDefinitions` / `stateMembershipPath` 付きタスク（現状は拒否。TS golden のみ存在する probe は C++ compare で skip）
+  - `read_property` の **`adc#0.raw` 以外**（IMU 等）
+  - `on_event` 同期実行パスでの `wait_milliseconds` の整理（`partial`）
+  - **実デバイスへの** PWM / motor / servo / serial の配線出力（IR は受理するが **no-op**、事故防止のため）
+  - display text の **UTF-8 多バイト**（C++ / TS 描画は ASCII MVP）
+  - single-writer / ownership モデルの完全実装
 
 ## 次にやるべき順序
 
@@ -222,22 +223,21 @@ Simulator to Pico の **MVP（runtime IR export + `PicoRuntimePackage` + `KIBO_P
 
 以降は主に次の拡張である。
 
-### 1. C++ host runtime の対応範囲を fixture 単位で広げる
+### 1. C++ host / Pico で semantics + device slice を fixture 単位で広げる
 
 重要度: 高  
 難易度: 中〜高  
 リスク: 中
 
-- 次に増やす候補:
-  - `if_comparison`
-  - `wait_milliseconds`
-  - `loop`
-  - `match_string`
-- 追加するたびに TypeScript trace golden と C++ replay 比較を足す。
+- 次に増やす候補（host 側は多くが TS golden と一致済み）:
+  - 実機ゲート: `semantics-wait-skew` を `run_pico_semantics_probes.py` で最優先
+  - `on_event` + `wait` の整理（`partial` 解消）
+  - state machine / animator（別 gate）
+- 追加するたびに TypeScript trace golden と C++ replay 比較（可能な範囲）を足す。
 
 完了条件:
 
-- 新しい fixture が TypeScript / C++ host の両方で同じ trace を返す。
+- 新しい fixture が TypeScript / C++ host の両方で同じ trace を返す（または **unsupported で明示**）。
 - C++ 側が未対応 IR を黙って無視しない。
 
 ### 2. 任意 script から `PicoRuntimePackage` を生成する（MVP 3 fixture 以外）
@@ -247,7 +247,7 @@ Simulator to Pico の **MVP（runtime IR export + `PicoRuntimePackage` + `KIBO_P
 リスク: 中
 
 - 現状: simulator export の runtime IR から **MVP 推定**（`every` / 先頭 `on_event` / 既定 tick、`circle_x` 既定）で package 化できる（CLI・UI・golden テストあり）。
-- 残り: 一般 script 向けに `replay.steps` / `scriptVarNamesToIncludeInTrace` / tick を **ユーザーが完全制御**できる UI・CLI（preset / 明示編集）へ拡張する。
+- 残り: CLI で `npm run build-pico-runtime-package-from-script -- ... --tick-ms` / `--replay-preset` / `--trace-var`、UI は download / Web Serial 前に **preflight**（`kibo-pico-package-preflight.ts`）で拒否・警告を表示。
 - Pico 未対応 IR のときの診断をユーザー向けに整形する。
 
 ### 3. compact binary / bytecode へ移行する

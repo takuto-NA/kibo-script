@@ -1,0 +1,91 @@
+{
+  "replaySchemaVersion": 1,
+  "runtimeIrContract": {
+    "compiledProgram": {
+      "animatorDefinitions": [],
+      "constInitializers": [],
+      "deviceAliases": [
+        {
+          "deviceAddress": {
+            "id": 0,
+            "kind": "led"
+          },
+          "refName": "status_led"
+        }
+      ],
+      "everyTasks": [
+        {
+          "intervalMilliseconds": 100,
+          "statements": [
+            {
+              "arguments": [
+                {
+                  "kind": "integer_literal",
+                  "value": 10
+                }
+              ],
+              "deviceAddress": {
+                "id": 0,
+                "kind": "motor"
+              },
+              "kind": "do_method_call",
+              "methodName": "power"
+            },
+            {
+              "arguments": [
+                {
+                  "kind": "integer_literal",
+                  "value": 90
+                }
+              ],
+              "deviceAddress": {
+                "id": 0,
+                "kind": "servo"
+              },
+              "kind": "do_method_call",
+              "methodName": "angle"
+            },
+            {
+              "arguments": [],
+              "deviceAddress": {
+                "id": 0,
+                "kind": "led"
+              },
+              "kind": "do_method_call",
+              "methodName": "toggle"
+            }
+          ],
+          "taskName": "tick"
+        }
+      ],
+      "loopTasks": [],
+      "onEventTasks": [],
+      "stateMachines": [],
+      "varInitializers": [],
+      "varWriterAssignments": []
+    },
+    "runtimeIrContractSchemaVersion": 1
+  },
+  "steps": [
+    {
+      "kind": "collect_trace"
+    },
+    {
+      "elapsedMilliseconds": 100,
+      "kind": "tick_ms"
+    },
+    {
+      "kind": "collect_trace"
+    },
+    {
+      "elapsedMilliseconds": 100,
+      "kind": "tick_ms"
+    },
+    {
+      "kind": "collect_trace"
+    }
+  ],
+  "traceObservation": {
+    "scriptVarNamesToIncludeInTrace": []
+  }
+}
