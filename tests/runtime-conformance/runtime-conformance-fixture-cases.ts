@@ -141,6 +141,40 @@ export const RUNTIME_CONFORMANCE_FIXTURE_CASE_DEFINITIONS: readonly RuntimeConfo
     scriptVarNamesToIncludeInTrace: [],
   },
   {
+    fixtureSourceFileName: "semantics-state-membership-on-event-positive.sc",
+    goldenBaseName: "semantics-state-membership-on-event-positive",
+    replaySteps: [
+      { kind: "collect_trace" },
+      { kind: "tick_ms", elapsedMilliseconds: 100 },
+      { kind: "collect_trace" },
+      {
+        kind: "dispatch_device_event",
+        deviceKind: "button",
+        deviceId: 0,
+        eventName: "pressed",
+      },
+      { kind: "collect_trace" },
+      {
+        kind: "dispatch_device_event",
+        deviceKind: "button",
+        deviceId: 0,
+        eventName: "pressed",
+      },
+      { kind: "collect_trace" },
+    ],
+    scriptVarNamesToIncludeInTrace: [],
+  },
+  {
+    fixtureSourceFileName: "semantics-state-enter-lifecycle.sc",
+    goldenBaseName: "semantics-state-enter-lifecycle",
+    replaySteps: [
+      { kind: "collect_trace" },
+      { kind: "tick_ms", elapsedMilliseconds: 100 },
+      { kind: "collect_trace" },
+    ],
+    scriptVarNamesToIncludeInTrace: ["flag"],
+  },
+  {
     fixtureSourceFileName: "device-display-text.sc",
     goldenBaseName: "device-display-text",
     replaySteps: [

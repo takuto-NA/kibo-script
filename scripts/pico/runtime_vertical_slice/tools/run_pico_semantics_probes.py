@@ -43,6 +43,14 @@ def main() -> None:
         ("semantics-wait-skew.sc", "semantics-wait-skew.conformance.trace.txt", "waited_count"),
         ("semantics-loop-budget.sc", "semantics-loop-budget.conformance.trace.txt", ""),
         ("semantics-match-string.sc", "semantics-match-string.conformance.trace.txt", "mode"),
+        ("semantics-state-membership-every.sc", "semantics-state-membership-every.conformance.trace.txt", "ticks_in_on"),
+        ("semantics-state-membership-on-event.sc", "semantics-state-membership-on-event.conformance.trace.txt", ""),
+        (
+            "semantics-state-membership-on-event-positive.sc",
+            "semantics-state-membership-on-event-positive.conformance.trace.txt",
+            "",
+        ),
+        ("semantics-state-enter-lifecycle.sc", "semantics-state-enter-lifecycle.conformance.trace.txt", "flag"),
     ]
 
     for source_name, trace_name, trace_var in probes:

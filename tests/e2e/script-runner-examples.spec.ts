@@ -24,6 +24,7 @@ test("example select lists bundled samples and loads circle-sweep with trace var
   await expect(example_select.locator("option", { hasText: "circle-sweep" })).toHaveCount(1);
   await expect(example_select.locator("option", { hasText: "button-led-toggle" })).toHaveCount(1);
   await expect(example_select.locator("option", { hasText: "sensor-alert-dashboard" })).toHaveCount(1);
+  await expect(example_select.locator("option", { hasText: "state-led-pulse" })).toHaveCount(1);
 
   await example_select.selectOption("circle-sweep");
 

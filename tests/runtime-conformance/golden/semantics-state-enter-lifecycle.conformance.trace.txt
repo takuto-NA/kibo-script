@@ -1,0 +1,2 @@
+trace schema=1 sim_ms=0 led0=0 btn0=0 dpy_fp=b9d103fd6854a325 vars=flag=0 sm=sm=sm.A
+trace schema=1 sim_ms=100 led0=0 btn0=0 dpy_fp=b9d103fd6854a325 vars=flag=1 sm=sm=sm.B

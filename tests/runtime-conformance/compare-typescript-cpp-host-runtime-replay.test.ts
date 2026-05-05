@@ -12,11 +12,6 @@ const goldenDirectory = join(testsRuntimeConformanceDirectory, "golden");
 const replayInputsDirectory = join(testsRuntimeConformanceDirectory, "replay-inputs");
 const repositoryRootDirectory = join(testsRuntimeConformanceDirectory, "..", "..");
 
-const CppHostRuntimeUnsupportedGoldenBaseNames = new Set<string>([
-  "semantics-state-membership-every",
-  "semantics-state-membership-on-event",
-]);
-
 function resolve_host_runtime_replay_executable_path_or_undefined(): string | undefined {
   const explicit_executable_path = process.env.KIBO_RUNTIME_REPLAY_EXECUTABLE_PATH;
   if (explicit_executable_path !== undefined && explicit_executable_path.trim().length > 0) {
@@ -62,13 +57,6 @@ const host_runtime_replay_executable_path = resolve_host_runtime_replay_executab
 
 describe("TypeScript golden traces vs C++ host runtime replay", () => {
   for (const fixture_case of RUNTIME_CONFORMANCE_FIXTURE_CASE_DEFINITIONS) {
-    if (CppHostRuntimeUnsupportedGoldenBaseNames.has(fixture_case.goldenBaseName)) {
-      it.skip(`${fixture_case.goldenBaseName}.replay.json: C++ host runtime does not support state machines yet`, () => {
-        // Guard: state machine IR は C++ host runtime が未対応のため、比較しない。
-      });
-      continue;
-    }
-
     it.skipIf(host_runtime_replay_executable_path === undefined)(
       `${fixture_case.goldenBaseName}.replay.json stdout matches golden trace`,
       () => {

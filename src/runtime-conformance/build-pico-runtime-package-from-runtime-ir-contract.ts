@@ -1,12 +1,11 @@
 // 責務: simulator export の runtime IR contract JSON（`runtimeIrContractSchemaVersion` + `compiledProgram`）から `PicoRuntimePackage` の canonical JSON テキストを推定生成する。
 //
 // 注意:
-// - MVP 範囲では `everyTasks` がある場合は tick replay、`onEventTasks` のみの場合は dispatch replay、それ以外は既定 tick で replay を組み立てる。
+// - `everyTasks` がある場合は tick replay、先頭 `onEventTasks` が `device_event` の場合は dispatch replay、それ以外は state machine tick（あれば）→ `loop` の `wait` 推定 → 既定 tick の順で replay を組み立てる。
 // - `traceObservation.scriptVarNamesToIncludeInTrace` は `--trace-var` 相当の明示が無い場合、`circle_x` が var initializer に存在すれば含める。
 
-import type { CompiledProgram } from "../core/executable-task";
+import type { CompiledProgram, ExecutableExpression, ExecutableStatement } from "../core/executable-task";
 import type { DeviceAddress } from "../core/device-address";
-import type { ExecutableExpression, ExecutableStatement } from "../core/executable-task";
 import {
   RUNTIME_IR_CONTRACT_SCHEMA_VERSION,
   sortJsonCompatibleValueByKeysDeep,
@@ -34,7 +33,8 @@ function assertExpressionIsSupportedByPicoVerticalSliceOrThrow(expression: Execu
     expression.kind === "var_reference" ||
     expression.kind === "const_reference" ||
     expression.kind === "temp_reference" ||
-    expression.kind === "dt_interval_ms"
+    expression.kind === "dt_interval_ms" ||
+    expression.kind === "state_path_elapsed_reference"
   ) {
     return;
   }
@@ -65,6 +65,203 @@ function assertExpressionIsSupportedByPicoVerticalSliceOrThrow(expression: Execu
     throw new Error(`Pico vertical slice does not support read_property: ${addressText}.${expression.propertyName}`);
   }
   throw new Error(`Pico vertical slice does not support expression kind: ${expression.kind}`);
+}
+
+function assertPicoSupportedStateMachineTransitionConditionExpressionOrThrow(expression: ExecutableExpression): void {
+  if (
+    expression.kind === "integer_literal" ||
+    expression.kind === "string_literal" ||
+    expression.kind === "var_reference" ||
+    expression.kind === "const_reference" ||
+    expression.kind === "state_path_elapsed_reference"
+  ) {
+    return;
+  }
+  if (
+    expression.kind === "binary_add" ||
+    expression.kind === "binary_sub" ||
+    expression.kind === "binary_mul" ||
+    expression.kind === "binary_div"
+  ) {
+    assertPicoSupportedStateMachineTransitionConditionExpressionOrThrow(expression.left);
+    assertPicoSupportedStateMachineTransitionConditionExpressionOrThrow(expression.right);
+    return;
+  }
+  if (expression.kind === "unary_minus") {
+    assertPicoSupportedStateMachineTransitionConditionExpressionOrThrow(expression.operand);
+    return;
+  }
+  if (expression.kind === "comparison") {
+    assertPicoSupportedStateMachineTransitionConditionExpressionOrThrow(expression.left);
+    assertPicoSupportedStateMachineTransitionConditionExpressionOrThrow(expression.right);
+    return;
+  }
+  throw new Error(
+    `Pico vertical slice does not support this expression kind in state machine transition conditions: ${expression.kind}`,
+  );
+}
+
+function buildStateMachineNodePathsByMachineName(compiledProgram: CompiledProgram): ReadonlyMap<string, ReadonlySet<string>> {
+  const node_paths_by_machine_name = new Map<string, ReadonlySet<string>>();
+  for (const state_machine of compiledProgram.stateMachines) {
+    const paths = new Set<string>();
+    for (const node of state_machine.nodes) {
+      paths.add(node.path);
+    }
+    node_paths_by_machine_name.set(state_machine.machineName, paths);
+  }
+  return node_paths_by_machine_name;
+}
+
+function resolveMachineNameFromStateMembershipPathOrThrow(state_membership_path: string): string {
+  const dot_index = state_membership_path.indexOf(".");
+  if (dot_index === -1) {
+    return state_membership_path;
+  }
+  return state_membership_path.slice(0, dot_index);
+}
+
+function throwIfStateMembershipPathDoesNotReferenceKnownStatePrefixOrThrow(params: {
+  readonly membership_path: string;
+  readonly node_paths_by_machine_name: ReadonlyMap<string, ReadonlySet<string>>;
+  readonly human_readable_context: string;
+}): void {
+  const machine_name = resolveMachineNameFromStateMembershipPathOrThrow(params.membership_path);
+  const node_paths = params.node_paths_by_machine_name.get(machine_name);
+  if (node_paths === undefined) {
+    throw new Error(
+      `Pico vertical slice: ${params.human_readable_context} has stateMembershipPath "${params.membership_path}" but state machine "${machine_name}" does not exist.`,
+    );
+  }
+  for (const node_path of node_paths) {
+    if (node_path === params.membership_path) {
+      return;
+    }
+    const prefix_with_dot = `${params.membership_path}.`;
+    if (node_path.startsWith(prefix_with_dot)) {
+      return;
+    }
+  }
+  throw new Error(
+    `Pico vertical slice: ${params.human_readable_context} has stateMembershipPath "${params.membership_path}" but no state node uses that prefix in machine "${machine_name}".`,
+  );
+}
+
+function throwIfStateMembershipPathIsNotExactNodePathOrThrow(params: {
+  readonly membership_path: string;
+  readonly node_paths_by_machine_name: ReadonlyMap<string, ReadonlySet<string>>;
+  readonly human_readable_context: string;
+}): void {
+  const machine_name = resolveMachineNameFromStateMembershipPathOrThrow(params.membership_path);
+  const node_paths = params.node_paths_by_machine_name.get(machine_name);
+  if (node_paths === undefined) {
+    throw new Error(
+      `Pico vertical slice: ${params.human_readable_context} has stateMembershipPath "${params.membership_path}" but state machine "${machine_name}" does not exist.`,
+    );
+  }
+  if (!node_paths.has(params.membership_path)) {
+    throw new Error(
+      `Pico vertical slice: ${params.human_readable_context} requires stateMembershipPath "${params.membership_path}" to match an exact compiled state node path.`,
+    );
+  }
+}
+
+function throwIfCompiledProgramDeclaresStateMembershipWithoutStateMachinesOrThrow(compiledProgram: CompiledProgram): void {
+  for (const task of compiledProgram.everyTasks) {
+    if (task.stateMembershipPath !== undefined) {
+      throw new Error(
+        `Pico vertical slice: everyTask "${task.taskName}" declares stateMembershipPath but compiledProgram.stateMachines is empty.`,
+      );
+    }
+  }
+  for (const task of compiledProgram.loopTasks) {
+    if (task.stateMembershipPath !== undefined) {
+      throw new Error(
+        `Pico vertical slice: loopTask "${task.taskName}" declares stateMembershipPath but compiledProgram.stateMachines is empty.`,
+      );
+    }
+  }
+  for (const task of compiledProgram.onEventTasks) {
+    if (task.stateMembershipPath !== undefined) {
+      throw new Error(
+        `Pico vertical slice: onEventTask "${task.taskName}" declares stateMembershipPath but compiledProgram.stateMachines is empty.`,
+      );
+    }
+  }
+}
+
+function assertStateMachinesAndMembershipPathsAreSupportedByPicoVerticalSliceOrThrow(compiledProgram: CompiledProgram): void {
+  if (compiledProgram.stateMachines.length === 0) {
+    throwIfCompiledProgramDeclaresStateMembershipWithoutStateMachinesOrThrow(compiledProgram);
+    return;
+  }
+
+  const node_paths_by_machine_name = buildStateMachineNodePathsByMachineName(compiledProgram);
+  for (const state_machine of compiledProgram.stateMachines) {
+    const node_paths = node_paths_by_machine_name.get(state_machine.machineName);
+    if (node_paths === undefined || !node_paths.has(state_machine.initialLeafPath)) {
+      throw new Error(
+        `Pico vertical slice: state machine "${state_machine.machineName}" initialLeafPath "${state_machine.initialLeafPath}" is not a known node path.`,
+      );
+    }
+    for (const transition of state_machine.globalTransitions) {
+      assertPicoSupportedStateMachineTransitionConditionExpressionOrThrow(transition.condition);
+      if (!node_paths.has(transition.targetPath)) {
+        throw new Error(
+          `Pico vertical slice: global transition targetPath "${transition.targetPath}" is not a known node path in machine "${state_machine.machineName}".`,
+        );
+      }
+    }
+    for (const node of state_machine.nodes) {
+      for (const transition of node.localTransitions) {
+        assertPicoSupportedStateMachineTransitionConditionExpressionOrThrow(transition.condition);
+        if (!node_paths.has(transition.targetPath)) {
+          throw new Error(
+            `Pico vertical slice: local transition targetPath "${transition.targetPath}" on node "${node.path}" is not a known node path in machine "${state_machine.machineName}".`,
+          );
+        }
+      }
+    }
+  }
+
+  for (const task of compiledProgram.everyTasks) {
+    if (task.stateMembershipPath === undefined) {
+      continue;
+    }
+    throwIfStateMembershipPathDoesNotReferenceKnownStatePrefixOrThrow({
+      membership_path: task.stateMembershipPath,
+      node_paths_by_machine_name,
+      human_readable_context: `everyTask "${task.taskName}"`,
+    });
+  }
+  for (const task of compiledProgram.loopTasks) {
+    if (task.stateMembershipPath === undefined) {
+      continue;
+    }
+    throwIfStateMembershipPathDoesNotReferenceKnownStatePrefixOrThrow({
+      membership_path: task.stateMembershipPath,
+      node_paths_by_machine_name,
+      human_readable_context: `loopTask "${task.taskName}"`,
+    });
+  }
+  for (const task of compiledProgram.onEventTasks) {
+    if (task.stateMembershipPath === undefined) {
+      continue;
+    }
+    if (task.triggerKind === "state_enter" || task.triggerKind === "state_exit") {
+      throwIfStateMembershipPathIsNotExactNodePathOrThrow({
+        membership_path: task.stateMembershipPath,
+        node_paths_by_machine_name,
+        human_readable_context: `onEventTask "${task.taskName}" (${task.triggerKind})`,
+      });
+      continue;
+    }
+    throwIfStateMembershipPathDoesNotReferenceKnownStatePrefixOrThrow({
+      membership_path: task.stateMembershipPath,
+      node_paths_by_machine_name,
+      human_readable_context: `onEventTask "${task.taskName}" (${task.triggerKind})`,
+    });
+  }
 }
 
 function assertStatementIsSupportedByPicoVerticalSliceOrThrow(statement: ExecutableStatement): void {
@@ -164,9 +361,7 @@ function assertCompiledProgramIsSupportedByPicoVerticalSliceOrThrow(compiledProg
       }
     }
   }
-  if (compiledProgram.stateMachines.length > 0) {
-    throw new Error("Pico vertical slice does not support state machines yet.");
-  }
+  assertStateMachinesAndMembershipPathsAreSupportedByPicoVerticalSliceOrThrow(compiledProgram);
   if (compiledProgram.animatorDefinitions.length > 0) {
     throw new Error("Pico vertical slice does not support animator definitions yet.");
   }
@@ -176,7 +371,19 @@ function assertCompiledProgramIsSupportedByPicoVerticalSliceOrThrow(compiledProg
     }
   }
   for (const task of compiledProgram.onEventTasks) {
-    if (task.triggerKind !== "device_event") {
+    if (task.triggerKind === "device_event") {
+      if (task.deviceAddress === undefined || task.eventName === undefined) {
+        throw new Error(
+          `Pico vertical slice: device_event onEventTask "${task.taskName}" is missing deviceAddress or eventName.`,
+        );
+      }
+    } else if (task.triggerKind === "state_enter" || task.triggerKind === "state_exit") {
+      if (task.stateMembershipPath === undefined) {
+        throw new Error(
+          `Pico vertical slice: onEventTask "${task.taskName}" uses ${task.triggerKind} and must declare stateMembershipPath.`,
+        );
+      }
+    } else {
       throw new Error(`Pico vertical slice does not support on-event trigger kind: ${task.triggerKind}`);
     }
     for (const statement of task.statements) {
@@ -189,7 +396,27 @@ export function inferLiveTickIntervalMillisecondsFromCompiledProgram(compiledPro
   if (compiledProgram.everyTasks.length > 0) {
     return compiledProgram.everyTasks[0].intervalMilliseconds;
   }
+  const tick_from_state_machines = inferMinimumPositiveStateMachineTickIntervalMillisecondsOrUndefined(compiledProgram);
+  if (tick_from_state_machines !== undefined) {
+    return tick_from_state_machines;
+  }
   return DEFAULT_LIVE_TICK_INTERVAL_MILLISECONDS_WHEN_NO_EVERY_TASK;
+}
+
+function inferMinimumPositiveStateMachineTickIntervalMillisecondsOrUndefined(
+  compiledProgram: CompiledProgram,
+): number | undefined {
+  let minimum_tick_milliseconds: number | undefined;
+  for (const state_machine of compiledProgram.stateMachines) {
+    const tick_milliseconds = state_machine.tickIntervalMilliseconds;
+    if (tick_milliseconds < 1) {
+      continue;
+    }
+    if (minimum_tick_milliseconds === undefined || tick_milliseconds < minimum_tick_milliseconds) {
+      minimum_tick_milliseconds = tick_milliseconds;
+    }
+  }
+  return minimum_tick_milliseconds;
 }
 
 function inferReplayTickMillisecondsFromLoopTaskWaitOrUndefined(compiledProgram: CompiledProgram): number | undefined {
@@ -224,32 +451,47 @@ export function inferReplayStepsFromCompiledProgramOrThrow(compiledProgram: Comp
   }
 
   if (compiledProgram.onEventTasks.length > 0) {
-    const firstOnEventTask = compiledProgram.onEventTasks[0];
-    if (firstOnEventTask.triggerKind !== "device_event") {
-      throw new Error(
-        `Unsupported onEvent triggerKind for automatic Pico package replay inference: ${firstOnEventTask.triggerKind}`,
-      );
+    const first_on_event_task = compiledProgram.onEventTasks[0];
+    if (first_on_event_task.triggerKind === "device_event") {
+      if (first_on_event_task.deviceAddress === undefined || first_on_event_task.eventName === undefined) {
+        throw new Error("Missing deviceAddress/eventName on first onEventTask for automatic replay inference.");
+      }
+      return [
+        { kind: "collect_trace" },
+        {
+          kind: "dispatch_device_event",
+          deviceKind: first_on_event_task.deviceAddress.kind,
+          deviceId: first_on_event_task.deviceAddress.id,
+          eventName: first_on_event_task.eventName,
+        },
+        { kind: "collect_trace" },
+        {
+          kind: "dispatch_device_event",
+          deviceKind: first_on_event_task.deviceAddress.kind,
+          deviceId: first_on_event_task.deviceAddress.id,
+          eventName: first_on_event_task.eventName,
+        },
+        { kind: "collect_trace" },
+      ];
     }
-    if (firstOnEventTask.deviceAddress === undefined || firstOnEventTask.eventName === undefined) {
-      throw new Error("Missing deviceAddress/eventName on first onEventTask for automatic replay inference.");
-    }
+  }
+
+  const state_machine_tick_milliseconds = inferMinimumPositiveStateMachineTickIntervalMillisecondsOrUndefined(compiledProgram);
+  if (state_machine_tick_milliseconds !== undefined) {
     return [
       { kind: "collect_trace" },
-      {
-        kind: "dispatch_device_event",
-        deviceKind: firstOnEventTask.deviceAddress.kind,
-        deviceId: firstOnEventTask.deviceAddress.id,
-        eventName: firstOnEventTask.eventName,
-      },
+      { kind: "tick_ms", elapsedMilliseconds: state_machine_tick_milliseconds },
       { kind: "collect_trace" },
-      {
-        kind: "dispatch_device_event",
-        deviceKind: firstOnEventTask.deviceAddress.kind,
-        deviceId: firstOnEventTask.deviceAddress.id,
-        eventName: firstOnEventTask.eventName,
-      },
+      { kind: "tick_ms", elapsedMilliseconds: state_machine_tick_milliseconds },
       { kind: "collect_trace" },
     ];
+  }
+
+  if (compiledProgram.onEventTasks.length > 0) {
+    const first_on_event_task = compiledProgram.onEventTasks[0];
+    throw new Error(
+      `Unsupported onEvent triggerKind for automatic Pico package replay inference: ${first_on_event_task.triggerKind}`,
+    );
   }
 
   const loopTaskWaitTickMilliseconds = inferReplayTickMillisecondsFromLoopTaskWaitOrUndefined(compiledProgram);
@@ -309,6 +551,13 @@ function resolveReplayStepsForPicoRuntimePackageBuildOrThrow(params: {
     let tickMilliseconds = DEFAULT_REPLAY_TICK_MILLISECONDS_WHEN_NO_EVERY_OR_ON_EVENT_TASK;
     if (params.compiledProgram.everyTasks.length > 0) {
       tickMilliseconds = params.compiledProgram.everyTasks[0].intervalMilliseconds;
+    } else {
+      const tick_from_state_machines = inferMinimumPositiveStateMachineTickIntervalMillisecondsOrUndefined(
+        params.compiledProgram,
+      );
+      if (tick_from_state_machines !== undefined) {
+        tickMilliseconds = tick_from_state_machines;
+      }
     }
     return [
       { kind: "collect_trace" },

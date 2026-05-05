@@ -1,0 +1,70 @@
+{
+  "runtimeIrContractSchemaVersion": 1,
+  "compiledProgram": {
+    "animatorDefinitions": [],
+    "constInitializers": [],
+    "deviceAliases": [],
+    "everyTasks": [],
+    "loopTasks": [],
+    "onEventTasks": [
+      {
+        "stateMembershipPath": "sm.B",
+        "statements": [
+          {
+            "kind": "assign_var",
+            "valueExpression": {
+              "kind": "integer_literal",
+              "value": 1
+            },
+            "varName": "flag"
+          }
+        ],
+        "taskName": "mark",
+        "triggerKind": "state_enter"
+      }
+    ],
+    "stateMachines": [
+      {
+        "globalTransitions": [],
+        "initialLeafPath": "sm.A",
+        "machineName": "sm",
+        "nodes": [
+          {
+            "childPaths": [],
+            "localTransitions": [
+              {
+                "condition": {
+                  "kind": "integer_literal",
+                  "value": 1
+                },
+                "targetPath": "sm.B"
+              }
+            ],
+            "path": "sm.A"
+          },
+          {
+            "childPaths": [],
+            "localTransitions": [],
+            "path": "sm.B"
+          }
+        ],
+        "tickIntervalMilliseconds": 100
+      }
+    ],
+    "varInitializers": [
+      {
+        "expression": {
+          "kind": "integer_literal",
+          "value": 0
+        },
+        "varName": "flag"
+      }
+    ],
+    "varWriterAssignments": [
+      {
+        "varName": "flag",
+        "writerTaskName": "mark"
+      }
+    ]
+  }
+}

@@ -69,6 +69,11 @@
       "name": "string-command-router",
       "sourceFile": "string-command-router.sc",
       "traceVars": ["command", "command_count"]
+    },
+    {
+      "name": "state-led-pulse",
+      "sourceFile": "state-led-pulse.sc",
+      "traceVars": []
     }
   ]
 }

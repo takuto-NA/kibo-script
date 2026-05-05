@@ -59,6 +59,122 @@ void erase_script_int_var_if_present(
   return true;
 }
 
+[[nodiscard]] std::vector<std::string> split_dot_segments(const std::string& full_path) {
+  std::vector<std::string> segments;
+  std::string current;
+  for (const char character : full_path) {
+    if (character == '.') {
+      segments.push_back(current);
+      current.clear();
+      continue;
+    }
+    current.push_back(character);
+  }
+  segments.push_back(current);
+  return segments;
+}
+
+[[nodiscard]] std::vector<std::string> enumerate_dot_path_prefixes(const std::string& full_path) {
+  const std::vector<std::string> segments = split_dot_segments(full_path);
+  std::vector<std::string> prefixes;
+  std::string built;
+  for (std::size_t index = 0; index < segments.size(); index += 1) {
+    if (index > 0) {
+      built.push_back('.');
+    }
+    built += segments[index];
+    prefixes.push_back(built);
+  }
+  return prefixes;
+}
+
+[[nodiscard]] std::optional<std::string> parent_dot_path_string(const std::string& path) {
+  const std::size_t last_dot_index = path.rfind('.');
+  if (last_dot_index == std::string::npos) {
+    return std::nullopt;
+  }
+  return path.substr(0, last_dot_index);
+}
+
+[[nodiscard]] std::string longest_common_dot_path_prefix(const std::string& left_path, const std::string& right_path) {
+  const std::vector<std::string> left_segments = split_dot_segments(left_path);
+  const std::vector<std::string> right_segments = split_dot_segments(right_path);
+  std::vector<std::string> common_segments;
+  const std::size_t maximum_shared_segment_count = std::min(left_segments.size(), right_segments.size());
+  for (std::size_t index = 0; index < maximum_shared_segment_count; index += 1) {
+    if (left_segments[index] != right_segments[index]) {
+      break;
+    }
+    common_segments.push_back(left_segments[index]);
+  }
+  if (common_segments.empty()) {
+    return "";
+  }
+  std::string joined = common_segments[0];
+  for (std::size_t index = 1; index < common_segments.size(); index += 1) {
+    joined.push_back('.');
+    joined += common_segments[index];
+  }
+  return joined;
+}
+
+[[nodiscard]] std::vector<std::string> compute_exit_path_sequence_strings(const std::string& old_leaf_path, const std::string& new_leaf_path) {
+  const std::string longest_common_prefix_path = longest_common_dot_path_prefix(old_leaf_path, new_leaf_path);
+  std::vector<std::string> exit_paths;
+  std::optional<std::string> cursor_path = old_leaf_path;
+  while (cursor_path.has_value() && *cursor_path != longest_common_prefix_path) {
+    exit_paths.push_back(*cursor_path);
+    cursor_path = parent_dot_path_string(*cursor_path);
+  }
+  return exit_paths;
+}
+
+[[nodiscard]] std::vector<std::string> compute_enter_path_sequence_strings_initial_boot(const std::string& new_leaf_path) {
+  return enumerate_dot_path_prefixes(new_leaf_path);
+}
+
+[[nodiscard]] std::vector<std::string> compute_enter_path_sequence_strings_transition(const std::string& old_leaf_path, const std::string& new_leaf_path) {
+  if (old_leaf_path == new_leaf_path) {
+    return {};
+  }
+  const std::string longest_common_prefix_path = longest_common_dot_path_prefix(old_leaf_path, new_leaf_path);
+  std::vector<std::string> enter_paths;
+  for (const std::string& path : enumerate_dot_path_prefixes(new_leaf_path)) {
+    if (path == longest_common_prefix_path) {
+      continue;
+    }
+    if (path.length() <= longest_common_prefix_path.length()) {
+      continue;
+    }
+    if (longest_common_prefix_path.empty()) {
+      enter_paths.push_back(path);
+      continue;
+    }
+    const std::string expected_prefix = longest_common_prefix_path + ".";
+    if (path.rfind(expected_prefix, 0) == 0) {
+      enter_paths.push_back(path);
+    }
+  }
+  return enter_paths;
+}
+
+[[nodiscard]] std::string escape_state_path_for_trace_segment(const std::string& active_leaf_path) {
+  std::string escaped;
+  escaped.reserve(active_leaf_path.size() + 8);
+  for (const char character : active_leaf_path) {
+    if (character == '|') {
+      escaped += "\\|";
+      continue;
+    }
+    if (character == '=') {
+      escaped += "\\=";
+      continue;
+    }
+    escaped.push_back(character);
+  }
+  return escaped;
+}
+
 }  // namespace
 
 KiboHostRuntime::KiboHostRuntime(const nlohmann::json& runtime_ir_contract_root) {
@@ -86,11 +202,37 @@ KiboHostRuntime::KiboHostRuntime(const nlohmann::json& runtime_ir_contract_root)
   register_every_tasks_from_program(compiled_program_json);
   register_loop_tasks_from_program(compiled_program_json);
   register_on_event_tasks_from_program(compiled_program_json);
+  initialize_state_machines_from_program(compiled_program_json);
+  dispatch_initial_state_enter_lifecycle();
   // Guard: TypeScript SimulationRuntime starts `task ... loop` bodies at simulation time 0 before the first trace.
   start_runnable_loop_tasks();
 }
 
 void KiboHostRuntime::throw_if_compiled_program_has_unsupported_top_level_features(const nlohmann::json& compiled_program_json) {
+  const auto animator_definitions_iterator = compiled_program_json.find("animatorDefinitions");
+  if (animator_definitions_iterator != compiled_program_json.end()) {
+    const auto& animator_definitions_json = *animator_definitions_iterator;
+    if (!animator_definitions_json.is_array()) {
+      throw_unsupported_runtime_ir("`animatorDefinitions` must be an array.");
+    }
+    if (!animator_definitions_json.empty()) {
+      throw_unsupported_runtime_ir("C++ host runtime MVP does not support non-empty `animatorDefinitions`.");
+    }
+  }
+
+  const auto state_machines_iterator = compiled_program_json.find("stateMachines");
+  if (state_machines_iterator != compiled_program_json.end()) {
+    const auto& state_machines_json = *state_machines_iterator;
+    if (!state_machines_json.is_array()) {
+      throw_unsupported_runtime_ir("`stateMachines` must be an array.");
+    }
+  }
+}
+
+void KiboHostRuntime::initialize_state_machines_from_program(const nlohmann::json& compiled_program_json) {
+  state_machines_.clear();
+  state_path_entry_simulation_ms_.clear();
+
   const auto state_machines_iterator = compiled_program_json.find("stateMachines");
   if (state_machines_iterator == compiled_program_json.end()) {
     return;
@@ -99,8 +241,236 @@ void KiboHostRuntime::throw_if_compiled_program_has_unsupported_top_level_featur
   if (!state_machines_json.is_array()) {
     throw_unsupported_runtime_ir("`stateMachines` must be an array.");
   }
-  if (!state_machines_json.empty()) {
-    throw_unsupported_runtime_ir("C++ host runtime MVP does not support `stateMachines` yet.");
+
+  for (const auto& state_machine_json : state_machines_json) {
+    StateMachineRuntimeModel model{};
+    model.machine_name = state_machine_json.at("machineName").get<std::string>();
+    model.tick_interval_ms = read_json_number_as_int_or_throw(state_machine_json.at("tickIntervalMilliseconds"));
+    model.active_leaf_path = state_machine_json.at("initialLeafPath").get<std::string>();
+    model.accumulated_tick_ms = 0;
+    model.global_transitions_json = state_machine_json.at("globalTransitions");
+    if (!model.global_transitions_json.is_array()) {
+      throw_unsupported_runtime_ir("`stateMachines[].globalTransitions` must be an array.");
+    }
+
+    const auto& nodes_json = state_machine_json.at("nodes");
+    if (!nodes_json.is_array()) {
+      throw_unsupported_runtime_ir("`stateMachines[].nodes` must be an array.");
+    }
+    for (const auto& node_json : nodes_json) {
+      const std::string path = node_json.at("path").get<std::string>();
+      model.node_by_path_json[path] = node_json;
+    }
+
+    state_machines_.push_back(std::move(model));
+  }
+
+  for (auto& state_machine : state_machines_) {
+    seed_state_path_entry_times_for_leaf_path(state_machine.active_leaf_path);
+  }
+}
+
+void KiboHostRuntime::dispatch_initial_state_enter_lifecycle() {
+  for (const auto& state_machine : state_machines_) {
+    const std::vector<std::string> enter_path_sequence =
+        compute_enter_path_sequence_strings_initial_boot(state_machine.active_leaf_path);
+    for (const std::string& enter_path : enter_path_sequence) {
+      dispatch_lifecycle_enter_tasks_for_exact_membership_path(enter_path);
+    }
+  }
+}
+
+std::int64_t KiboHostRuntime::get_elapsed_ms_for_state_path(const std::string& state_path) const {
+  const auto iterator = state_path_entry_simulation_ms_.find(state_path);
+  if (iterator == state_path_entry_simulation_ms_.end()) {
+    return 0;
+  }
+  return total_ms_ - iterator->second;
+}
+
+void KiboHostRuntime::seed_state_path_entry_times_for_leaf_path(const std::string& leaf_path) {
+  const std::int64_t timestamp_milliseconds = total_ms_;
+  for (const std::string& prefix_path : enumerate_dot_path_prefixes(leaf_path)) {
+    state_path_entry_simulation_ms_[prefix_path] = timestamp_milliseconds;
+  }
+}
+
+bool KiboHostRuntime::is_task_runnable_for_state_membership(const std::optional<std::string>& membership_path) const {
+  if (!membership_path.has_value()) {
+    return true;
+  }
+  const std::string& membership = *membership_path;
+  const std::size_t first_dot_index = membership.find('.');
+  const std::string machine_name =
+      first_dot_index == std::string::npos ? membership : membership.substr(0, first_dot_index);
+
+  const StateMachineRuntimeModel* matched_machine = nullptr;
+  for (const auto& state_machine : state_machines_) {
+    if (state_machine.machine_name == machine_name) {
+      matched_machine = &state_machine;
+      break;
+    }
+  }
+  if (matched_machine == nullptr) {
+    return false;
+  }
+
+  const std::string& active_leaf_path = matched_machine->active_leaf_path;
+  if (active_leaf_path == membership) {
+    return true;
+  }
+  const std::string prefix = membership + ".";
+  if (active_leaf_path.size() > prefix.size() && active_leaf_path.rfind(prefix, 0) == 0) {
+    return true;
+  }
+  return false;
+}
+
+void KiboHostRuntime::dispatch_lifecycle_exit_tasks_for_exact_membership_path(const std::string& membership_path) {
+  for (auto& task : on_event_tasks_) {
+    if (task.trigger_kind != "state_exit") {
+      continue;
+    }
+    if (!task.state_membership_path.has_value() || *task.state_membership_path != membership_path) {
+      continue;
+    }
+    task.temp_values.clear();
+    drain_on_event_task_body(task);
+  }
+}
+
+void KiboHostRuntime::dispatch_lifecycle_enter_tasks_for_exact_membership_path(const std::string& membership_path) {
+  for (auto& task : on_event_tasks_) {
+    if (task.trigger_kind != "state_enter") {
+      continue;
+    }
+    if (!task.state_membership_path.has_value() || *task.state_membership_path != membership_path) {
+      continue;
+    }
+    task.temp_values.clear();
+    drain_on_event_task_body(task);
+  }
+}
+
+std::optional<std::string> KiboHostRuntime::resolve_configured_leaf_path_or_null(
+    StateMachineRuntimeModel& state_machine,
+    const std::string& path
+) {
+  const auto node_iterator = state_machine.node_by_path_json.find(path);
+  if (node_iterator == state_machine.node_by_path_json.end()) {
+    return std::nullopt;
+  }
+  const nlohmann::json& node_json = node_iterator->second;
+  const auto& child_paths_json = node_json.at("childPaths");
+  if (!child_paths_json.is_array()) {
+    throw_unsupported_runtime_ir("`stateMachines[].nodes[].childPaths` must be an array.");
+  }
+  if (child_paths_json.empty()) {
+    return path;
+  }
+  if (!node_json.contains("initialChildLeafPath") || !node_json.at("initialChildLeafPath").is_string()) {
+    return std::nullopt;
+  }
+  const std::string initial_child_leaf_path = node_json.at("initialChildLeafPath").get<std::string>();
+  return resolve_configured_leaf_path_or_null(state_machine, initial_child_leaf_path);
+}
+
+std::optional<std::string> KiboHostRuntime::evaluate_first_matching_transition_target_or_null(
+    StateMachineRuntimeModel& state_machine
+) {
+  EvaluationContext evaluation_context{};
+  evaluation_context.script_vars = &script_vars_;
+  evaluation_context.script_string_vars = &script_string_vars_;
+  evaluation_context.const_values = &const_values_;
+  evaluation_context.temp_values = nullptr;
+  evaluation_context.nominal_interval_milliseconds = std::nullopt;
+  evaluation_context.run_mode = "init";
+
+  for (const auto& transition_json : state_machine.global_transitions_json) {
+    if (!transition_json.is_object()) {
+      throw_unsupported_runtime_ir("`globalTransitions[]` items must be objects.");
+    }
+    const std::int64_t condition_value = evaluate_expression_json(transition_json.at("condition"), evaluation_context);
+    if (condition_value != 0) {
+      return transition_json.at("targetPath").get<std::string>();
+    }
+  }
+
+  std::optional<std::string> cursor_node_path = state_machine.active_leaf_path;
+  while (cursor_node_path.has_value()) {
+    const auto node_iterator = state_machine.node_by_path_json.find(*cursor_node_path);
+    if (node_iterator != state_machine.node_by_path_json.end()) {
+      const nlohmann::json& node_json = node_iterator->second;
+      const auto& local_transitions_json = node_json.at("localTransitions");
+      if (!local_transitions_json.is_array()) {
+        throw_unsupported_runtime_ir("`localTransitions` must be an array.");
+      }
+      for (const auto& transition_json : local_transitions_json) {
+        if (!transition_json.is_object()) {
+          throw_unsupported_runtime_ir("`localTransitions[]` items must be objects.");
+        }
+        const std::int64_t condition_value = evaluate_expression_json(transition_json.at("condition"), evaluation_context);
+        if (condition_value != 0) {
+          return transition_json.at("targetPath").get<std::string>();
+        }
+      }
+    }
+    cursor_node_path = parent_dot_path_string(*cursor_node_path);
+  }
+
+  return std::nullopt;
+}
+
+void KiboHostRuntime::apply_state_machine_leaf_transition(
+    StateMachineRuntimeModel& state_machine,
+    const std::string& old_leaf_path,
+    const std::string& new_leaf_path
+) {
+  for (const std::string& exit_path : compute_exit_path_sequence_strings(old_leaf_path, new_leaf_path)) {
+    dispatch_lifecycle_exit_tasks_for_exact_membership_path(exit_path);
+  }
+
+  state_machine.active_leaf_path = new_leaf_path;
+
+  const std::int64_t transition_timestamp_milliseconds = total_ms_;
+  const std::vector<std::string> enter_path_sequence =
+      compute_enter_path_sequence_strings_transition(old_leaf_path, new_leaf_path);
+  for (const std::string& enter_path : enter_path_sequence) {
+    state_path_entry_simulation_ms_[enter_path] = transition_timestamp_milliseconds;
+  }
+
+  for (const std::string& enter_path : enter_path_sequence) {
+    dispatch_lifecycle_enter_tasks_for_exact_membership_path(enter_path);
+  }
+}
+
+void KiboHostRuntime::run_single_state_machine_tick(StateMachineRuntimeModel& state_machine) {
+  const std::optional<std::string> transition_target_path = evaluate_first_matching_transition_target_or_null(state_machine);
+  if (!transition_target_path.has_value()) {
+    return;
+  }
+  const std::optional<std::string> resolved_new_leaf_path =
+      resolve_configured_leaf_path_or_null(state_machine, *transition_target_path);
+  if (!resolved_new_leaf_path.has_value()) {
+    return;
+  }
+  if (*resolved_new_leaf_path == state_machine.active_leaf_path) {
+    return;
+  }
+  apply_state_machine_leaf_transition(state_machine, state_machine.active_leaf_path, *resolved_new_leaf_path);
+}
+
+void KiboHostRuntime::advance_state_machines(int elapsed_milliseconds) {
+  for (auto& state_machine : state_machines_) {
+    if (state_machine.tick_interval_ms <= 0) {
+      state_machine.accumulated_tick_ms = 0;
+      continue;
+    }
+    state_machine.accumulated_tick_ms += elapsed_milliseconds;
+    while (state_machine.accumulated_tick_ms >= state_machine.tick_interval_ms) {
+      state_machine.accumulated_tick_ms -= state_machine.tick_interval_ms;
+      run_single_state_machine_tick(state_machine);
+    }
   }
 }
 
@@ -185,7 +555,10 @@ void KiboHostRuntime::register_every_tasks_from_program(const nlohmann::json& co
       throw_unsupported_runtime_ir("`everyTasks[].statements` must be an array.");
     }
     if (every_task_json.contains("stateMembershipPath")) {
-      throw_unsupported_runtime_ir("C++ host runtime MVP does not support `stateMembershipPath` on every tasks.");
+      if (!every_task_json.at("stateMembershipPath").is_string()) {
+        throw_unsupported_runtime_ir("`everyTasks[].stateMembershipPath` must be a string when present.");
+      }
+      task.state_membership_path = every_task_json.at("stateMembershipPath").get<std::string>();
     }
     every_tasks_.push_back(std::move(task));
   }
@@ -209,7 +582,10 @@ void KiboHostRuntime::register_loop_tasks_from_program(const nlohmann::json& com
       throw_unsupported_runtime_ir("`loopTasks[].statements` must be an array.");
     }
     if (loop_task_json.contains("stateMembershipPath")) {
-      throw_unsupported_runtime_ir("C++ host runtime MVP does not support `stateMembershipPath` on loop tasks.");
+      if (!loop_task_json.at("stateMembershipPath").is_string()) {
+        throw_unsupported_runtime_ir("`loopTasks[].stateMembershipPath` must be a string when present.");
+      }
+      task.state_membership_path = loop_task_json.at("stateMembershipPath").get<std::string>();
     }
     loop_tasks_.push_back(std::move(task));
   }
@@ -227,24 +603,39 @@ void KiboHostRuntime::register_on_event_tasks_from_program(const nlohmann::json&
   }
   for (const auto& on_task_json : on_event_tasks_json) {
     const std::string trigger_kind = on_task_json.at("triggerKind").get<std::string>();
-    if (trigger_kind != "device_event") {
-      std::ostringstream oss;
-      oss << "Unsupported onEvent triggerKind: " << trigger_kind;
-      throw_unsupported_runtime_ir(oss.str());
-    }
     OnEventTaskRuntime task{};
     task.task_name = on_task_json.at("taskName").get<std::string>();
-    const auto& device_address = on_task_json.at("deviceAddress");
-    task.device_kind = device_address.at("kind").get<std::string>();
-    task.device_id = read_json_number_as_int_or_throw(device_address.at("id"));
-    task.event_name = on_task_json.at("eventName").get<std::string>();
+    task.trigger_kind = trigger_kind;
     task.statements_json = on_task_json.at("statements");
     if (!task.statements_json.is_array()) {
       throw_unsupported_runtime_ir("`onEventTasks[].statements` must be an array.");
     }
-    if (on_task_json.contains("stateMembershipPath")) {
-      throw_unsupported_runtime_ir("C++ host runtime MVP does not support `stateMembershipPath` on on_event tasks.");
+
+    if (trigger_kind == "device_event") {
+      const auto& device_address = on_task_json.at("deviceAddress");
+      task.device_kind = device_address.at("kind").get<std::string>();
+      task.device_id = read_json_number_as_int_or_throw(device_address.at("id"));
+      task.event_name = on_task_json.at("eventName").get<std::string>();
+      if (on_task_json.contains("stateMembershipPath")) {
+        if (!on_task_json.at("stateMembershipPath").is_string()) {
+          throw_unsupported_runtime_ir("`onEventTasks[].stateMembershipPath` must be a string when present.");
+        }
+        task.state_membership_path = on_task_json.at("stateMembershipPath").get<std::string>();
+      }
+    } else if (trigger_kind == "state_enter" || trigger_kind == "state_exit") {
+      if (!on_task_json.contains("stateMembershipPath") || !on_task_json.at("stateMembershipPath").is_string()) {
+        throw_unsupported_runtime_ir("`onEventTasks` with state lifecycle triggers must include `stateMembershipPath`.");
+      }
+      task.state_membership_path = on_task_json.at("stateMembershipPath").get<std::string>();
+      task.device_kind.clear();
+      task.device_id = 0;
+      task.event_name.clear();
+    } else {
+      std::ostringstream oss;
+      oss << "Unsupported onEvent triggerKind: " << trigger_kind;
+      throw_unsupported_runtime_ir(oss.str());
     }
+
     on_event_tasks_.push_back(std::move(task));
   }
 }
@@ -256,7 +647,7 @@ void KiboHostRuntime::tick_milliseconds(int elapsed_milliseconds) {
   total_ms_ += static_cast<std::int64_t>(elapsed_milliseconds);
   resume_waiting_every_tasks();
   resume_waiting_loop_tasks();
-  // MVP: TypeScript `SimulationRuntime.tick` は `advanceStateMachines` も呼ぶが、state machine 未対応のため省略する。
+  advance_state_machines(elapsed_milliseconds);
   advance_every_tasks(elapsed_milliseconds);
   start_runnable_loop_tasks();
 }
@@ -270,6 +661,9 @@ void KiboHostRuntime::resume_waiting_every_tasks() {
       continue;
     }
     if (total_ms_ < task.execution_progress->resume_at_total_ms.value()) {
+      continue;
+    }
+    if (!is_task_runnable_for_state_membership(task.state_membership_path)) {
       continue;
     }
     task.execution_progress->resume_at_total_ms.reset();
@@ -286,6 +680,9 @@ void KiboHostRuntime::resume_waiting_loop_tasks() {
       continue;
     }
     if (total_ms_ < task.execution_progress->resume_at_total_ms.value()) {
+      continue;
+    }
+    if (!is_task_runnable_for_state_membership(task.state_membership_path)) {
       continue;
     }
     task.execution_progress->resume_at_total_ms.reset();
@@ -305,6 +702,9 @@ void KiboHostRuntime::advance_every_tasks(int elapsed_milliseconds) {
       if (task.execution_progress.has_value()) {
         continue;
       }
+      if (!is_task_runnable_for_state_membership(task.state_membership_path)) {
+        continue;
+      }
       TaskExecutionProgress progress{};
       progress.program_counter = 0;
       progress.resume_at_total_ms.reset();
@@ -318,6 +718,9 @@ void KiboHostRuntime::start_runnable_loop_tasks() {
   for (auto& task : loop_tasks_) {
     for (;;) {
       if (!task.execution_progress.has_value()) {
+        if (!is_task_runnable_for_state_membership(task.state_membership_path)) {
+          break;
+        }
         TaskExecutionProgress progress{};
         progress.program_counter = 0;
         progress.resume_at_total_ms.reset();
@@ -347,6 +750,9 @@ void KiboHostRuntime::dispatch_device_event(
     const std::string& event_name
 ) {
   for (auto& task : on_event_tasks_) {
+    if (task.trigger_kind != "device_event") {
+      continue;
+    }
     if (task.device_kind != device_kind) {
       continue;
     }
@@ -354,6 +760,9 @@ void KiboHostRuntime::dispatch_device_event(
       continue;
     }
     if (task.event_name != event_name) {
+      continue;
+    }
+    if (!is_task_runnable_for_state_membership(task.state_membership_path)) {
       continue;
     }
     if (task.statements_json.empty()) {
@@ -377,6 +786,10 @@ void KiboHostRuntime::drain_on_event_task_body(OnEventTaskRuntime& task) {
 
 void KiboHostRuntime::drain_every_task_body(EveryTaskRuntime& task) {
   if (!task.execution_progress.has_value()) {
+    return;
+  }
+  if (!is_task_runnable_for_state_membership(task.state_membership_path)) {
+    task.execution_progress.reset();
     return;
   }
 
@@ -425,6 +838,10 @@ void KiboHostRuntime::drain_every_task_body(EveryTaskRuntime& task) {
 
 void KiboHostRuntime::drain_loop_task_body(LoopTaskRuntime& task) {
   if (!task.execution_progress.has_value()) {
+    return;
+  }
+  if (!is_task_runnable_for_state_membership(task.state_membership_path)) {
+    task.execution_progress.reset();
     return;
   }
 
@@ -822,6 +1239,10 @@ std::int64_t KiboHostRuntime::evaluate_expression_json(
     oss << "Unsupported comparison operator: " << op;
     throw_unsupported_runtime_ir(oss.str());
   }
+  if (kind == "state_path_elapsed_reference") {
+    const std::string state_path_text = expression_json.at("statePathText").get<std::string>();
+    return get_elapsed_ms_for_state_path(state_path_text);
+  }
   if (kind == "dt_interval_ms") {
     if (evaluation_context.run_mode != "every") {
       throw_unsupported_runtime_ir("`dt_interval_ms` is only supported in every-task evaluation context.");
@@ -923,11 +1344,33 @@ std::string KiboHostRuntime::collect_conformance_trace_line(
     vars_segment = "-";
   }
 
+  std::string state_machines_segment_text = "-";
+  if (!state_machines_.empty()) {
+    std::vector<std::pair<std::string, std::string>> machine_rows;
+    machine_rows.reserve(state_machines_.size());
+    for (const auto& state_machine : state_machines_) {
+      machine_rows.emplace_back(state_machine.machine_name, state_machine.active_leaf_path);
+    }
+    std::sort(machine_rows.begin(), machine_rows.end(), [](const auto& left, const auto& right) {
+      return left.first < right.first;
+    });
+    state_machines_segment_text.clear();
+    bool wrote_any_state_machine = false;
+    for (const auto& row : machine_rows) {
+      if (wrote_any_state_machine) {
+        state_machines_segment_text.push_back('|');
+      }
+      wrote_any_state_machine = true;
+      state_machines_segment_text += row.first;
+      state_machines_segment_text.push_back('=');
+      state_machines_segment_text += escape_state_path_for_trace_segment(row.second);
+    }
+  }
+
   std::ostringstream line;
-  // MVP: TypeScript は `listStateMachineInspectRows()` を出す。state machine 未対応のため常に `sm=-`。
   line << "trace schema=1"
        << " sim_ms=" << total_ms_ << " led0=" << (led0_is_on_ ? 1 : 0) << " btn0=" << (button0_is_pressed_ ? 1 : 0)
-       << " dpy_fp=" << fingerprint_hex << " vars=" << vars_segment << " sm=-";
+       << " dpy_fp=" << fingerprint_hex << " vars=" << vars_segment << " sm=" << state_machines_segment_text;
   return line.str();
 }
 

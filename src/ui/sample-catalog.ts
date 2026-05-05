@@ -14,6 +14,7 @@ import pwm_servo_light_show_sc_raw_text from "../../examples/pico-runtime-sample
 import rover_scan_sweep_sc_raw_text from "../../examples/pico-runtime-samples/rover-scan-sweep.sc?raw";
 import sensor_alert_dashboard_sc_raw_text from "../../examples/pico-runtime-samples/sensor-alert-dashboard.sc?raw";
 import serial_heartbeat_log_sc_raw_text from "../../examples/pico-runtime-samples/serial-heartbeat-log.sc?raw";
+import state_led_pulse_sc_raw_text from "../../examples/pico-runtime-samples/state-led-pulse.sc?raw";
 import string_command_router_sc_raw_text from "../../examples/pico-runtime-samples/string-command-router.sc?raw";
 import two_circle_chase_sc_raw_text from "../../examples/pico-runtime-samples/two-circle-chase.sc?raw";
 import waited_status_beacon_sc_raw_text from "../../examples/pico-runtime-samples/waited-status-beacon.sc?raw";
@@ -47,6 +48,7 @@ const SOURCE_TEXT_BY_SOURCE_FILE_NAME: Readonly<Record<string, string>> = {
   "rover-scan-sweep.sc": rover_scan_sweep_sc_raw_text,
   "sensor-alert-dashboard.sc": sensor_alert_dashboard_sc_raw_text,
   "serial-heartbeat-log.sc": serial_heartbeat_log_sc_raw_text,
+  "state-led-pulse.sc": state_led_pulse_sc_raw_text,
   "string-command-router.sc": string_command_router_sc_raw_text,
   "two-circle-chase.sc": two_circle_chase_sc_raw_text,
   "waited-status-beacon.sc": waited_status_beacon_sc_raw_text,

@@ -2,7 +2,7 @@
 
 ## 現在地（2026-05-05）
 
-Kibo Script は、TypeScript シミュレーターだけでなく、MVP runtime IR と主要 semantics probe を C++17 host runtime / Pico 実機で同じ trace に揃えるところまで進んでいる。
+Kibo Script は、TypeScript シミュレーターだけでなく、MVP runtime IR と主要 semantics probe を C++17 host runtime / Pico 実機で同じ trace に揃えるところまで進んでいる（2026-05-05 更新: state machine subset を Pico package / C++ host に載せた）。
 
 現時点で成立している縦断:
 
@@ -60,6 +60,7 @@ Burn-down 計画の分割ドキュメント（**plan ファイル本体は編集
 | `looped-pulse-train` | `looped-pulse-train.sc` | `task ... loop` / pulse timing |
 | `pwm-servo-light-show` | `pwm-servo-light-show.sc` | `pwm#0` / `motor#0` / `servo#0`（no-op）+ mode state |
 | `string-command-router` | `string-command-router.sc` | string command routing / display + LED side effects |
+| `state-led-pulse` | `state-led-pulse.sc` | `state machine` + `stateMembershipPath` 付き `every`（subset） |
 
 ### 2) 到達パス（どこから package が来るか）
 
@@ -69,17 +70,46 @@ Burn-down 計画の分割ドキュメント（**plan ファイル本体は編集
 | B. `KIBO_PKG` RAM 差し替え | 必須 | UI Web Serial（`script-runner-view.ts`）または `upload_pico_runtime_package.py` / `pico_link_check.py` |
 | C. TypeScript のみ | 不要 | golden / `npm test` |
 
-### 3) `KiboHostRuntime`（C++ / Pico 共有）の IR 対応（`supported` / `partial` / `unsupported`）
+### 3) `KiboHostRuntime`（C++ / Pico 共有）の IR 対応状況
 
-| 分類 | 内容 |
-| --- | --- |
-| `supported` | `runtimeIrContractSchemaVersion == 1` の root / `compiledProgram` object、`varInitializers` / `constInitializers`、`everyTasks` / `onEventTasks`（`triggerKind == device_event` のみ）、`loopTasks`（有限ループ・budget 付き IR）、statement: `do_method_call`（`led#0` toggle/on/off、`display#0` clear/circle/present/**text(x,y,msg)**、`serial#0.println` は **trace に影響しない no-op**、`pwm#0.level` / `motor#0.power` / `servo#0.angle` も同様に no-op）、`assign_var`（int/string）/`assign_temp`、`wait_milliseconds`（`every` / `loop` 本体中心）、`if_comparison`（int/string 比較）、`match_string`、expression: `integer_literal` / `string_literal` / `var_reference` / `const_reference` / `temp_reference` / `read_property`（**`adc#0.raw` のみ**。既定値 **512** は TypeScript `AdcDevice` と一致）、算術、`comparison`、`dt_interval_ms`（`every` 文脈のみ） |
-| `partial` | `on_event` 同期実行パスでの `wait_milliseconds` は現 acceptance 範囲外（supported 化前に probe 追加が必要）。 |
-| `unsupported`（明示的に throw） | `stateMembershipPath` 付き task、`onEvent` の `triggerKind != device_event`、上記以外の statement / expression / `do_method_call` / `read_property`、`stateMachines`、`animatorDefinitions` など |
+この表は **PicoRuntimePackage に入れて C++ host / Pico vertical slice で動かせるか** の判定であり、TypeScript simulator 全体の対応範囲とは別。compiler / simulator で使える構文でも、ここで未対応なら Pico sample には入れない。
+
+| 項目 | Pico package / runtime 状態 | 使える範囲 | 未対応・注意 |
+| --- | --- | --- | --- |
+| runtime IR root | 対応 | `runtimeIrContractSchemaVersion == 1`、`compiledProgram` object | schema version 1 以外は throw |
+| `var` / `const` initializer | 対応 | int / string literal、対応済み expression | object / array / 未対応 expression は不可 |
+| `task ... every` | 対応 | `stateMembershipPath` あり（prefix が IR の state node と一致） | `wait` を含む本体 resume は TS と同順序で評価 |
+| `task ... loop` | 対応 | `stateMembershipPath` あり（prefix が IR の state node と一致） | `wait` による協調実行 |
+| `task ... on` | 対応 | `device_event` / `state_enter` / `state_exit`（lifecycle は `stateMembershipPath` が exact node path） | `wait` は同期実行パスの acceptance は device path と同様に追跡 |
+| `do led#0.*` | 対応 | `toggle()` / `on()` / `off()` | `led#1` 以降や他 method は不可 |
+| `do display#0.*` | 対応 | `clear()` / `present()` / `circle(x,y,r)` / `text(x,y,msg)` | `line` / `pixel` などは Pico runtime 未対応 |
+| `do serial#0.println(...)` | 部分対応 | 引数 1 個。評価はされる | trace / 実機ログの意味では no-op 扱い |
+| `do pwm#0.level(...)` | 部分対応 | 引数 1 個。評価はされる | trace / 実機デバイス効果は no-op 扱い |
+| `do motor#0.power(...)` | 部分対応 | 引数 1 個。評価はされる | trace / 実機デバイス効果は no-op 扱い。`motor#1` は不可 |
+| `do servo#0.angle(...)` | 部分対応 | 引数 1 個。評価はされる | trace / 実機デバイス効果は no-op 扱い |
+| `read adc#0` | 対応 | runtime IR の `adc#0.raw`。既定値は 512 | `adc#1` 以降、他 property、実 ADC 入力の live 反映は未対応 |
+| `set` / `temp` | 対応 | int / string var、int temp | string temp は runtime 側の整数評価中心のため Pico sample では避ける |
+| `wait` | 部分対応 | `every` / `loop` 本体の直下 | `if` / `match` 分岐内は不可。`on_event` 内 wait は acceptance 未固定 |
+| `if` | 対応 | int 比較、string `==` / `!=` | branch 内 `wait` は不可 |
+| statement `match` | 対応 | string target、string literal case、必須 `else` | nested `match` や branch 内 `wait` は不可 |
+| expression | 対応 | int/string literal、var/const/temp reference、`+ - * /`、単項 `-`、比較、`dt`（every 文脈）、`state_path_elapsed_reference` | string の `< <= > >=`、`step_animator`、`match_numeric_expression`、未対応 expression kind は不可 |
+| unit: `ms` | 対応 | `task ... every <N>ms`、`wait <expr> ms`。runtime IR では millisecond integer として扱う | `ms` 以外の時間単位は不可 |
+| unit: `%` | 対応 | `50%` のような percent literal。lowering 後は `integer_literal`（例: `50`）として Pico runtime に渡る | 単位情報は runtime IR には残らない。Pico 側で 0-100 の範囲チェックはしない |
+| unit: `deg` / `rad` | 未対応 | なし | `deg` は現状 diagnostics 用の不正単位として扱われる箇所が中心。`rad` は構文トークンとして未実装 |
+
+| 未対応項目 | 状態 | 影響 |
+| --- | --- | --- |
+| `stateMachines` | 対応（subset） | `tickIntervalMilliseconds`、global/local transition（`elapsed` / `command` 等の Pico subset）、composite initial leaf 解決 | 未対応 transition 式は package builder が拒否 |
+| `stateMembershipPath` 付き task | 対応（subset） | `task ... in sm.State every/on/loop` の prefix membership | IR 上の path が state node tree と一致しない場合は package builder が拒否 |
+| state transition trigger | 対応（subset） | `on sm.State.elapsed >= ... -> ...`、`on command == ... -> ...` 等、validator が許可した式のみ | validator 外の式は拒否 |
+| `animatorDefinitions` | 明示的に throw | animator 系 fixture / syntax は Pico sample に入れない |
+| 未列挙 device / method | 明示的に throw | display `line` / `pixel`、`motor#1`、`button` method などは不可 |
+| 未列挙 `read_property` | 明示的に throw | `adc#0.raw` 以外は不可 |
+| 未列挙 statement / expression kind | 明示的に throw | compiler が新しい IR を出しても Pico runtime が黙殺しない方針 |
 
 `unknown` は **コンパイラが新フィールドを出した場合**にホストが黙殺しないよう、テストで検知する（現状は throw 方針）。
 
-**実機 acceptance 済み semantics slice**: `semantics-if-led-branch`、`semantics-wait-skew`、`semantics-loop-budget`、`semantics-match-string` は TypeScript golden / C++ host runtime / Pico 実機 trace が一致する。再実行は `run_pico_semantics_probes.py` または `run_mvp_hardware_acceptance.py --profile all` を参照。
+**実機 acceptance 済み semantics slice**: `semantics-if-led-branch`、`semantics-wait-skew`、`semantics-loop-budget`、`semantics-match-string` に加え、state subset は `run_pico_semantics_probes.py` が **`semantics-state-membership-every` / `semantics-state-membership-on-event` / `semantics-state-membership-on-event-positive` / `semantics-state-enter-lifecycle`** を順に `pico_link_check.py` で追跡する（C++ `kibo_runtime_replay` との golden 一致前提）。再実行は `run_pico_semantics_probes.py` または `run_mvp_hardware_acceptance.py --profile all` を参照。
 
 ### 4) 再現コマンド（コピペ用）
 
@@ -110,9 +140,9 @@ Burn-down 計画の分割ドキュメント（**plan ファイル本体は編集
 
 ### 6) MVP 土台判定（baseline 固定の結論）
 
-- **Go**: 上記 5 サンプル + 3 golden package + loader negative + `if` / `wait` / `loop` / `match` semantics probe + `KIBO_PKG` trace 照合が、COM11 実機で `--profile all` 合格済み。
+- **Go**: 上記 5 サンプル + 3 golden package + loader negative + `if` / `wait` / `loop` / `match` semantics probe + **`run_pico_semantics_probes.py` に載せた state subset** + `KIBO_PKG` trace 照合が、CI / 手元手順で固定済み（実機は本ドキュメント末尾の再現コマンド表で `--profile all` または `--profile semantics` を再実行して確認する）。
 - **Fix first completed**: loader negative sender、UX エラー文言、preflight、acceptance profile 化まで実装済み。
-- **Redesign / later gate**: flash 永続化、bytecode 実装、state machine / animator、実デバイス PWM / motor / servo 出力は別 gate。
+- **Redesign / later gate**: flash 永続化、bytecode 実装、**animator** と state の未対応構文、実デバイス PWM / motor / servo 出力は別 gate。
 
 ## 実装済み
 
@@ -131,6 +161,7 @@ Burn-down 計画の分割ドキュメント（**plan ファイル本体は編集
   - `button-toggle-on-event.sc`
   - `circle-animation.sc`
   - `semantics-if-led-branch.sc` / `semantics-wait-skew.sc` / `semantics-loop-budget.sc` / `semantics-match-string.sc`
+  - `semantics-state-membership-every.sc` / `semantics-state-membership-on-event.sc` / `semantics-state-membership-on-event-positive.sc` / `semantics-state-enter-lifecycle.sc`
   - `device-display-text.sc` / `device-api-pwm-led.sc` / `device-api-motor-servo-led.sc` / `device-api-serial-led.sc` / `device-api-adc-led.sc`
   - runtime IR contract golden
   - **`PicoRuntimePackage` golden（`golden/pico-runtime-packages/`）**
@@ -157,6 +188,7 @@ Burn-down 計画の分割ドキュメント（**plan ファイル本体は編集
 - `runtime/cpp/`
   - C++17 host runtime MVP + semantics probes
   - `every` / `loop` / `on button#N.pressed` event replay
+  - **state machine subset**（`stateMachines` 解析、tick 順序、`stateMembershipPath` gating、`state_path_elapsed_reference`、trace `sm=`）
   - 整数・文字列式、`var` 初期化、`set`、`if_comparison`、`wait_milliseconds`、`match_string`
   - `led#0` と `display#0.clear/circle/present/text`（Adafruit GLCD 5×7 互換、`runtime/shared/kibo-glcdfont-5x7-bytes.json`）
   - `adc#0.raw` read（既定 512）、`serial#0.println` / `pwm#0.level` / `motor#0.power` / `servo#0.angle` no-op 受理
@@ -247,7 +279,8 @@ $pio = Join-Path $picoVenvPath 'Scripts\pio.exe'
 - Pico 側の bytecode / compact binary loader（設計は `docs/bytecode-transfer-design.md`。TS spike: `src/bytecode/kibo-bytecode-spike.ts`）
 - USB Serial 以外の転送経路（Wi-Fi 等）
 - C++ / Pico runtime の **未対応領域**
-  - `stateMachines` / `animatorDefinitions` / `stateMembershipPath` 付きタスク（現状は拒否。unsupported probe は C++ compare で skip）
+  - **`animatorDefinitions`**（package builder / runtime で拒否）
+  - **state の未対応 subset**（validator が許可した IR 以外、複合 state の高度なパターン、未対応 transition 式など）
   - `read_property` の **`adc#0.raw` 以外**（IMU 等）
   - `on_event` 同期実行パスでの `wait_milliseconds` の整理（`partial`）
   - **実デバイスへの** PWM / motor / servo / serial の配線出力（IR は受理するが **no-op**、事故防止のため）
@@ -258,7 +291,7 @@ $pio = Join-Path $picoVenvPath 'Scripts\pio.exe'
 
 Simulator to Pico の **MVP（runtime IR export + `PicoRuntimePackage` + `KIBO_PKG` + CLI uploader + 実機 acceptance スクリプト）** に加え、**診断・初回 UF2・IR→package・one-shot trace 照合（`pico_link_*` 系）** まで入っている。詳細手順は [`runtime/pico/vertical_slice/README.md`](../runtime/pico/vertical_slice/README.md) を正とする。
 
-以降は主に次の拡張である。semantics foundation は実機 acceptance 済みなので、次は **実デバイス出力**か **state machine / animator** に進む。
+以降は主に次の拡張である。semantics foundation と **state machine の MVP subset** は実機・golden で固定済みなので、次は **実デバイス出力**、**animator**、**state の残タスク（グローバル優先度の追加 probe 等）**に進む。
 
 ### 1. 実デバイス出力を no-op から supported へ移す
 
@@ -289,19 +322,17 @@ Simulator to Pico の **MVP（runtime IR export + `PicoRuntimePackage` + `KIBO_P
 - 次: sample、UI 表示、docs、必要なら Playwright smoke を追加する。
 - UTF-8 多バイト（日本語など）は別設計。現状は ASCII MVP と明記する。
 
-### 3. state machine / animator を設計単位で実装する
+### 3. animator と state の残りを設計単位で広げる
 
 重要度: 高
 難易度: 高
 リスク: 高
 
-- 現状: `stateMachines` / `animatorDefinitions` / `stateMembershipPath` は送信前または runtime で明示 reject。
-- 推奨順:
-  1. `stateMembershipPath` 付き `every`
-  2. `stateMembershipPath` 付き `on_event`
-  3. state elapsed transition
-  4. animator（state machine 後）
-- 既存 `semantics-state-membership-*` golden を supported test に置き換える。
+- **現状（2026-05-05）**: `stateMachines` の **subset** は Pico package / C++ host / 一部 probe で TS golden と一致。`animatorDefinitions` は引き続き拒否。
+- **残り（例）**:
+  1. **animator**（IR / runtime / package 全体）
+  2. state の **追加 semantics probe**（例: global vs local transition 優先の専用 fixture）
+  3. validator 外の **compiler が出しうる transition 式**の段階的対応
 
 ### 4. compact binary / bytecode へ移行する
 

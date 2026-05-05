@@ -53,6 +53,7 @@ private:
     nlohmann::json statements_json;
     std::unordered_map<std::string, std::int64_t> temp_values;
     std::optional<TaskExecutionProgress> execution_progress;
+    std::optional<std::string> state_membership_path;
   };
 
   struct LoopTaskRuntime final {
@@ -60,15 +61,27 @@ private:
     nlohmann::json statements_json;
     std::unordered_map<std::string, std::int64_t> temp_values;
     std::optional<TaskExecutionProgress> execution_progress;
+    std::optional<std::string> state_membership_path;
   };
 
   struct OnEventTaskRuntime final {
     std::string task_name;
+    std::string trigger_kind;
     std::string device_kind;
     int device_id{0};
     std::string event_name;
+    std::optional<std::string> state_membership_path;
     nlohmann::json statements_json;
     std::unordered_map<std::string, std::int64_t> temp_values;
+  };
+
+  struct StateMachineRuntimeModel final {
+    std::string machine_name;
+    int tick_interval_ms{100};
+    std::string active_leaf_path;
+    int accumulated_tick_ms{0};
+    nlohmann::json global_transitions_json;
+    std::unordered_map<std::string, nlohmann::json> node_by_path_json;
   };
 
   struct EvaluationContext final {
@@ -91,6 +104,8 @@ private:
   std::vector<EveryTaskRuntime> every_tasks_;
   std::vector<LoopTaskRuntime> loop_tasks_;
   std::vector<OnEventTaskRuntime> on_event_tasks_;
+  std::vector<StateMachineRuntimeModel> state_machines_;
+  std::unordered_map<std::string, std::int64_t> state_path_entry_simulation_ms_;
 
   void initialize_script_vars_from_program(const nlohmann::json& compiled_program_json);
   void initialize_const_values_from_program(const nlohmann::json& compiled_program_json);
@@ -99,14 +114,34 @@ private:
   void register_on_event_tasks_from_program(const nlohmann::json& compiled_program_json);
 
   void throw_if_compiled_program_has_unsupported_top_level_features(const nlohmann::json& compiled_program_json);
+  void initialize_state_machines_from_program(const nlohmann::json& compiled_program_json);
+  void dispatch_initial_state_enter_lifecycle();
 
   void resume_waiting_every_tasks();
   void resume_waiting_loop_tasks();
+  void advance_state_machines(int elapsed_milliseconds);
+  void run_single_state_machine_tick(StateMachineRuntimeModel& state_machine);
   void advance_every_tasks(int elapsed_milliseconds);
   void start_runnable_loop_tasks();
   void drain_every_task_body(EveryTaskRuntime& task);
   void drain_loop_task_body(LoopTaskRuntime& task);
   void drain_on_event_task_body(OnEventTaskRuntime& task);
+
+  [[nodiscard]] std::int64_t get_elapsed_ms_for_state_path(const std::string& state_path) const;
+  void seed_state_path_entry_times_for_leaf_path(const std::string& leaf_path);
+  [[nodiscard]] bool is_task_runnable_for_state_membership(const std::optional<std::string>& membership_path) const;
+
+  void dispatch_lifecycle_exit_tasks_for_exact_membership_path(const std::string& membership_path);
+  void dispatch_lifecycle_enter_tasks_for_exact_membership_path(const std::string& membership_path);
+  void apply_state_machine_leaf_transition(StateMachineRuntimeModel& state_machine, const std::string& old_leaf_path, const std::string& new_leaf_path);
+
+  [[nodiscard]] std::optional<std::string> evaluate_first_matching_transition_target_or_null(
+      StateMachineRuntimeModel& state_machine
+  );
+  [[nodiscard]] std::optional<std::string> resolve_configured_leaf_path_or_null(
+      StateMachineRuntimeModel& state_machine,
+      const std::string& path
+  );
 
   std::int64_t evaluate_expression_json(
       const nlohmann::json& expression_json,

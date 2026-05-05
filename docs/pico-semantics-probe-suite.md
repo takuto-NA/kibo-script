@@ -5,7 +5,7 @@
 
 ## 目的
 
-`if` / `wait` / `loop` / `match` / state machine を足すとき、**TypeScript `SimulationRuntime` の trace を正**として C++ host の差分を先に潰し、Pico 実機は「転送 + 既知 semantics」の上に載せる。2026-05-05 時点で `if` / `wait` / `loop` / `match` の supported probe は Pico 実機 acceptance 済み。
+`if` / `wait` / `loop` / `match` / state machine を足すとき、**TypeScript `SimulationRuntime` の trace を正**として C++ host の差分を先に潰し、Pico 実機は「転送 + 既知 semantics」の上に載せる。2026-05-05 時点で `if` / `wait` / `loop` / `match` の supported probe は Pico 実機 acceptance 済み。state machine は **Pico / C++ が追える subset**（membership / elapsed 遷移 / lifecycle 等）を probe で追加し、表の「状態」列を正として固定する。
 
 ## Gate 順序（必須）
 
@@ -25,8 +25,10 @@ Pico に先に持ち込むと、loader / OLED / timing のノイズで semantics
 | `semantics-wait-skew.sc` | supported（TS / C++ / Pico） | `wait_milliseconds` + `every` 累積 | `every` 本体に `wait` を挟み、次 interval との関係 | `sim_ms` と `led0` / `vars` の順序 |
 | `semantics-loop-budget.sc` | supported（TS / C++ / Pico） | `loop` + 協調的停止 | `loop` + `wait` | 初回 loop body が `sim_ms=0` で開始し、`wait` 後に PC が進むこと |
 | `semantics-match-string.sc` | supported（TS / C++ / Pico） | `match_string` | 文字列ディスパッチで `assign_var` / device call | `vars` の分岐結果 |
-| `semantics-state-membership-every.sc` | unsupported（期待 trace は保持 / C++ compare skip） | state machine × `every` | `stateMembershipPath` が付いた `every` task | supported 化時に `sm=` セグメントが TS と一致 |
-| `semantics-state-membership-on-event.sc` | unsupported（期待 trace は保持 / C++ compare skip） | state machine × `on_event` | `stateMembershipPath` が付いた `on_event` | supported 化時にボタン dispatch 後の `sm` と `led0` |
+| `semantics-state-membership-every.sc` | supported（TS / C++ / Pico、subset） | state machine × `every` | `stateMembershipPath` が付いた `every` task | `sm=` セグメントと `vars` |
+| `semantics-state-membership-on-event.sc` | supported（TS / C++ / Pico、subset） | state machine × `on_event` | `stateMembershipPath` が付いた `on_event` | ボタン dispatch 後の `sm` と `led0` |
+| `semantics-state-membership-on-event-positive.sc` | supported（TS / C++ / Pico、subset） | 遷移後の positive `on_event` | tick 後に `sm.On` へ遷移し dispatch | `sm` / `led0` |
+| `semantics-state-enter-lifecycle.sc` | supported（TS / C++ / Pico、subset） | `state_enter` lifecycle | `on enter` で `assign_var` | `vars` の `flag` と `sm=` |
 
 ## 各 probe の replay 設計メモ
 
@@ -51,16 +53,21 @@ Pico に先に持ち込むと、loader / OLED / timing のノイズで semantics
 
 ### `semantics-state-membership-*`
 
-- 現状 C++ host は `stateMembershipPath` を **明示的に unsupported** としている（MVP）。probe 追加時は **実装 or 拒否ポリシー**のどちらかに振り分ける。
+- `compare-typescript-cpp-host-runtime-replay.test.ts` で TS golden と C++ stdout を一致させる。
+- `stateMembershipPath` は prefix 一致（active leaf が path または descendant）で runnable を判定する。
+
+### `semantics-state-enter-lifecycle`
+
+- 先頭 `onEventTasks` が `state_enter` の場合でも、`inferReplayStepsFromCompiledProgramOrThrow` が state machine tick を replay に選ぶ。
 
 ## State machine / animator（現状）
 
-- IR に `stateMachines` / `animatorDefinitions` が含まれる場合、**Pico vertical slice package builder は拒否**し、C++ host compare テストは **明示 skip** する。
-- supported へ昇格する場合は、**TS golden を先に固定**し、`compare-typescript-cpp-host-runtime-replay.test.ts` の skip を解除する（[`docs/runtime-pico-handoff.md`](runtime-pico-handoff.md) のバックログ順）。
+- IR に `animatorDefinitions` が含まれる場合、**Pico vertical slice package builder は拒否**する。
+- `stateMachines` は **validator が許可した subset** のみ Pico package に載せる（不正な `stateMembershipPath` や未対応 transition 式は拒否）。
 
 ## 成果物チェックリスト
 
 - [x] supported probe の runtime IR / replay / trace golden
 - [x] supported probe の C++ `kibo_runtime_replay` 比較（バイナリがある環境では `npm test` で実行）
 - [x] supported probe の Pico 実機 acceptance（`run_pico_semantics_probes.py --port COM11 --repo-root .`）
-- [ ] state machine / animator supported 化時の C++ / Pico 実装
+- [x] state machine subset の C++ / Pico 追跡（membership / lifecycle / `sm=` trace）

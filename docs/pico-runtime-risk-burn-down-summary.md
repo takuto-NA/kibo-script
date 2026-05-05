@@ -17,7 +17,7 @@
 領域 | 判定 | メモ
 --- | --- | ---
 Baseline（5 サンプル + 3 golden package + CLI/Web Serial） | **Go（実機 acceptance 済み）** | `run_mvp_hardware_acceptance.py --port COM11 --repo-root . --profile all` が `status=ok`。再現コマンドと IR 境界は handoff に固定済み。
-Semantics（4 supported probe + state machine reject） | **Go（TS / C++ host / Pico 実機整合）** | `if` / `wait-skew` / `loop-budget` / `match-string` は TypeScript golden、C++ host、Pico 実機 trace が一致。`stateMachines` / `animatorDefinitions` / `stateMembershipPath` は明示 reject（compare テストで skip）。
+Semantics（4 legacy probe + state subset） | **Go（TS / C++ host / Pico 実機整合）** | `if` / `wait-skew` / `loop-budget` / `match-string` は TypeScript golden、C++ host、Pico 実機 trace が一致。state machine は **validator 通過の subset** を package / C++ に載せ、`compare-typescript-cpp-host-runtime-replay.test.ts` で TS と C++ を照合（`kibo_runtime_replay` 無しでは skip）。`animatorDefinitions` は拒否のまま。
 Loader（`KIBO_PKG` negative） | **Fix first completed（実機 acceptance 済み）** | length / crc / oversized / invalid base64 が実機で通過。oversized は現 framing では `serial_line_too_long` が期待されることがある。`pico_link_common` ユニット拡張済み。
 Simulator→Pico UX | **Fix first completed** | `script-runner-view.ts` で loader / ack / trace mismatch ごとに **install_pico_loader / doctor / upload / pico_link_check（`--repo-root .` + `--trace-var`）** を表示。Playwright fake Web Serial で loader / ack / trace の smoke 追加。
 Flash 永続化 | **Redesign decided（実装 Defer）** | [`docs/pico-flash-persistence-gate.md`](pico-flash-persistence-gate.md) に A/B sector + header CRC + fallback 方針と **プロトタイプ開始条件**を明記。実装は bytecode または JSON 上限接近まで保留。
@@ -30,13 +30,13 @@ JSON vs bytecode | **Go（現状維持）+ 閾値監視** | [`docs/bytecode-tran
 2. ~~`semantics-wait-skew`（`wait` + `every`）~~: TS/C++/Pico gate 済み。
 3. ~~`semantics-loop-budget`（有限 `loop`）~~: TS/C++/Pico gate 済み。
 4. ~~`semantics-match-string`~~: TS/C++/Pico gate 済み。
-5. `stateMembershipPath` / state machine: **実装するまでは明示 reject を維持**。supported へ移すときは state machine / animator の設計 gate として扱う。
+5. ~~`stateMembershipPath` / state machine（Pico subset）~~: **MVP subset は package / C++ / probe に載った**。残りは animator、未対応 transition 式、追加 probe の設計 gate。
 
 ## 次に進むべき実装順
 
 1. 実デバイス出力: `pwm#0.level` → `serial#0.println` → `servo#0.angle` → `motor#0.power`
 2. `display.text` のユーザー向け sample / docs / UI smoke
-3. state machine / animator（`stateMembershipPath` 付き `every` から）
+3. animator と state の残タスク（追加 probe / validator 拡張）
 4. JSON preflight が 80% warning に近づいたら bytecode 本実装
 5. bytecode または JSON 上限接近後に flash persistence
 
@@ -48,7 +48,7 @@ JSON vs bytecode | **Go（現状維持）+ 閾値監視** | [`docs/bytecode-tran
 ## Exit criteria（「調査完了、追加実装へ進んでよい」）
 
 - baseline matrix が手元環境で再現できる（2026-05-05 COM11 で `--profile all` 済み）。
-- supported semantics probe は TS / C++ / Pico が一致し、state machine / animator は unsupported で明示されている。
+- supported semantics probe は TS / C++ / Pico が一致し、**state は subset で一致**、**animator** は unsupported で明示されている。
 - loader negative の表に沿って length / crc / oversize / frame が実機で通る。
 - UX audit の `UX-FAIL-*` に対し、UI テキストで回復手順が辿れる（E2E smoke 付き）。
 - soak gate は **実機長時間が未実施の場合は explicit defer** とし、本番前リリースでは実測必須。
