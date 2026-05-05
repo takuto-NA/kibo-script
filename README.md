@@ -49,6 +49,8 @@ Kibo Script source
 
 Pico 上で TypeScript の compiler を直接動かすのではなく、PC / ブラウザ / CLI 側で検証済みの中間表現へ変換し、Pico 側では小さな runtime がそれを実行する方針とする。
 
+Pico への書き込み・実機検証フローでは、原則としてユーザーに USB ケーブルの抜き差しを要求しない。通常 firmware が動いている状態からは 1200bps open/close で BOOTSEL / `RPI-RP2` へ遷移し、ファーム更新後は USB CDC の再列挙と loader handshake を待つ。script / package の差し替えは可能な限り USB Serial の protocol 経由で行い、ケーブル抜き差しは Windows の COM 再列挙不調やポート占有などの復旧手段に限る。
+
 ```text
 PC / browser / CLI
   Kibo Script source
