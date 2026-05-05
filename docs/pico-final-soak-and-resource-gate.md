@@ -26,10 +26,11 @@
 
 記録先: [`docs/pico-bringup.md`](pico-bringup.md) または [`docs/runtime-pico-handoff.md`](runtime-pico-handoff.md) の実機メモ。
 
-## 実施記録（自動検証環境 / 2026-05-04）
+## 実施記録（短時間 gate / 2026-05-05）
 
-- 本リポジトリの **CI / エージェント実行**では Pico 未接続のため、`SOAK-LED-001` / `SOAK-OLED-001` の **30 分連続実測**および `SOAK-UPLOAD-001` の **100 回 upload 実測ログは未添付**とする（再現責務は実機オペレーター）。
+- COM11 実機で `run_mvp_hardware_acceptance.py --port COM11 --repo-root . --profile all` は `status=ok`。
 - 短時間 regression: `npm test`（Vitest + `test_pico_link_common.py`）および `npm run test:e2e` を通過済み（ホスト側）。
+- `SOAK-LED-001` / `SOAK-OLED-001` の **30 分連続実測**および `SOAK-UPLOAD-001` の **100 回 upload 実測ログはまだ未添付**。これは MVP acceptance とは別の release 前 gate として残す。
 - 100 回 upload の例（PowerShell / リポジトリルート、`.pico-work\\venv\\Scripts\\python.exe` 推奨）:
 
 ```powershell

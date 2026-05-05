@@ -12,7 +12,7 @@
 | `k_max_serial_line_characters` | 16384 | 1 行 `KIBO_PKG ...` の最大文字数（超過は行バッファ破棄寄りの扱い） |
 | `k_max_decoded_package_bytes` | 12288 | Base64 decode 後の JSON バイト上限 |
 
-**暫定ポリシー**: minified `PicoRuntimePackage` UTF-8 が **12288 bytes 以下**であることを preflight（ホスト側）で警告〜拒否できると安全。
+**実装済みポリシー**: host / UI / uploader は minified `PicoRuntimePackage` UTF-8 と `KIBO_PKG` 1 行長を preflight し、decode 上限 80% で warning、上限超過で送信前 reject する。
 
 ## Positive gate（既存）
 
@@ -20,6 +20,7 @@
 | --- | --- | --- |
 | `LOADER-PING-001` | `python .../pico_link_doctor.py --port <COM>` | `kibo_loader status=ok protocol=1 ...` が返る |
 | `LOADER-PKG-OK-001` | `upload_pico_runtime_package.py --package-file <valid.json>` | `kibo_pkg_ack status=ok` の後、期待 trace が出る |
+| `LOADER-ACCEPTANCE-ALL-001` | `run_mvp_hardware_acceptance.py --port <COM> --repo-root . --profile all` | baseline / negative / golden package / samples / semantics がすべて `status=ok` |
 
 ## Negative / stress gate（実機）
 

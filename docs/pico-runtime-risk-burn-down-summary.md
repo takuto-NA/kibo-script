@@ -12,35 +12,43 @@
 | 6 bytecode 判断 | [`docs/bytecode-transfer-design.md`](bytecode-transfer-design.md) の「JSON 継続 / bytecode 着手の判断材料」 |
 | 7 soak | [`docs/pico-final-soak-and-resource-gate.md`](pico-final-soak-and-resource-gate.md) |
 
-## 判定表（2026-05-04 更新）
+## 判定表（2026-05-05 更新）
 
 領域 | 判定 | メモ
 --- | --- | ---
-Baseline（5 サンプル + 3 golden package + CLI/Web Serial） | **Go** | 再現コマンドと IR 境界を handoff に固定済み。
-Semantics（6 probe + 従来 3 fixture + device slice fixtures） | **Go（TS golden 固定）+ Go（C++ host 整合）** | `tests/runtime-conformance/` に trace / replay / IR golden。C++ host は `stateMachines` を拒否（compare テストで skip）。`if` / `wait` / `loop` / `match` / `display.text` / `adc#0.raw` read / actuator no-op などは host で TS golden と整合。
-Loader（`KIBO_PKG` negative） | **Fix first completed** | `send_invalid_kibo_pkg_crc.py` / `send_oversized_kibo_pkg.py`（`package_too_large` または `serial_line_too_long`）/ `send_invalid_kibo_pkg_frame.py` + length sender。`pico_link_common` ユニット拡張。実機ログは bringup テンプレへ。
+Baseline（5 サンプル + 3 golden package + CLI/Web Serial） | **Go（実機 acceptance 済み）** | `run_mvp_hardware_acceptance.py --port COM11 --repo-root . --profile all` が `status=ok`。再現コマンドと IR 境界は handoff に固定済み。
+Semantics（4 supported probe + state machine reject） | **Go（TS / C++ host / Pico 実機整合）** | `if` / `wait-skew` / `loop-budget` / `match-string` は TypeScript golden、C++ host、Pico 実機 trace が一致。`stateMachines` / `animatorDefinitions` / `stateMembershipPath` は明示 reject（compare テストで skip）。
+Loader（`KIBO_PKG` negative） | **Fix first completed（実機 acceptance 済み）** | length / crc / oversized / invalid base64 が実機で通過。oversized は現 framing では `serial_line_too_long` が期待されることがある。`pico_link_common` ユニット拡張済み。
 Simulator→Pico UX | **Fix first completed** | `script-runner-view.ts` で loader / ack / trace mismatch ごとに **install_pico_loader / doctor / upload / pico_link_check（`--repo-root .` + `--trace-var`）** を表示。Playwright fake Web Serial で loader / ack / trace の smoke 追加。
 Flash 永続化 | **Redesign decided（実装 Defer）** | [`docs/pico-flash-persistence-gate.md`](pico-flash-persistence-gate.md) に A/B sector + header CRC + fallback 方針と **プロトタイプ開始条件**を明記。実装は bytecode または JSON 上限接近まで保留。
 JSON vs bytecode | **Go（現状維持）+ 閾値監視** | [`docs/bytecode-transfer-design.md`](bytecode-transfer-design.md) に 5 サンプルの minified byte 数と `KIBO_PKG` 1 行長を実測追記（decode 上限の約半分以下）。
-最終 soak / リソース | **Deferred with explicit gate** | 30 分 ×2 + 100 回 upload の **実機ログはオペレーター責務**。自動環境では未実施を明記し、手順は [`docs/pico-final-soak-and-resource-gate.md`](pico-final-soak-and-resource-gate.md)。Flash/RAM は bringup の `pio run -t size` 行を参照し firmware 更新時に再掲。
+最終 soak / リソース | **Deferred with explicit gate** | `--profile all` acceptance は通過済み。30 分 ×2 + 100 回 upload の長時間 soak は別 gate として残す。Flash/RAM は 2026-05-05 build で Flash 約 21.7%、RAM 約 7.0%。
 
-## 次に追加する fixture / IR の推奨順
+## Semantics probe の現状
 
-1. ~~`semantics-if-led-branch`（`if`）~~: TS/C++ gate済み（host）。
-2. ~~`semantics-wait-skew`（`wait` + `every`）~~: 同上。
-3. ~~`semantics-loop-budget`（有限 `loop`）~~: 同上。
-4. ~~`semantics-match-string`~~: 同上。
-5. `stateMembershipPath` / state machine: **either Pico 実装 or コンパイル時明示拒否**で一本化（現状 C++ / package builder は拒否、TS golden のみ）。
+1. ~~`semantics-if-led-branch`（`if`）~~: TS/C++/Pico gate 済み。
+2. ~~`semantics-wait-skew`（`wait` + `every`）~~: TS/C++/Pico gate 済み。
+3. ~~`semantics-loop-budget`（有限 `loop`）~~: TS/C++/Pico gate 済み。
+4. ~~`semantics-match-string`~~: TS/C++/Pico gate 済み。
+5. `stateMembershipPath` / state machine: **実装するまでは明示 reject を維持**。supported へ移すときは state machine / animator の設計 gate として扱う。
+
+## 次に進むべき実装順
+
+1. 実デバイス出力: `pwm#0.level` → `serial#0.println` → `servo#0.angle` → `motor#0.power`
+2. `display.text` のユーザー向け sample / docs / UI smoke
+3. state machine / animator（`stateMembershipPath` 付き `every` から）
+4. JSON preflight が 80% warning に近づいたら bytecode 本実装
+5. bytecode または JSON 上限接近後に flash persistence
 
 ## CI と実機の線引き
 
 - **CI（デフォルト）**: `npm test`（Vitest + `test_pico_link_common.py` の純粋ユニット）、golden JSON、C++ host replay はバイナリがある環境のみ実行（無ければ skip）。
-- **実機ジョブ（任意）**: `pico_link_check.py` 1 本、または `run_pico_runtime_samples.py`（USB 必須）、negative sender 群 + bringup テンプレへのログ貼付。
+- **実機ジョブ（任意 / release 前推奨）**: `run_mvp_hardware_acceptance.py --profile all`。個別確認は `pico_link_check.py`、`run_pico_runtime_samples.py`、`run_pico_semantics_probes.py`。
 
 ## Exit criteria（「調査完了、追加実装へ進んでよい」）
 
-- baseline matrix が手元環境で再現できる。
-- semantics probe の **TS golden が存在**し、C++ が一致するか **unsupported で明示**のどちらかに落ちている。
-- loader negative の表に沿って **最低 3 件**（len / crc / oversize / frame のうち実行可能なもの）を実機ログとして残した（テンプレは bringup）。
+- baseline matrix が手元環境で再現できる（2026-05-05 COM11 で `--profile all` 済み）。
+- supported semantics probe は TS / C++ / Pico が一致し、state machine / animator は unsupported で明示されている。
+- loader negative の表に沿って length / crc / oversize / frame が実機で通る。
 - UX audit の `UX-FAIL-*` に対し、UI テキストで回復手順が辿れる（E2E smoke 付き）。
 - soak gate は **実機長時間が未実施の場合は explicit defer** とし、本番前リリースでは実測必須。

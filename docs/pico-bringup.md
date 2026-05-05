@@ -2,11 +2,11 @@
 
 ## このドキュメントの責務
 
-このドキュメントは、Kibo Script の将来の Raspberry Pi Pico 対応に向けて、実機で確認済みの接続・操作・未確認事項を記録するためのメモである。
+このドキュメントは、Kibo Script の Raspberry Pi Pico 対応について、実機で確認済みの接続・操作・acceptance 結果・残る検証事項を記録するためのメモである。
 
 ## 確認日
 
-2026-05-04
+2026-05-04 / 2026-05-05
 
 ## 対象ボード
 
@@ -77,6 +77,31 @@ Pop-Location
 - `pio run -t upload` は BOOTSEL には入ったが `picotool` が driver 権限で接続できなかったため、`RPI-RP2` へ `firmware.uf2` をコピーして書き込んだ。
 - その後、loader firmware + `KIBO_PKG` により firmware rebuild なしで `PicoRuntimePackage` を RAM 差し替えできるところまで確認した。
 - `examples/pico-runtime-samples/led-heartbeat.sc` はシミュレーター UI の `Run simulator & write to Pico` から Pico へ送信し、実機 LED heartbeat と trace 照合まで確認済み。
+
+### Kibo runtime vertical slice full acceptance（2026-05-05）
+
+- 対象: [`runtime/pico/vertical_slice/`](../runtime/pico/vertical_slice/README.md)
+- `pio run` は成功。直近 build は Flash `454636` bytes（約 21.7%）、RAM `18320` bytes（約 7.0%）。
+- `pio run -t upload` は Windows / `picotool` の BOOTSEL 遷移で失敗したため、`RPI-RP2` ドライブへ `runtime/pico/vertical_slice/.pio/build/pico/firmware.uf2` をコピーして書き込んだ。
+- 書き込み後、`pico_link_doctor.py --port COM11` で `kibo_loader status=ok protocol=1 active=circle-animation` を確認した。
+- `run_mvp_hardware_acceptance.py --port COM11 --repo-root . --profile all` が通った。
+
+実機 acceptance summary:
+
+```text
+profile=all
+port=COM11
+repo_root=C:\Users\chobb\Documents\git\kibo-script
+status=ok
+```
+
+通過 gate:
+
+- baseline（circle-animation golden trace）
+- loader negative（length / crc / oversized / invalid base64）
+- 3 golden package
+- `examples/pico-runtime-samples` 5 本
+- semantics probes（`semantics-if-led-branch` / `semantics-wait-skew` / `semantics-loop-budget` / `semantics-match-string`）
 
 ### KIBO_PKG loader negative gates（実機ログ用テンプレ）
 
