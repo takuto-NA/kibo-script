@@ -151,23 +151,31 @@ Burn-down 計画の分割ドキュメント（**plan ファイル本体は編集
 - **実機 gate**: `run_mvp_hardware_acceptance.py --profile ram` が `probe_pico_runtime_package_ram_capacity.py` を呼び出し、`blink-led` と 80% / 90% / `12287` / `12288` を v1 で送る。各成功 upload 後に **golden `blink-led.conformance.trace.txt` と一致する replay trace** を（`diag=ram_probe` 行を除いて）検証し、**全 ram_probe phase** が揃っていることを厳格チェックする。最後に **12289 bytes** をホスト preflight なしで送り `FILE_BEGIN` 側の `file_too_large` 相当で成功 ack にならないことを確認し、続けて **recovery** で `blink-led` が `status=ok` になることを確認する。再現例: `python .../run_mvp_hardware_acceptance.py --port COM11 --repo-root . --profile ram --capture-seconds 15`（`COM11` は環境に合わせて差し替え）。
 - **探索 gate（lab）**: `probe_pico_runtime_package_ram_limit_search.py` が候補ごとに `-DKIBO_PICO_RUNTIME_PACKAGE_MAX_MINIFIED_UTF8_BYTES=<N>` でビルドし、BOOTSEL へ UF2 をコピー（Windows）、CDC 復帰待ちのあと `--experiment-max-minified-bytes N` で同一 RAM gate を回す。既定は候補 `14336,16384,...`。**リポジトリ既定の production 12288 を上げる判断**は、本節の表と soak を埋めたうえで [`bytecode-transfer-design.md`](bytecode-transfer-design.md) に結論を書いてから（現時点では **維持** がデフォルト）。
 
-**決定（リポジトリ既定・2026-05-05）**: production の decode 上限は **12288 bytes のまま**（計測表が空でも、探索用 macro / ホスト override のみ追加済み）。実測で安全余裕付きの採用値が決まったら、C++ macro 既定・`kibo_device_protocol_v1.hpp`・Python/TS preflight・本表を **同じリリース**で更新する。
+**決定（リポジトリ既定・2026-05-06）**: production の decode 上限は **12288 bytes のまま**。実測上は **24576 bytes が安全候補**（32KiB heap しきい値を大きく上回る）だが、near-limit soak 未実施のため採用コミットではない。採用する場合は C++ macro 既定・`kibo_device_protocol_v1.hpp`・Python/TS preflight・本表を **同じリリース**で更新する。
 
-**実測メモ（手で追記）**: 計測日 ______ / ファーム rev ______ / COM ポート ______
+**実測メモ（2026-05-06）**: COM ポート `COM11`。BOOTSEL は USB 抜き差しなしで 1200bps open/close により `RPI-RP2`（`D:`）へ遷移できた。`picotool` upload は Windows driver 権限で失敗したため、探索候補ごとのファーム差し替えは UF2 copy + CDC handshake で実施した。
 
-| ケース | minified bytes | `commit_after_live_runtime_reset` の `free_heap`（例） | soak（20+ 回）で `min_free_heap` 悪化 | メモ |
-| --- | ---: | ---: | --- | --- |
-| blink-led（golden） | | | | |
-| 80% of 12288 | 9830 | | | |
-| 90% of 12288 | 11059 | | | |
-| 12287 | | | | |
-| 12288 | | | | |
+| ケース | minified bytes | `commit_after_json_parse.free_heap` | `commit_after_live_runtime_reset.free_heap` | `min_free_heap` | 判定 / メモ |
+| --- | ---: | ---: | ---: | ---: | --- |
+| blink-led（golden, production gate） | 790 | 203864 | 214072 | 203864 | OK |
+| 80% of 12288 | 9830 | 191752 | 195944 | 191752 | OK |
+| 90% of 12288 | 11059 | 189304 | 193480 | 189304 | OK |
+| 12287 | 12287 | 186840 | 191016 | 186840 | OK |
+| 12288 | 12288 | 186840 | 191024 | 186840 | OK / 12289 reject + recovery OK |
+| 80% of 16384 | 13107 | 185200 | 189392 | 185200 | OK |
+| 90% of 16384 | 14745 | 181928 | 186104 | 181928 | OK |
+| 16384 | 16384 | 178648 | 182824 | 178648 | OK |
+| 80% of 24576 | 19660 | 172096 | 176288 | 172096 | OK |
+| 90% of 24576 | 22118 | 167184 | 171360 | 167184 | OK |
+| 24576 | 24576 | 162264 | 166440 | 162264 | OK / 現時点の安全候補 |
+| 80% of 32768 | 26214 | 158984 | 163176 | 158984 | OK |
+| 90% of 32768 | 29491 | - | - | 158472 | NG: `kibo_pkg_ack` なし。`commit_before_json_parse` までは出たが `commit_after_json_parse` が出ず、後続で COM11 が不安定化 |
 
-**判断（計測後に記入）**
+**判断**
 
-- near-limit で十分な `free_heap` が残り、soak でウォーターマークが単調悪化しない → **`12288` 引き上げを検討**（それでも bytecode 長期方針は [`bytecode-transfer-design.md`](bytecode-transfer-design.md)）。
-- parse / live reset 直後に `free_heap` が薄く、soak で `min_free_heap` が悪化する → **JSON 上限より bytecode / compact payload を優先**。
-- 公式 `samples.json` の **80% warn gate** は実測で余裕が確認できるまで緩めない（[`pico-runtime-samples.test.ts`](../tests/runtime-conformance/pico-runtime-samples.test.ts)）。
+- **24576 bytes** は、現行 firmware / `blink-led` padding probe では `commit_after_json_parse.free_heap` が約 **162KB** 残るため、12288 からの引き上げ候補として妥当。ただし production 採用前に near-limit soak（20-100 回）を必須にする。
+- **32768 bytes** はそのまま採用しない。26KB 台は通るが 29.5KB 付近で ack が返らず、境界は **26214-29491 bytes の間**。
+- 公式 `samples.json` の **80% warn gate** は、production 上限を採用コミットで変更するまで緩めない（[`pico-runtime-samples.test.ts`](../tests/runtime-conformance/pico-runtime-samples.test.ts)）。
 
 ### 6) 2026-05-05: `radio-state-tuner` 転送失敗の原因と教訓
 
