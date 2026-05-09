@@ -1,4 +1,4 @@
-# StaticCore Script Simulator Cheatsheet
+# Kibo Script Simulator Cheatsheet
 
 ## このドキュメントの責務
 

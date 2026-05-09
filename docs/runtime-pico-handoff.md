@@ -229,7 +229,7 @@ trace schema=1 diag=serial_line_too_long
 4. **chunked file transfer を protocol 上に実装する**  
    まず payload は現行 minified `PicoRuntimePackage` JSON でよい。`file_begin` / `file_chunk` / `file_commit` に index、offset、length、CRC、ack / retry を持たせ、1 行 `KIBO_PKG` の line length 制限から抜ける。
 
-5. **StaticCoreStructuredData と payload codec を整理する**  
+5. **KiboScriptStructuredData と payload codec を整理する**  
    JSON / YAML / TOML は人間向け、MessagePack / CBOR は対話 protocol 向け、compact binary / bytecode は実行向けに位置づける。KiboScript の canonical structured data model から各 codec へ落とす。
 
 6. **compact binary / bytecode を execution payload として追加する**  

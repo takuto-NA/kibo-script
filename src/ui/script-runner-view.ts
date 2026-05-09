@@ -313,7 +313,7 @@ export function createScriptRunnerPanel(params: {
 
   const title = document.createElement("div");
   title.className = "script-runner-title";
-  title.textContent = "StaticCore Script (compile)";
+  title.textContent = "Kibo Script (compile)";
 
   const default_sample_catalog_entry = find_default_sample_catalog_entry_or_throw();
 

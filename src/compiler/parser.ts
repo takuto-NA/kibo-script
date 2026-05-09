@@ -43,7 +43,7 @@ export type ParseDoStatementLineResult =
   | { ok: false; report: DiagnosticReport };
 
 /**
- * Parses token stream into AST for StaticCore Script compiler.
+ * Parses token stream into AST for the Kibo Script compiler.
  */
 export function parseProgram(tokens: Token[], fileName: string): ParseProgramResult {
   const cursor = new ParserCursor(tokens, fileName);

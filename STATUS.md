@@ -1,8 +1,8 @@
-# StaticCore Script Simulator Status
+# Kibo Script Simulator Status
 
 ## このドキュメントの責務
 
-このドキュメントは、ブラウザ版 StaticCore Script Simulator の現状を短く把握できるように、「できていること」「制限」「次にやること」を整理するためのメモである。
+このドキュメントは、ブラウザ版 Kibo Script Simulator の現状を短く把握できるように、「できていること」「制限」「次にやること」を整理するためのメモである。
 
 すぐ試すための例は [`CHEATSHEET.md`](CHEATSHEET.md) を参照する。
 
@@ -42,7 +42,7 @@ npm audit --audit-level=moderate
 ブラウザ上で次を操作できる。
 
 - Interactive terminal: 1 行 command、task 操作、**`list refs` / `list vars` / `list states`**、登録 `ref` 名による `read` / `do` / `.info`、diagnostics 表示。
-- StaticCore Script textarea: 複数行 script を **Reset & run** または **Add to runtime** で `compileSourceAndRegisterSimulationTasks` 経由で runtime に登録。
+- Kibo Script textarea: 複数行 script を **Reset & run** または **Add to runtime** で `compileSourceAndRegisterSimulationTasks` 経由で runtime に登録。
 - `serial#0.println(...)`: task / interactive command の出力を terminal に表示。
 - `display#0`: 128x64 の 1bit framebuffer を OLED 風 canvas に描画。右パネルに **three.js** の簡易 3D ビュー（車体 + 床 + 筐体上 LED、`led#0` と同期）を表示。
 - `led#0`: on/off をランプで表示。
@@ -406,7 +406,7 @@ task fade_out on button.pressed {
    - 重要度: 中
    - 難易度: 高
    - リスク: 高
-   - 理由: 実行前に競合を検出する StaticCore Script らしさに関わる。
+   - 理由: 実行前に競合を検出する Kibo Script らしさに関わる。
 
 4. Device Model を拡張する。
    - 重要度: 中

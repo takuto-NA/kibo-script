@@ -11,7 +11,7 @@ export type LexResult =
 const NEWLINE_CODE_UNIT = 10;
 
 /**
- * Tokenizes StaticCore Script source into tokens with source positions.
+ * Tokenizes Kibo Script source into tokens with source positions.
  */
 export function lexSourceText(sourceText: string, fileName: string): LexResult {
   const tokens: Token[] = [];

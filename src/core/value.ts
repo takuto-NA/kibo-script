@@ -1,5 +1,5 @@
 /**
- * Values observable in the simulator (subset of StaticCore Script).
+ * Values observable in the simulator (subset of Kibo Script).
  */
 
 export type UnitKind =

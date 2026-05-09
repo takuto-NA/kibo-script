@@ -19,7 +19,7 @@ Envelope
   message kind / request id / codec / payload length / flags
 
 Payload Codec
-  StaticCoreStructuredData canonical model
+  KiboScriptStructuredData canonical model
   JSON / MessagePack / CBOR / compact binary / bytecode
 
 Domain Messages
@@ -29,9 +29,9 @@ Domain Messages
   run_package / run_bytecode / reset_runtime
 ```
 
-## StaticCoreStructuredData の位置づけ
+## KiboScriptStructuredData の位置づけ
 
-KiboScript の内部データは、特定の表現（JSON / MessagePack / YAML / TOML / bytecode）に直接依存させない。先に **StaticCoreStructuredData** のような canonical structured data model を置き、用途ごとに codec を選ぶ。
+Kibo Script の内部データは、特定の表現（JSON / MessagePack / YAML / TOML / bytecode）に直接依存させない。先に **KiboScriptStructuredData** のような canonical structured data model を置き、用途ごとに codec を選ぶ。
 
 | 表現 | 主用途 |
 | --- | --- |
@@ -183,7 +183,7 @@ capabilities の `maxBodyByteLength` / `maxCommittedFileByteLength` は上記を
 ## 判断ルール
 
 - **通信問題**（1 行長、再送、resume、複数 payload）は Kibo Device Protocol で解く。
-- **表現問題**（JSON が大きい、parse が重い）は StaticCoreStructuredData codec / bytecode で解く。
+- **表現問題**（JSON が大きい、parse が重い）は KiboScriptStructuredData codec / bytecode で解く。
 - **永続化問題**（電源断後に残す、last-good rollback）は flash persistence gate で解く。
 - `k_max_decoded_package_bytes` を大きくするだけの延命は、RAM と parse worst-case の計測がある場合だけ採用する。
 

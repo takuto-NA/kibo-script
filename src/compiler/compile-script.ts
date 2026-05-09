@@ -1,5 +1,5 @@
 /**
- * StaticCore Script をコンパイルし、runtime 用 IR（CompiledProgram）または診断レポートを返す。
+ * Kibo Script をコンパイルし、runtime 用 IR（CompiledProgram）または診断レポートを返す。
  */
 
 import type { CompileScriptResult } from "./compiler-result";
